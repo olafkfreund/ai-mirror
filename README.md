@@ -146,6 +146,15 @@ sideyard control off                            # same as Super+Shift+Esc
 Full reference — every tool, action, key name, the coordinate model and per-toolkit
 accessibility notes (Firefox, Chromium/Electron): **[docs/usage.md](docs/usage.md)**.
 
+## Voice
+
+[nixarchy-voice](https://github.com/olafkfreund/nixarchy-voice) (Oma) uses Sideyard
+automatically when both are installed: say *"click the Save button in that dialog"* and
+her Claude brain takes control, acts, and hands it back. Her deny/confirm policy
+checks every call first, and the kill switch works the same way. The other
+direction works too: `claude mcp add omarchy -- omarchy-voice mcp` gives a Sideyard
+agent Oma's Omarchy and Hyprland tools.
+
 ## Safety, plainly
 
 - Sideyard does not decide what an agent should do. It makes control **visible**, **switchable**
