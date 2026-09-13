@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from . import control, host
-from .control import AwError
+from .control import MirrorError
 from .input import encode
 
 MUTATING = {'input', 'window', 'launch', 'a11y_act'}
@@ -16,8 +16,8 @@ def doctor() -> dict:
     missing = [c for c in ('hyprctl', 'grim', 'wl-copy', 'wl-paste', 'busctl') if not shutil.which(c)]
     try:
         control.helper_binary()
-    except AwError:
-        missing.append('aw-input')
+    except MirrorError:
+        missing.append('ai-mirror-input')
     return {'ok': not missing, 'missing': missing}
 
 

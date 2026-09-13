@@ -10,7 +10,7 @@ import time
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from sideyard import api, control, host, input, mcp
+from ai_mirror import api, control, host, input, mcp
 
 LAYOUT = [{'name': 'DP-2', 'x': 0, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
           {'name': 'DP-1', 'x': 2560, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
@@ -53,12 +53,12 @@ class Base(unittest.TestCase):
 
 class ControlTests(Base):
     def test_generation_bumps_both_ways_and_gates_input(self):
-        with self.assertRaises(control.AwError) as off:
+        with self.assertRaises(control.MirrorError) as off:
             control.require_agent(0)
         self.assertEqual(off.exception.code, 'not_owner')
         on = control.set_owner('agent', 'human')
         control.require_agent(on['generation'])
-        with self.assertRaises(control.AwError) as stale:
+        with self.assertRaises(control.MirrorError) as stale:
             control.require_agent(on['generation'] - 1)
         self.assertEqual(stale.exception.code, 'stale_generation')
         off_state = control.set_owner('off', 'human')
@@ -70,7 +70,7 @@ class ControlTests(Base):
     def test_ownership_rechecked_between_every_line(self):
         gen = control.set_owner('agent', 'agent')['generation']
         helper = FakeHelper(on_cmd=lambda line: line == 'M 1 1' and control.set_owner('off', 'human'))
-        with self.assertRaises(control.AwError) as err:
+        with self.assertRaises(control.MirrorError) as err:
             control.run_batch(['M 1 1', 'M 2 2'], gen, helper)
         self.assertEqual(err.exception.code, 'stale_generation')
         self.assertEqual(helper.sent, ['M 1 1', 'C'])
@@ -79,7 +79,7 @@ class ControlTests(Base):
         gen = control.set_owner('agent', 'agent')['generation']
         for failure in ('ERR bad move', RuntimeError('helper exited mid-batch')):
             helper = FakeHelper(acks=['OK', failure])
-            with self.assertRaises(control.AwError):
+            with self.assertRaises(control.MirrorError):
                 control.run_batch(['B 272 1', 'M 5 5', 'B 272 0'], gen, helper)
             self.assertEqual(helper.sent, ['B 272 1', 'M 5 5', 'C'])
 
@@ -194,7 +194,7 @@ class McpTests(Base):
             api.run('clipboard', {'action': 'write', 'text': 'x'}, by='agent')
         self.assertIs(run.call_args.kwargs['stdout'], subprocess.DEVNULL)
         control.set_owner('off', 'human')
-        with self.assertRaises(control.AwError):
+        with self.assertRaises(control.MirrorError):
             api.run('clipboard', {'action': 'write', 'text': 'x'}, by='agent')
 
     def test_stdio_lists_tools_and_agent_grant_ends_with_server(self):
@@ -203,7 +203,7 @@ class McpTests(Base):
                     {'id': 2, 'method': 'tools/list'},
                     {'id': 3, 'method': 'tools/call', 'params': {'name': 'control', 'arguments': {'mode': 'agent'}}}]
         data = '\n'.join(json.dumps({'jsonrpc': '2.0', **r}) for r in requests) + '\n'
-        result = subprocess.run([str(Path(__file__).resolve().parents[1] / 'bin/sideyard'), 'mcp'],
+        result = subprocess.run([str(Path(__file__).resolve().parents[1] / 'bin/ai-mirror'), 'mcp'],
                                 input=data, text=True, capture_output=True, check=True)
         rows = [json.loads(line) for line in result.stdout.splitlines()]
         self.assertEqual(rows[0]['result']['protocolVersion'], '2025-11-25')

@@ -1,10 +1,10 @@
-![Sideyard — your agent gets the keyboard, you keep the off switch](assets/hero.svg)
+![ai-mirror — your agent gets the keyboard, you keep the off switch](assets/hero.svg)
 
-# Sideyard
+# ai-mirror
 
 **Let an AI agent use your actual desktop — and stop it with one keypress.**
 
-Sideyard is a small MCP server and Omarchy bar plugin for [Nixarchy](https://github.com/olafkfreund/nixarchy)
+ai-mirror is a small MCP server and Omarchy bar plugin for [Nixarchy](https://github.com/olafkfreund/nixarchy)
 (Omarchy on NixOS, Hyprland). It gives Claude Code, Codex, Gemini CLI, opencode or any other
 local MCP client eyes and hands on your real session: screenshots of any monitor, a full
 keyboard and mouse, window management, the clipboard, and the accessibility tree of your apps.
@@ -14,7 +14,7 @@ and control is gone — including any key the agent was holding down.
 <p>
   <img src="assets/indicator-on.png" alt="Omarchy bar with a red AGENT CONTROL indicator" width="100%"><br>
   <sub>Agent control on — the indicator sits in your real bar, next to the tray.</sub><br>
-  <img src="assets/indicator-off.png" alt="Omarchy bar with the dim Sideyard icon" width="100%"><br>
+  <img src="assets/indicator-off.png" alt="Omarchy bar with the dim ai-mirror icon" width="100%"><br>
   <sub>Off — a dim icon. Click it to hand control to your agent, click again to take it back.</sub>
 </p>
 
@@ -31,7 +31,7 @@ desktops keep the agent away from the apps and sessions you actually need it to 
 missing is the simple, honest version: **the agent uses the same desktop you do, in the open,
 under a switch you control.**
 
-Sideyard is that, with three rules:
+ai-mirror is that, with three rules:
 
 1. **Visible.** Control is either on or off, and when it is on the bar shows it.
 2. **Instantly revocable.** One keypress or click wins over anything the agent is doing, mid-action.
@@ -62,18 +62,18 @@ Example requests:
 
 ```mermaid
 flowchart LR
-  A[Claude Code / any MCP client] -- stdio --> M[sideyard mcp]
+  A[Claude Code / any MCP client] -- stdio --> M[ai-mirror mcp]
   M --> C{state.json<br/>owner · generation}
-  M --> H[aw-input<br/>virtual keyboard + pointer]
+  M --> H[ai-mirror-input<br/>virtual keyboard + pointer]
   M --> G[grim · hyprctl · wl-clipboard · AT-SPI]
   H --> D[Your Hyprland desktop]
   G --> D
-  K[Super+Shift+Esc / bar click] -- sideyard control off --> C
+  K[Super+Shift+Esc / bar click] -- ai-mirror control off --> C
   K -. SIGUSR1 .-> M
   C -- inotify --> B[Bar indicator]
 ```
 
-- **One switch, one number.** `$XDG_RUNTIME_DIR/sideyard/state.json` records whether the agent
+- **One switch, one number.** `$XDG_RUNTIME_DIR/ai-mirror/state.json` records whether the agent
   owns input and a `generation` that increases on every change. Screenshots carry the generation
   they were taken under; input from an older one is refused. The file lives in the runtime
   directory, so control is always off after you log in.
@@ -85,45 +85,45 @@ flowchart LR
 - **Native input.** A 440-line C helper speaks Wayland's virtual-keyboard and virtual-pointer
   protocols directly, types any Unicode character regardless of your keyboard layout, and keeps
   one device alive so modifier state stays consistent.
-- **Coordinates just work.** Agents click on pixels of a scaled or cropped screenshot; Sideyard maps
+- **Coordinates just work.** Agents click on pixels of a scaled or cropped screenshot; ai-mirror maps
   them to global layout pixels across mixed monitor layouts (verified on a gapped three-monitor setup).
 - **No strings into the compositor.** Window commands are built only from validated addresses,
   numbers and enums; `launch` uses an argument list, never a shell.
 
 ## Install
 
-Sideyard is a flake with a Home Manager module that plugs into Nixarchy's plugin system.
+ai-mirror is a flake with a Home Manager module that plugs into Nixarchy's plugin system.
 
 ```nix
 # your system flake
-inputs.sideyard.url = "github:olafkfreund/ai-mirror";
+inputs.ai-mirror.url = "github:olafkfreund/ai-mirror";
 
 # home-manager.users.<you>, alongside inputs.nixarchy.homeManagerModules.nixarchy
-imports = [ inputs.sideyard.homeManagerModules.default ];
-programs.sideyard = {
+imports = [ inputs.ai-mirror.homeManagerModules.default ];
+programs.ai-mirror = {
   enable = true;
   # killSwitch = "SUPER + SHIFT + ESCAPE";
   # a11y.enable = true;   # GTK/Qt accessibility so a11y_* tools see your apps
 };
 ```
 
-The module installs the `sideyard` command, registers the bar plugin through
+The module installs the `ai-mirror` command, registers the bar plugin through
 `programs.nixarchy.plugins` (validated at build time), writes the kill-switch binding and
 enables toolkit accessibility. After rebuilding, once:
 
 ```sh
 # 1. load the kill switch: add this line to ~/.config/hypr/bindings.lua
-pcall(require, "hypr.sideyard-binds")
+pcall(require, "hypr.ai-mirror-binds")
 
 # 2. show the indicator (Nixarchy installs plugins but leaves enabling to you)
-omarchy plugin enable hoppcx.sideyard --section right
+omarchy plugin enable olafkfreund.ai-mirror --section right
 
 # 3. connect your agent
-claude mcp add sideyard -- sideyard mcp
+claude mcp add ai-mirror -- ai-mirror mcp
 ```
 
 Log out and back in once so apps pick up the accessibility settings. Other MCP clients use a
-stdio server with command `sideyard` and args `["mcp"]`.
+stdio server with command `ai-mirror` and args `["mcp"]`.
 
 Try it without installing anything:
 
@@ -136,11 +136,11 @@ nix run github:olafkfreund/ai-mirror -- status
 Everything the agent does is also a CLI command that prints JSON:
 
 ```sh
-sideyard control agent                          # same as clicking the dim icon
-sideyard screenshot --output all --max-size 1600
-sideyard windows
-sideyard a11y-find --role "push button" --name Save
-sideyard control off                            # same as Super+Shift+Esc
+ai-mirror control agent                          # same as clicking the dim icon
+ai-mirror screenshot --output all --max-size 1600
+ai-mirror windows
+ai-mirror a11y-find --role "push button" --name Save
+ai-mirror control off                            # same as Super+Shift+Esc
 ```
 
 Full reference — every tool, action, key name, the coordinate model and per-toolkit
@@ -148,16 +148,16 @@ accessibility notes (Firefox, Chromium/Electron): **[docs/usage.md](docs/usage.m
 
 ## Voice
 
-[nixarchy-voice](https://github.com/olafkfreund/nixarchy-voice) (Oma) uses Sideyard
+[nixarchy-voice](https://github.com/olafkfreund/nixarchy-voice) (Oma) uses ai-mirror
 automatically when both are installed: say *"click the Save button in that dialog"* and
 her Claude brain takes control, acts, and hands it back. Her deny/confirm policy
 checks every call first, and the kill switch works the same way. The other
-direction works too: `claude mcp add omarchy -- omarchy-voice mcp` gives a Sideyard
+direction works too: `claude mcp add omarchy -- omarchy-voice mcp` gives a ai-mirror
 agent Oma's Omarchy and Hyprland tools.
 
 ## Safety, plainly
 
-- Sideyard does not decide what an agent should do. It makes control **visible**, **switchable**
+- ai-mirror does not decide what an agent should do. It makes control **visible**, **switchable**
   and **auditable in the moment** — that is all.
 - Observation tools work while control is off, so an agent can look but not touch until it is on.
   Anything that types, clicks, launches, changes windows or writes the clipboard needs control.
@@ -172,7 +172,7 @@ agent Oma's Omarchy and Hyprland tools.
 nix develop
 python3 -m unittest discover -s tests          # 16 regressions, no desktop needed
 nix flake check                                # unit tests + plugin validation
-SIDEYARD_HELPER=$(nix build .#aw-input --print-out-paths)/bin/aw-input \
+AI_MIRROR_HELPER=$(nix build .#ai-mirror-input --print-out-paths)/bin/ai-mirror-input \
   python3 tests/smoke.py                       # live: opens a terminal, moves the mouse, types
 ```
 
@@ -182,8 +182,9 @@ Contributor and agent notes, including the invariants that keep the switch trust
 
 ## History
 
-Sideyard 1.x (by itchyfeetleech) gave agents an isolated nested Omarchy desktop on Arch.
-2.0 is a NixOS-only rewrite around the opposite idea — working in your real session under a
-visible switch — and keeps the original's input helper, frame mapping and handover discipline.
+ai-mirror started from itchyfeetleech's MIT-licensed project that gave agents an isolated,
+nested Omarchy desktop on Arch. This NixOS-only rewrite takes the opposite approach — the agent
+works in your real session under a visible switch — and keeps the original's input helper,
+frame mapping and handover discipline.
 
 [MIT license](LICENSE) · [Notice](NOTICE)

@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from . import __version__, api, control
-from .control import AwError
+from .control import MirrorError
 
 STR = {'type': 'string'}
 INT = {'type': 'integer'}
@@ -87,7 +87,7 @@ def observe(args):
     capture.setdefault('max_size', 1280)
     temp = None
     if include_image:
-        with tempfile.NamedTemporaryFile(suffix='.png', prefix='sideyard-frame-', delete=False) as file:
+        with tempfile.NamedTemporaryFile(suffix='.png', prefix='ai-mirror-frame-', delete=False) as file:
             temp = Path(file.name)
         capture['out'] = str(temp)
     try:
@@ -173,7 +173,7 @@ def call_tool(name, args):
             time.sleep(wait_ms / 1000)
             try:
                 content.extend(observe({}))
-            except (AwError, OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+            except (MirrorError, OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
                 content.append(text({'observation_error': str(exc), 'note': 'Input completed; do not repeat it.'}))
         return {'content': content, 'isError': False}
     except Exception as exc:  # every tool failure is a result the agent can read, never a dead server
@@ -185,7 +185,7 @@ def dispatch(method, params):
         requested = params.get('protocolVersion')
         return {'protocolVersion': requested if requested in ('2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25') else '2025-11-25',
                 'capabilities': {'tools': {}},
-                'serverInfo': {'name': 'sideyard', 'version': __version__},
+                'serverInfo': {'name': 'ai-mirror', 'version': __version__},
                 'instructions': INSTRUCTIONS}
     if method == 'ping':
         return {}
