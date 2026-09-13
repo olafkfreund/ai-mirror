@@ -7,7 +7,7 @@ import qs.Commons
 // Red "AGENT CONTROL" while an agent may drive the desktop; click to stop.
 BarWidget {
   id: root
-  moduleName: "hoppcx.sideyard"
+  moduleName: "olafkfreund.ai-mirror"
   implicitWidth: button.implicitWidth
   implicitHeight: barSize
   property var state: null
@@ -17,7 +17,7 @@ BarWidget {
 
   FileView {
     id: file
-    path: Quickshell.env("XDG_RUNTIME_DIR") + "/sideyard/state.json"
+    path: Quickshell.env("XDG_RUNTIME_DIR") + "/ai-mirror/state.json"
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
@@ -44,7 +44,7 @@ BarWidget {
     interactive: !command.busy
     tooltipText: command.error || (root.on
       ? "An AI agent controls keyboard and mouse (since " + root.state.since + "). Click to stop."
-      : "Sideyard: agent control is off. Click to allow agent control.")
+      : "ai-mirror: agent control is off. Click to allow agent control.")
     onPressed: command.run(["control", root.on ? "off" : "agent"])
   }
 }

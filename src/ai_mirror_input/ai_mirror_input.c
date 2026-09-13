@@ -1,4 +1,4 @@
-/* aw-input: persistent virtual-pointer/virtual-keyboard helper.
+/* ai-mirror-input: persistent virtual-pointer/virtual-keyboard helper.
  *
  * Owns both virtual devices for the session lifetime and executes bounded
  * input commands received as lines on stdin, one ack line per command on
@@ -75,7 +75,7 @@ static void send_keymap(struct xkb_keymap *map) {
 		str = default_map_str;
 	}
 	size_t len = strlen(str) + 1;
-	int fd = memfd_create("aw-keymap", MFD_CLOEXEC);
+	int fd = memfd_create("ai-mirror-keymap", MFD_CLOEXEC);
 	if (fd < 0) {
 		return;
 	}
@@ -388,29 +388,29 @@ static void handle_line(char *line) {
 
 int main(void) {
 	if (!getenv("WAYLAND_DISPLAY")) {
-		fprintf(stderr, "aw-input: WAYLAND_DISPLAY is not set\n");
+		fprintf(stderr, "ai-mirror-input: WAYLAND_DISPLAY is not set\n");
 		return 1;
 	}
-	const char *ew = getenv("AW_EXTENT_W"), *eh = getenv("AW_EXTENT_H");
+	const char *ew = getenv("AI_MIRROR_EXTENT_W"), *eh = getenv("AI_MIRROR_EXTENT_H");
 	if (!ew || !eh || (extent_w = (uint32_t)atoi(ew)) == 0 ||
 			(extent_h = (uint32_t)atoi(eh)) == 0) {
-		fprintf(stderr, "aw-input: AW_EXTENT_W/H must name the layout size\n");
+		fprintf(stderr, "ai-mirror-input: AI_MIRROR_EXTENT_W/H must name the layout size\n");
 		return 1;
 	}
 	display = wl_display_connect(NULL);
 	if (!display) {
-		fprintf(stderr, "aw-input: cannot connect to Wayland display\n");
+		fprintf(stderr, "ai-mirror-input: cannot connect to Wayland display\n");
 		return 1;
 	}
 	struct wl_registry *reg = wl_display_get_registry(display);
 	wl_registry_add_listener(reg, &registry_listener, NULL);
 	wl_display_roundtrip(display);
 	if (!seat || !kbd_mgr || !ptr_mgr) {
-		fprintf(stderr, "aw-input: seat/keyboard/pointer protocol missing\n");
+		fprintf(stderr, "ai-mirror-input: seat/keyboard/pointer protocol missing\n");
 		return 1;
 	}
 	if (ptr_mgr_version < 2) {
-		fprintf(stderr, "aw-input: virtual-pointer v2 required\n");
+		fprintf(stderr, "ai-mirror-input: virtual-pointer v2 required\n");
 		return 1;
 	}
 	kbd = zwp_virtual_keyboard_manager_v1_create_virtual_keyboard(kbd_mgr, seat);
@@ -424,12 +424,12 @@ int main(void) {
 	default_map = xkb_keymap_new_from_names(xkb_ctx, &names,
 			XKB_KEYMAP_COMPILE_NO_FLAGS);
 	if (!default_map) {
-		fprintf(stderr, "aw-input: cannot compile default keymap\n");
+		fprintf(stderr, "ai-mirror-input: cannot compile default keymap\n");
 		return 1;
 	}
 	key_state = xkb_state_new(default_map);
 	if (!key_state) {
-		fprintf(stderr, "aw-input: cannot create keyboard state\n");
+		fprintf(stderr, "ai-mirror-input: cannot create keyboard state\n");
 		return 1;
 	}
 	default_map_str = strdup(xkb_keymap_get_as_string(default_map,
@@ -437,7 +437,7 @@ int main(void) {
 	send_keymap(default_map);
 	wl_display_roundtrip(display);
 	if (wl_display_get_error(display)) {
-		fprintf(stderr, "aw-input: compositor rejected the devices\n");
+		fprintf(stderr, "ai-mirror-input: compositor rejected the devices\n");
 		return 1;
 	}
 
@@ -450,7 +450,7 @@ int main(void) {
 	while (!dead) {
 		wl_display_dispatch_pending(display);
 		if (wl_display_get_error(display)) {
-			fprintf(stderr, "aw-input: lost compositor connection\n");
+			fprintf(stderr, "ai-mirror-input: lost compositor connection\n");
 			return 1;
 		}
 		if (poll(&pfd, 1, 100) > 0) {

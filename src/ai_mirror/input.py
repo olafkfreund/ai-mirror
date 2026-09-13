@@ -1,4 +1,4 @@
-"""Translate readable input actions to aw-input helper lines (M/B/S/K/T)."""
+"""Translate readable input actions to ai-mirror-input helper lines (M/B/S/K/T)."""
 import re
 
 # Linux evdev codes 0..127, in order (input-event-codes.h); '_' marks gaps.

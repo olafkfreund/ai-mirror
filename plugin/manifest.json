@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "id": "hoppcx.sideyard",
-  "name": "Sideyard",
+  "id": "olafkfreund.ai-mirror",
+  "name": "ai-mirror",
   "version": "2.0.0",
-  "author": "itchyfeetleech",
+  "author": "olafkfreund",
   "description": "Shows when an AI agent controls your desktop; click to stop.",
   "kinds": ["bar-widget"],
   "entryPoints": {"barWidget": "Widget.qml"},
   "barWidget": {
-    "displayName": "Sideyard",
+    "displayName": "ai-mirror",
     "description": "Agent desktop control indicator and stop button",
     "category": "System",
     "allowMultiple": false,

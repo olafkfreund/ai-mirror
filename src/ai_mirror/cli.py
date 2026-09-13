@@ -1,11 +1,11 @@
-"""The sideyard command. Every operation prints JSON for humans, agents and the bar."""
+"""The ai-mirror command. Every operation prints JSON for humans, agents and the bar."""
 import argparse
 import json
 import subprocess
 import sys
 
 from . import api, control
-from .control import AwError
+from .control import MirrorError
 
 
 def region(value):
@@ -16,7 +16,7 @@ def region(value):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(prog='sideyard', description='Let an AI agent drive your Hyprland desktop')
+    parser = argparse.ArgumentParser(prog='ai-mirror', description='Let an AI agent drive your Hyprland desktop')
     commands = parser.add_subparsers(dest='op', required=True)
     for name in ('status', 'doctor', 'windows', 'mcp'):
         commands.add_parser(name)
@@ -70,7 +70,7 @@ def main(argv=None):
         result = api.run(op, {k: v for k, v in args.items() if v is not None})
         print(json.dumps(result, ensure_ascii=False))
         return 1 if result.get('ok') is False else 0
-    except (AwError, OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+    except (MirrorError, OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         print(json.dumps({'error': {'code': getattr(exc, 'code', 'unavailable'), 'message': str(exc)}}))
         return 1
     except KeyboardInterrupt:

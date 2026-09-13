@@ -1,16 +1,16 @@
-# Using Sideyard
+# Using ai-mirror
 
 ## Control model
 
-`$XDG_RUNTIME_DIR/sideyard/state.json` holds `{owner: agent|off, generation, since, enabled_by}`.
+`$XDG_RUNTIME_DIR/ai-mirror/state.json` holds `{owner: agent|off, generation, since, enabled_by}`.
 
 - Every change bumps `generation`. Screenshots and input carry the generation they were made
   under; input from an older generation is refused with `stale_generation`.
 - Input, `window`, `launch`, `a11y_act` and clipboard writes need `owner: agent` (`not_owner` otherwise).
   Observation (`status`, `screenshot`, `windows`, `a11y_tree`, `a11y_find`, clipboard read) always works.
 - Ownership is re-checked before every single low-level input event, so a stop lands mid-batch.
-- **Stop** = `sideyard control off`, bound to Super+Shift+Escape and to clicking the bar indicator.
-  It writes the state and signals every running `sideyard mcp`, whose input helper then releases
+- **Stop** = `ai-mirror control off`, bound to Super+Shift+Escape and to clicking the bar indicator.
+  It writes the state and signals every running `ai-mirror mcp`, whose input helper then releases
   all held keys and buttons and exits.
 - The state lives in the runtime dir: it is gone after logout, so control is never on at login.
 
@@ -61,25 +61,25 @@ toolkit reports them — on Wayland some toolkits report window-relative values,
 Every command prints JSON; errors are `{"error":{"code","message"}}` with a nonzero exit.
 
 ```sh
-sideyard status
-sideyard control agent|off
-sideyard screenshot [--output DP-1|all] [--region x,y,w,h] [--max-size N] [--out file.png]
-sideyard windows
-sideyard input --generation N '[{"type":"click","x":300,"y":200,"modifiers":["CTRL"]}]'
-sideyard window focus|close|float|center|fullscreen|workspace|resize 0x55d1… [--mode maximized] [--workspace 3] [--w 800 --h 600]
-sideyard launch -- firefox https://example.com
-sideyard clipboard read | sideyard clipboard write "text"
-sideyard a11y-tree [--app firefox] [--depth 12] [--max-nodes 400]
-sideyard a11y-find --name Save [--role "push button"]
-sideyard a11y-act 3.0.2.1 click | sideyard a11y-act 3.0.2.4 set_text --text hello
-sideyard doctor
-sideyard mcp
+ai-mirror status
+ai-mirror control agent|off
+ai-mirror screenshot [--output DP-1|all] [--region x,y,w,h] [--max-size N] [--out file.png]
+ai-mirror windows
+ai-mirror input --generation N '[{"type":"click","x":300,"y":200,"modifiers":["CTRL"]}]'
+ai-mirror window focus|close|float|center|fullscreen|workspace|resize 0x55d1… [--mode maximized] [--workspace 3] [--w 800 --h 600]
+ai-mirror launch -- firefox https://example.com
+ai-mirror clipboard read | ai-mirror clipboard write "text"
+ai-mirror a11y-tree [--app firefox] [--depth 12] [--max-nodes 400]
+ai-mirror a11y-find --name Save [--role "push button"]
+ai-mirror a11y-act 3.0.2.1 click | ai-mirror a11y-act 3.0.2.4 set_text --text hello
+ai-mirror doctor
+ai-mirror mcp
 ```
 
 ## Accessibility per toolkit
 
 The Home Manager option sets `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`, `GTK_MODULES=gail:atk-bridge`
-and `toolkit-accessibility`; Sideyard also sets the AT-SPI `IsEnabled` flag on first use.
+and `toolkit-accessibility`; ai-mirror also sets the AT-SPI `IsEnabled` flag on first use.
 
 - GTK and Qt apps: work after a re-login (apps started before need a restart).
 - Firefox: restart it after `IsEnabled` is set.
@@ -88,7 +88,7 @@ and `toolkit-accessibility`; Sideyard also sets the AT-SPI `IsEnabled` flag on f
 ## Troubleshooting
 
 - `not_owner` — turn control on. `stale_generation` — control changed; take a new screenshot.
-- `aw-input helper not found` — use the flake package, or set `SIDEYARD_HELPER`.
-- Indicator missing — `omarchy plugin enable hoppcx.sideyard --section right`.
-- Kill switch key does nothing — add `pcall(require, "hypr.sideyard-binds")` to `bindings.lua`.
-- `sideyard doctor` lists missing runtime commands.
+- `ai-mirror-input helper not found` — use the flake package, or set `AI_MIRROR_HELPER`.
+- Indicator missing — `omarchy plugin enable olafkfreund.ai-mirror --section right`.
+- Kill switch key does nothing — add `pcall(require, "hypr.ai-mirror-binds")` to `bindings.lua`.
+- `ai-mirror doctor` lists missing runtime commands.

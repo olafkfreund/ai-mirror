@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import subprocess
 
-from .control import AwError
+from .control import MirrorError
 
 STATES = ('enabled', 'focused', 'focusable', 'editable', 'checked', 'selected',
           'expanded', 'collapsed', 'pressed', 'sensitive', 'multi-line')
@@ -22,7 +22,7 @@ def _atspi():
         gi.require_version('Atspi', '2.0')
         from gi.repository import Atspi
     except (ImportError, ValueError) as exc:
-        raise AwError('unavailable', f'AT-SPI bindings missing ({exc}); use the flake package') from None
+        raise MirrorError('unavailable', f'AT-SPI bindings missing ({exc}); use the flake package') from None
     return Atspi
 
 
@@ -130,7 +130,7 @@ def resolve(node_id: str):
     for part in parts:
         acc = _call(lambda: acc.get_child_at_index(int(part)))
         if acc is None:
-            raise AwError('stale_node', 'the element is gone; read the tree again')
+            raise MirrorError('stale_node', 'the element is gone; read the tree again')
     return acc, Atspi
 
 
@@ -139,28 +139,28 @@ def act(node_id: str, action: str, text: str | None = None, expect: dict | None 
     if expect:
         for key, getter in (('role', acc.get_role_name), ('name', acc.get_name)):
             if key in expect and (_call(getter, '') or '')[:120] != expect[key]:
-                raise AwError('stale_node', f'{key} changed; read the tree again')
+                raise MirrorError('stale_node', f'{key} changed; read the tree again')
     try:
         if action == 'focus':
             comp = acc.get_component_iface()
             if comp is None or not comp.grab_focus():
-                raise AwError('unsupported', 'element cannot take focus')
+                raise MirrorError('unsupported', 'element cannot take focus')
         elif action == 'set_text':
             editable = acc.get_editable_text_iface()
             if not isinstance(text, str) or editable is None:
-                raise AwError('unsupported', 'set_text needs text and an editable element')
+                raise MirrorError('unsupported', 'set_text needs text and an editable element')
             if not editable.set_text_contents(text):
-                raise AwError('unavailable', 'the application refused the text')
+                raise MirrorError('unavailable', 'the application refused the text')
         else:
             iface = acc.get_action_iface()
             names = [iface.get_action_name(i) for i in range(iface.get_n_actions())] if iface else []
             wanted = ('click', 'press', 'activate', 'jump') if action == 'click' else (action,)
             index = next((names.index(w) for w in wanted if w in names), 0 if action == 'click' and names else None)
             if index is None:
-                raise AwError('unsupported', f'element actions are {names}')
+                raise MirrorError('unsupported', f'element actions are {names}')
             iface.do_action(index)
-    except AwError:
+    except MirrorError:
         raise
     except Exception as exc:  # GLib.Error
-        raise AwError('unavailable', str(exc)[:300]) from None
+        raise MirrorError('unavailable', str(exc)[:300]) from None
     return {'ok': True, 'node': node_id, 'action': action}

@@ -23,10 +23,10 @@ from pathlib import Path
 
 from . import host
 
-REPO_HELPER = Path(__file__).resolve().parents[2] / 'build/aw_input/aw-input'
+REPO_HELPER = Path(__file__).resolve().parents[2] / 'build/ai-mirror-input'
 
 
-class AwError(Exception):
+class MirrorError(Exception):
     """Structured error with a stable machine-readable code."""
 
     def __init__(self, code: str, detail: str = ''):
@@ -36,7 +36,7 @@ class AwError(Exception):
 
 def root() -> Path:
     base = os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')
-    path = Path(base) / 'sideyard'
+    path = Path(base) / 'ai-mirror'
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     return path
 
@@ -100,9 +100,9 @@ def set_owner(mode: str, by: str) -> dict:
 def require_agent(generation: int) -> dict:
     state = read_state()
     if state.get('owner') != 'agent':
-        raise AwError('not_owner', 'agent control is off; call control with mode agent')
+        raise MirrorError('not_owner', 'agent control is off; call control with mode agent')
     if generation != state.get('generation'):
-        raise AwError('stale_generation', f"have {state.get('generation')}, want {generation}; observe again")
+        raise MirrorError('stale_generation', f"have {state.get('generation')}, want {generation}; observe again")
     return state
 
 
@@ -142,16 +142,16 @@ def signal_servers() -> list[int]:
 # -- persistent input helper -------------------------------------------------
 
 def helper_binary() -> str:
-    found = os.environ.get('SIDEYARD_HELPER') or shutil.which('aw-input')
+    found = os.environ.get('AI_MIRROR_HELPER') or shutil.which('ai-mirror-input')
     if found:
         return found
     if REPO_HELPER.is_file():
         return str(REPO_HELPER)
-    raise AwError('unavailable', 'aw-input helper not found (install the flake package or build src/aw_input)')
+    raise MirrorError('unavailable', 'ai-mirror-input helper not found (install the flake package or build src/ai_mirror_input)')
 
 
 class Helper:
-    """One aw-input process. Closing its stdin makes it release everything and exit."""
+    """One ai-mirror-input process. Closing its stdin makes it release everything and exit."""
 
     def __init__(self):
         self.proc: subprocess.Popen | None = None
@@ -166,7 +166,7 @@ class Helper:
             return
         box = host.layout_box()
         self.origin = box[:2]
-        env = dict(os.environ, AW_EXTENT_W=str(box[2]), AW_EXTENT_H=str(box[3]))
+        env = dict(os.environ, AI_MIRROR_EXTENT_W=str(box[2]), AI_MIRROR_EXTENT_H=str(box[3]))
         proc = subprocess.Popen([helper_binary()], env=env, stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                 text=True, bufsize=1, close_fds=True)
@@ -174,7 +174,7 @@ class Helper:
         line = proc.stdout.readline().strip() if ready else ''
         if line != 'READY':
             proc.kill()
-            raise AwError('unavailable', f'input helper not ready: {line[:80]!r}')
+            raise MirrorError('unavailable', f'input helper not ready: {line[:80]!r}')
         self.proc = proc
 
     def cmd(self, line: str, timeout: float = 15.0) -> str:
@@ -232,7 +232,7 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER) -> dic
         state = read_state()
         if state.get('owner') != 'agent' or state.get('generation') != generation:
             helper.cancel()
-            raise AwError('stale_generation', 'control changed during the batch')
+            raise MirrorError('stale_generation', 'control changed during the batch')
         if line.startswith('M ') and (ox or oy):
             x, y = map(int, line[2:].split())
             line = f'M {x - ox} {y - oy}'
@@ -241,10 +241,10 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER) -> dic
         except RuntimeError as exc:
             helper.cancel()
             code = 'stale_generation' if read_state().get('generation') != generation else 'unavailable'
-            raise AwError(code, str(exc)) from None
+            raise MirrorError(code, str(exc)) from None
         if ack != 'OK':
             helper.cancel()
-            raise AwError('unavailable', f'helper {ack[:80]!r}')
+            raise MirrorError('unavailable', f'helper {ack[:80]!r}')
     return {'ok': True, 'acked': len(lines), 'generation': generation}
 
 
@@ -276,7 +276,7 @@ def screenshot(dest: Path, output: str | None = None, region=None, max_size=None
     state = read_state()
     result = subprocess.run(['grim', *options, str(dest)], capture_output=True, text=True, timeout=30)
     if result.returncode:
-        raise AwError('unavailable', f'grim failed: {result.stderr.strip()[:300]}')
+        raise MirrorError('unavailable', f'grim failed: {result.stderr.strip()[:300]}')
     with dest.open('rb') as png:
         image_width, image_height = struct.unpack('>II', png.read(24)[16:24])
     return {'path': str(dest), 'generation': state.get('generation', 0), 'owner': state.get('owner', 'off'),

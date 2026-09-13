@@ -11,7 +11,7 @@ import sys
 import tempfile
 import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from sideyard import api, control, mcp
+from ai_mirror import api, control, mcp
 
 # 100 distinct characters: crosses keycodes that mean F9/Print/volume on real layouts
 # (they must never be used for typing) and needs several keymap rounds.
@@ -29,7 +29,7 @@ def wait_for(check, seconds=10):
 
 def main():
     proof = Path(tempfile.mkdtemp()) / 'proof'
-    app_id = f'sideyard-smoke-{os.getpid()}'
+    app_id = f'ai-mirror-smoke-{os.getpid()}'
     gen = api.run('control', {'mode': 'agent'})['generation']
     window = None
     try:
@@ -48,14 +48,14 @@ def main():
             {'type': 'type', 'text': LONG + '\n'}]})
         api.run('input', args)
         assert wait_for(lambda: proof.exists() and proof.read_text() == LONG), proof.read_text()
-        api.run('clipboard', {'action': 'write', 'text': 'sideyard ✓'}, by='agent')
-        assert api.run('clipboard', {'action': 'read'})['text'] == 'sideyard ✓'
+        api.run('clipboard', {'action': 'write', 'text': 'ai-mirror ✓'}, by='agent')
+        assert api.run('clipboard', {'action': 'read'})['text'] == 'ai-mirror ✓'
         # The kill switch path: a separate process revokes, stale input is refused.
-        subprocess.run([str(Path(__file__).resolve().parents[1] / 'bin/sideyard'), 'control', 'off'], check=True, capture_output=True)
+        subprocess.run([str(Path(__file__).resolve().parents[1] / 'bin/ai-mirror'), 'control', 'off'], check=True, capture_output=True)
         try:
             api.run('input', {'generation': gen, 'actions': [{'type': 'key', 'keys': ['A']}]})
             raise AssertionError('input accepted after kill switch')
-        except control.AwError as exc:
+        except control.MirrorError as exc:
             assert exc.code in ('not_owner', 'stale_generation'), exc
         print('PASS: launch, windows, focus, frame input, Unicode typing, clipboard, kill switch')
     finally:

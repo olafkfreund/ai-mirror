@@ -1,12 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="820" viewBox="0 0 1440 820" role="img" aria-labelledby="title desc">
-<title id="title">Sideyard. Your agent gets the keyboard. You keep the off switch.</title>
+<title id="title">ai-mirror. Your agent gets the keyboard. You keep the off switch.</title>
 <desc id="desc">A cream and forest-green identity. A real Hyprland desktop with a red AGENT CONTROL indicator in the top bar, an agent cursor clicking a button, and a kill-switch key combination.</desc>
 <rect width="1440" height="820" rx="16" fill="#f4f0e7"/>
 <g transform="translate(68 62)">
-  <rect x="6" y="18" width="28" height="38" rx="2" fill="none" stroke="#202925" stroke-width="3"/>
-  <rect x="42" y="8" width="16" height="48" rx="2" fill="#577a60"/>
+  <rect x="7" y="14" width="20" height="36" rx="2" fill="none" stroke="#202925" stroke-width="3"/>
+  <path d="M32 8V56" stroke="#a7b59f" stroke-width="2" stroke-dasharray="3 3"/>
+  <rect x="37" y="14" width="20" height="36" rx="2" fill="#577a60"/>
 </g>
-<text x="156" y="106" fill="#202925" font-family="sans-serif" font-weight="700" font-size="42" letter-spacing="-1.4">Sideyard</text>
+<text x="156" y="106" fill="#202925" font-family="sans-serif" font-weight="700" font-size="42" letter-spacing="-1.4">ai-mirror</text>
 <text x="1372" y="100" fill="#577a60" font-family="monospace" font-size="16" text-anchor="end" letter-spacing="2">NIXARCHY / HYPRLAND / MCP</text>
 <text x="72" y="224" fill="#202925" font-family="sans-serif" font-weight="600" font-size="60" letter-spacing="-2">Your agent gets the keyboard.</text>
 <text x="72" y="298" fill="#577a60" font-family="sans-serif" font-weight="600" font-size="60" letter-spacing="-2">You keep the off switch.</text>
