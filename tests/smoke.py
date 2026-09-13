@@ -13,6 +13,10 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from sideyard import api, control, mcp
 
+# 100 distinct characters: crosses keycodes that mean F9/Print/volume on real layouts
+# (they must never be used for typing) and needs several keymap rounds.
+LONG = 'ok Ω ' + ''.join(chr(0x4E00 + i) for i in range(95))
+
 
 def wait_for(check, seconds=10):
     deadline = time.monotonic() + seconds
@@ -41,9 +45,9 @@ def main():
         args = mcp.from_frame({'frame': meta['frame'], 'actions': [
             {'type': 'click', 'x': meta['width'] // 2, 'y': meta['height'] // 2},
             {'type': 'type', 'text': 'discard'}, {'type': 'key', 'keys': ['CTRL', 'U']},
-            {'type': 'type', 'text': 'ok Ω\n'}]})
+            {'type': 'type', 'text': LONG + '\n'}]})
         api.run('input', args)
-        assert wait_for(lambda: proof.exists() and proof.read_text() == 'ok Ω')
+        assert wait_for(lambda: proof.exists() and proof.read_text() == LONG), proof.read_text()
         api.run('clipboard', {'action': 'write', 'text': 'sideyard ✓'}, by='agent')
         assert api.run('clipboard', {'action': 'read'})['text'] == 'sideyard ✓'
         # The kill switch path: a separate process revokes, stale input is refused.
