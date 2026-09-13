@@ -1,5 +1,7 @@
 # Build and local runtime outputs
 build/
+result
+result-*
 __pycache__/
 *.py[cod]
 *.log
@@ -15,8 +17,6 @@ __pycache__/
 .codex/
 .claude/
 .pilot/
-AGENTS.md
-CLAUDE.md
 .vscode/
 .idea/
 .DS_Store

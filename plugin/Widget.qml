@@ -1,58 +1,50 @@
 import QtQuick
-import Quickshell.Hyprland
+import Quickshell
+import Quickshell.Io
 import qs.Ui
 import qs.Commons
 
+// Red "AGENT CONTROL" while an agent may drive the desktop; click to stop.
 BarWidget {
   id: root
-  moduleName: "hoppcx.agent-workspaces"
-  implicitWidth: row.implicitWidth
+  moduleName: "hoppcx.sideyard"
+  implicitWidth: button.implicitWidth
   implicitHeight: barSize
-  property var sessions: []
-  readonly property var activeSession: {
-    var id = Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : -1
-    return sessions.find(function(s) { return s.live && s.viewer_open && s.host_workspace === id }) || null
+  property var state: null
+  readonly property bool on: state !== null && state.owner === "agent"
+
+  Command { id: command }
+
+  FileView {
+    id: file
+    path: Quickshell.env("XDG_RUNTIME_DIR") + "/sideyard/state.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      try { root.state = JSON.parse(String(text() || "")) } catch (e) { root.state = null }
+    }
+    onLoadFailed: root.state = null
   }
-  Command {
-    id: poll
-    onFinished: function(result) { if (result.sessions) root.sessions = result.sessions }
-  }
-  Command {
-    id: action
-    onFinished: function(result) { poll.run(["list"]) }
-  }
+  // ponytail: the state file only exists after first use; retry until it does, then inotify takes over
   Timer {
-    interval: 1000
+    interval: 3000
     repeat: true
-    running: true
-    triggeredOnStart: true
-    onTriggered: poll.run(["list"])
+    running: root.state === null
+    onTriggered: file.reload()
   }
-  Row {
-    id: row
-    WidgetButton {
-      bar: root.bar
-      fixedHeight: root.barSize
-      text: root.activeSession ? "AGENT · " + root.activeSession.session_id + " · " + (root.activeSession.owner === "human" ? "You have control" : root.activeSession.owner === "paused" ? "Paused" : "Watching") : "Sideyard · " + root.sessions.filter(function(s) { return s.live }).length
-      foreground: root.activeSession ? Color.accent : (root.bar ? root.bar.barForeground : Color.foreground)
-      tooltipText: action.error || "Sideyard — agent desktops"
-      onPressed: if (root.bar && root.bar.shell) root.bar.shell.toggle(root.moduleName, "{}")
-    }
-    WidgetButton {
-      bar: root.bar
-      fixedHeight: root.barSize
-      visible: root.activeSession !== null
-      text: root.activeSession && root.activeSession.owner === "human" ? "Watch / give to agent" : "Take control"
-      interactive: !action.busy
-      onPressed: action.run(["control", root.activeSession.session_id, root.activeSession.owner === "human" ? "agent" : "human"])
-    }
-    WidgetButton {
-      bar: root.bar
-      fixedHeight: root.barSize
-      visible: root.activeSession !== null
-      text: "Stop"
-      interactive: !action.busy
-      onPressed: action.run(["stop", root.activeSession.session_id])
-    }
+
+  WidgetButton {
+    id: button
+    bar: root.bar
+    fixedHeight: root.barSize
+    active: root.on
+    text: root.on ? "󰚩 AGENT CONTROL" : "󰚩"
+    dimmed: !root.on
+    interactive: !command.busy
+    tooltipText: command.error || (root.on
+      ? "An AI agent controls keyboard and mouse (since " + root.state.since + "). Click to stop."
+      : "Sideyard: agent control is off. Click to allow agent control.")
+    onPressed: command.run(["control", root.on ? "off" : "agent"])
   }
 }

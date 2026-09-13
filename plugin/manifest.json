@@ -1,24 +1,18 @@
 {
   "schemaVersion": 1,
-  "id": "hoppcx.agent-workspaces",
+  "id": "hoppcx.sideyard",
   "name": "Sideyard",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "author": "itchyfeetleech",
-  "description": "A desktop for your agent. Yours stays yours.",
-  "kinds": [
-    "bar-widget",
-    "panel"
-  ],
-  "entryPoints": {
-    "barWidget": "Widget.qml",
-    "panel": "Panel.qml"
-  },
+  "description": "Shows when an AI agent controls your desktop; click to stop.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {"barWidget": "Widget.qml"},
   "barWidget": {
     "displayName": "Sideyard",
-    "description": "Start, watch and take control of agent desktops",
+    "description": "Agent desktop control indicator and stop button",
     "category": "System",
     "allowMultiple": false,
-    "defaultSection": "left",
+    "defaultSection": "right",
     "defaults": {},
     "schema": []
   },
