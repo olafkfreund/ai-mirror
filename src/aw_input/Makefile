@@ -2,7 +2,8 @@
 CC ?= cc
 CFLAGS ?= -O2 -Wall -Wextra
 WAYLAND_SCANNER ?= wayland-scanner
-WLR_PROTO ?= /usr/share/wlr-protocols/unstable/wlr-virtual-pointer-unstable-v1.xml
+# The flake passes the store path; in `nix develop` it comes from the environment.
+WLR_PROTO ?= $(error set WLR_PROTO to wlr-virtual-pointer-unstable-v1.xml)
 BUILD ?= ../../build/aw_input
 BIN = $(BUILD)/aw-input
 

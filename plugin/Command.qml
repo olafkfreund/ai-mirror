@@ -1,17 +1,15 @@
 import QtQuick
-import Quickshell
 import Quickshell.Io
 
-// Run the same short-lived CLI used by agents. No manager service to install.
+// Runs the packaged CLI; @sideyard@ is replaced with its store path at build time.
 Item {
   id: root
   property bool busy: process.running
   property string error: ""
-  signal finished(var result)
   function run(args) {
     if (busy) return
     error = ""
-    process.command = [Quickshell.env("HOME") + "/.local/bin/sideyard"].concat(args)
+    process.command = ["@sideyard@"].concat(args)
     process.running = true
   }
   Process {
@@ -21,15 +19,11 @@ Item {
         try {
           var result = JSON.parse(text)
           if (result.error) root.error = result.error.message || "Action failed"
-          root.finished(result)
-        } catch (e) { root.error = "Could not read workspace status" }
+        } catch (e) { root.error = "Could not read Sideyard output" }
       }
     }
-    stderr: StdioCollector {
-      onStreamFinished: { if (text.trim()) root.error = text.trim() }
-    }
     onExited: function(code, status) {
-      if (code !== 0 && !root.error) root.error = "Workspace command failed (" + code + ")"
+      if (code !== 0 && !root.error) root.error = "Sideyard command failed (" + code + ")"
     }
   }
 }

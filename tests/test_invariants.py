@@ -1,186 +1,216 @@
-"""Small regression suite for the desktop boundary and shared agent contract."""
+"""Regression suite for host control. Needs no Wayland session."""
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from agent_workspaces import api, desktop, host, input, mcp, nsinit, paths, session
+from sideyard import api, control, host, input, mcp
+
+LAYOUT = [{'name': 'DP-2', 'x': 0, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
+          {'name': 'DP-1', 'x': 2560, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
+          {'name': 'HDMI-A-1', 'x': 1849, 'y': 1440, 'w': 1920, 'h': 1080, 'scale': 1, 'focused': True}]
 
 
-class CoreTests(unittest.TestCase):
+class FakeHelper(control.Helper):
+    """Records lines; acks from a script (default OK)."""
+
+    def __init__(self, acks=None, origin=(0, 0), on_cmd=None):
+        super().__init__()
+        self.sent, self.acks, self.on_cmd = [], list(acks or []), on_cmd
+        self.origin = origin
+
+    def start(self):
+        pass
+
+    @property
+    def running(self):
+        return True
+
+    def cmd(self, line, timeout=15.0):
+        self.sent.append(line)
+        if self.on_cmd:
+            self.on_cmd(line)
+        ack = self.acks.pop(0) if self.acks else 'OK'
+        if isinstance(ack, Exception):
+            raise ack
+        return ack
+
+
+class Base(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        self.state = patch.object(paths, 'state_root', return_value=self.root / 'state')
-        self.state.start()
-        self.addCleanup(self.state.stop)
-        env = patch.dict(os.environ, {'XDG_RUNTIME_DIR': str(self.root / 'rt')})
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        env = patch.dict(os.environ, {'XDG_RUNTIME_DIR': temp.name})
         env.start()
         self.addCleanup(env.stop)
 
-    def test_paths_reject_escape(self):
-        for value in ('', '../host', '/tmp/host', 'a/b', 'a' * 65):
-            with self.assertRaises(ValueError):
-                api.run('stop', {'id': value})
 
-    def test_input_validates_entire_batch_before_execution(self):
-        lines = input.encode([{'type': 'click', 'x': 10, 'y': 20},
-                              {'type': 'key', 'keys': ['CTRL', 'A']},
-                              {'type': 'type', 'text': 'Hello Ω'}])
-        self.assertEqual(lines, ['M 10 20', 'B 272 1', 'B 272 0',
-                                 'K 29 1', 'K 30 1', 'K 30 0', 'K 29 0', 'T Hello Ω'])
-        for bad in ([{'type': 'click', 'x': '10', 'y': 20}],
-                    [{'type': 'key', 'keys': ['BOGUS']}],
-                    [{'type': 'click', 'x': 1, 'y': 2}] * 16):
+class ControlTests(Base):
+    def test_generation_bumps_both_ways_and_gates_input(self):
+        with self.assertRaises(control.AwError) as off:
+            control.require_agent(0)
+        self.assertEqual(off.exception.code, 'not_owner')
+        on = control.set_owner('agent', 'human')
+        control.require_agent(on['generation'])
+        with self.assertRaises(control.AwError) as stale:
+            control.require_agent(on['generation'] - 1)
+        self.assertEqual(stale.exception.code, 'stale_generation')
+        off_state = control.set_owner('off', 'human')
+        self.assertEqual(off_state['generation'], on['generation'] + 1)
+        self.assertIsNone(off_state['enabled_by'])
+        with self.assertRaises(ValueError):
+            control.set_owner('human', 'human')
+
+    def test_ownership_rechecked_between_every_line(self):
+        gen = control.set_owner('agent', 'agent')['generation']
+        helper = FakeHelper(on_cmd=lambda line: line == 'M 1 1' and control.set_owner('off', 'human'))
+        with self.assertRaises(control.AwError) as err:
+            control.run_batch(['M 1 1', 'M 2 2'], gen, helper)
+        self.assertEqual(err.exception.code, 'stale_generation')
+        self.assertEqual(helper.sent, ['M 1 1', 'C'])
+
+    def test_bug1_helper_error_mid_batch_releases_held_input(self):
+        gen = control.set_owner('agent', 'agent')['generation']
+        for failure in ('ERR bad move', RuntimeError('helper exited mid-batch')):
+            helper = FakeHelper(acks=['OK', failure])
+            with self.assertRaises(control.AwError):
+                control.run_batch(['B 272 1', 'M 5 5', 'B 272 0'], gen, helper)
+            self.assertEqual(helper.sent, ['B 272 1', 'M 5 5', 'C'])
+
+    def test_moves_are_offset_by_layout_origin(self):
+        gen = control.set_owner('agent', 'agent')['generation']
+        helper = FakeHelper(origin=(-1920, 0))
+        control.run_batch(['M 0 10', 'K 30 1'], gen, helper)
+        self.assertEqual(helper.sent, ['M 1920 10', 'K 30 1'])
+
+    def test_kill_switch_signals_registered_servers_and_skips_stale(self):
+        child = subprocess.Popen([sys.executable, '-c', 'import signal,time\nsignal.pause()'])
+        self.addCleanup(child.kill)
+        time.sleep(0.2)
+        control.atomic_write_json(control.servers_dir() / f'{child.pid}.json',
+                                  {'pid': child.pid, 'start': control.proc_start(child.pid)})
+        stale = control.servers_dir() / '999999.json'
+        control.atomic_write_json(stale, {'pid': 999999, 'start': 'x'})
+        control.set_owner('agent', 'agent')
+        control.set_owner('off', 'human')
+        self.assertEqual(child.wait(timeout=5), -signal.SIGUSR1)
+        self.assertFalse(stale.exists())
+
+    def test_layout_box_spans_gapped_monitors(self):
+        self.assertEqual(host.layout_box(LAYOUT), (0, 0, 5120, 2520))
+
+
+class InputTests(unittest.TestCase):
+    def test_encoder_basics_and_limits(self):
+        self.assertEqual(input.encode([{'type': 'click', 'x': 10, 'y': 20},
+                                       {'type': 'key', 'keys': ['CTRL', 'A']},
+                                       {'type': 'type', 'text': 'Hi Ω\nx'}]),
+                         ['M 10 20', 'B 272 1', 'B 272 0', 'K 29 1', 'K 30 1', 'K 30 0', 'K 29 0',
+                          'T Hi Ω', 'K 28 1', 'K 28 0', 'T x'])
+        for bad in ([{'type': 'click', 'x': '10', 'y': 20}], [{'type': 'key', 'keys': ['BOGUS']}],
+                    [], [{'type': 'click', 'x': 1, 'y': 2}] * 17, [{'type': 'nope'}]):
             with self.assertRaises(ValueError):
                 input.encode(bad)
 
-    def test_old_generation_and_paused_owner_reject_input(self):
-        session._write_state('a', generation=4, owner='paused')
-        with self.assertRaises(session.AwError) as stale:
-            session.input_batch('a', ['M 1 1'], generation=3)
-        self.assertEqual(stale.exception.code, 'stale_generation')
-        with self.assertRaises(session.AwError) as owner:
-            session.input_batch('a', ['M 1 1'], generation=4)
-        self.assertEqual(owner.exception.code, 'not_owner')
+    def test_bug2_every_coordinate_rejects_negatives(self):
+        for bad in ({'type': 'drag', 'x': 10, 'y': 10, 'to_x': -5, 'to_y': 10},
+                    {'type': 'drag', 'x': 10, 'y': 10, 'path': [[1, 1], [2, -1]]},
+                    {'type': 'drag', 'x': 10, 'y': 10, 'path': [[1, '1']]},
+                    {'type': 'mouse_down', 'x': -1, 'y': 0},
+                    {'type': 'scroll', 'dy': 1, 'x': 0, 'y': -3}):
+            with self.assertRaises(ValueError):
+                input.encode([bad])
+
+    def test_full_input_model(self):
+        self.assertEqual(input.encode([{'type': 'click', 'x': 1, 'y': 2, 'modifiers': ['SHIFT'], 'count': 3}]),
+                         ['K 42 1', 'M 1 2'] + ['B 272 1', 'B 272 0'] * 3 + ['K 42 0'])
+        self.assertEqual(input.encode([{'type': 'drag', 'x': 0, 'y': 0, 'path': [[5, 5], [9, 9]], 'button': 'right'}]),
+                         ['M 0 0', 'B 273 1', 'M 5 5', 'M 9 9', 'B 273 0'])
+        self.assertEqual(input.encode([{'type': 'key_down', 'keys': ['ctrl']}, {'type': 'mouse_up'}]),
+                         ['K 29 1', 'B 272 0'])
+        self.assertEqual(input.encode([{'type': 'scroll', 'dy': 3}]), ['S 0 3'])
         with self.assertRaises(ValueError):
-            api.run('input', {'id': 'a', 'actions': []})
+            input.encode([{'type': 'type', 'text': 'x' * 2000}] * 2 + [{'type': 'click', 'x': 1, 'y': 1, 'count': 3}] * 10)
 
-    def test_supervisor_rechecks_owner_between_actions(self):
-        session._write_state('a', generation=1, owner='agent')
-        supervisor = nsinit.Session('a', 800, 600)
-        self.addCleanup(supervisor.log.close)
-        def ack(line):
-            session._write_state('a', generation=2, owner='paused')
-            return 'OK'
-        with patch.object(supervisor, 'helper_running', return_value=True), \
-             patch.object(supervisor, 'helper_cmd', side_effect=ack) as helper:
-            result = supervisor.op_input({'generation': 1, 'actions': ['M 1 1', 'M 2 2']}, {})
-        self.assertFalse(result['ok'])
-        self.assertEqual([call.args[0] for call in helper.call_args_list], ['M 1 1', 'C'])
+    def test_key_table(self):
+        expected = {'CAPSLOCK': 58, 'F24': 194, 'F13': 183, 'KP0': 82, 'PRINT': 99, 'KEY_SLASH': 53,
+                    '/': 53, 'super': 125, 'PLAYPAUSE': 164, 'ESC': 1, 'DELETE': 111, 'F11': 87, 'SPACE': 57}
+        self.assertEqual({k: input.key_code(k) for k in expected}, expected)
 
-    def test_process_birth_time_prevents_pid_reuse(self):
-        pid = os.getpid()
-        paths.ensure_dir(paths.session_dir('a'))
-        paths.atomic_write_json(paths.session_dir('a') / 'bwrap.pid', {'pid': pid, 'start': 'wrong'})
-        self.assertEqual(session._bwrap_pid('a'), 0)
-        paths.atomic_write_json(paths.session_dir('a') / 'bwrap.pid', {'pid': pid, 'start': session._proc_start(pid)})
-        self.assertEqual(session._bwrap_pid('a'), pid)
 
-    def test_two_session_limit_precedes_desktop_creation(self):
-        with patch.object(session, 'is_live', return_value=False), \
-             patch.object(session, 'live_sessions', return_value=['a', 'b']), \
-             patch.object(desktop, 'prepare') as prepare:
-            with self.assertRaises(session.AwError) as cap:
-                session.start('c', 800, 600)
-        self.assertEqual(cap.exception.code, 'session_cap')
-        prepare.assert_not_called()
+class HostTests(unittest.TestCase):
+    def test_window_dispatch_is_injection_safe(self):
+        a = '0x55d1c2a3'
+        self.assertEqual(host.window_dispatch('close', a), 'hl.dsp.window.close({ window = "address:0x55d1c2a3" })')
+        self.assertEqual(host.window_dispatch('workspace', a, workspace='special:scratch'),
+                         'hl.dsp.window.move({ window = "address:0x55d1c2a3", workspace = "special:scratch", follow = false })')
+        self.assertEqual(host.window_dispatch('resize', a, w=800, h=600),
+                         'hl.dsp.window.resize({ window = "address:0x55d1c2a3", x = 800, y = 600, relative = false })')
+        for bad in (('close', '0x1" }) os.execute("rm")'), ('workspace', a, '1"})'), ('resize', a, None, '800', 600),
+                    ('fullscreen', a, None, None, None, 'evil'), ('explode', a)):
+            with self.assertRaises(ValueError):
+                host.window_dispatch(*bad)
 
-    def test_namespace_routes_private_state_and_project(self):
-        project = self.root / 'project with spaces'
-        project.mkdir()
-        session._write_state('a', project=str(project))
-        argv = session.build_bwrap_argv('a', 800, 600)
-        self.assertIn('--unshare-pid', argv)
-        bindings = [(argv[i+1], argv[i+2]) for i,v in enumerate(argv) if v == '--bind']
-        self.assertIn((str(project), str(project)), bindings)
-        self.assertIn((str(paths.session_runtime_dir('a')), f'/run/user/{os.getuid()}'), bindings)
-        self.assertNotIn('/dev/input', argv)
-        self.assertNotIn(os.environ['XDG_RUNTIME_DIR'] + '/bus', argv)
 
-    def test_frame_maps_resized_crop_and_rejects_cross_workspace(self):
-        frame = {'session_id': 'a', 'generation': 4, 'region': [100, 50, 800, 600], 'width': 400, 'height': 300}
-        with patch.dict(mcp.FRAMES, {'test': frame}, clear=True):
-            request = {'id': 'a', 'frame': 'test', 'actions': [{'type': 'drag', 'x': 10, 'y': 20, 'to_x': 399, 'to_y': 299}]}
+class McpTests(Base):
+    def test_frame_maps_second_monitor_and_rejects_outside(self):
+        frame = {'generation': 4, 'region': [2560, 0, 2560, 1440], 'width': 1280, 'height': 720}
+        with patch.dict(mcp.FRAMES, {'f': frame}, clear=True):
+            request = {'frame': 'f', 'actions': [{'type': 'drag', 'x': 1279, 'y': 0, 'path': [[640, 360]]}]}
             mapped = mcp.from_frame(request)
-            self.assertEqual(mapped['actions'][0], {'type': 'drag', 'x': 120, 'y': 90, 'to_x': 898, 'to_y': 648})
+            self.assertEqual(mapped['actions'][0], {'type': 'drag', 'x': 5118, 'y': 0, 'path': [[3840, 720]]})
             self.assertEqual(mapped['generation'], 4)
-            self.assertEqual(request['actions'][0]['x'], 10)
-            for bad in ({**request, 'id': 'b'}, {**request, 'generation': 3},
-                        {**request, 'actions': [{'type': 'click', 'x': 400, 'y': 0}]}):
+            self.assertEqual(request['actions'][0]['x'], 1279)
+            for bad in ({**request, 'generation': 3}, {**request, 'frame': 'missing'},
+                        {**request, 'actions': [{'type': 'click', 'x': 1280, 'y': 0}]}):
                 with self.assertRaises(ValueError):
                     mcp.from_frame(bad)
 
-    def test_followup_validation_precedes_input_and_capture_failure_preserves_success(self):
-        args = {'id': 'a', 'generation': 1, 'actions': [{'type': 'key', 'keys': ['ENTER']}], 'screenshot': True}
-        with patch.object(api, 'run', return_value={'ok': True, 'generation': 1}) as run, \
-             patch.object(mcp, 'observe', side_effect=RuntimeError('capture failed')):
-            result = mcp.dispatch('tools/call', {'name': 'input', 'arguments': {**args, 'wait_ms': 3000}})
-            self.assertTrue(result['isError'])
-            run.assert_not_called()
-            result = mcp.dispatch('tools/call', {'name': 'input', 'arguments': {**args, 'wait_ms': 0}})
-            self.assertFalse(result['isError'])
-            self.assertIn('Input completed', result['content'][1]['text'])
-            run.assert_called_once()
+    def test_bug4_unexpected_errors_never_kill_the_server(self):
+        with patch.object(api, 'run', side_effect=KeyError('boom')):
+            result = mcp.handle(json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                                            'params': {'name': 'windows', 'arguments': {}}}))
+        self.assertTrue(result['result']['isError'])
+        with patch.object(mcp, 'dispatch', side_effect=AssertionError('x')):
+            result = mcp.handle('{"jsonrpc":"2.0","id":2,"method":"ping"}')
+        self.assertEqual(result['error']['code'], -32603)
+        self.assertEqual(mcp.handle('{"jsonrpc":"2.0","id":3,"method":"missing"}')['error']['code'], -32601)
 
-    def test_native_allocation_preserves_numbers_without_using_occupied_workspaces(self):
-        session._write_state('a', host_workspace=6, transport={'viewer_pid': 10})
-        clients = [{'pid': 10, 'workspace': {'id': 6}}, {'pid': 20, 'workspace': {'id': 7}}]
-        def ctl(*args):
-            return json.dumps(clients if args[0] == 'clients' else {'id': 5})
-        with patch.object(host, 'ctl', side_effect=ctl), patch.object(session, 'list_sessions', return_value=[]):
-            self.assertEqual(host.allocate('a'), 6)
-            self.assertEqual(host.allocate('b'), 8)
-        self.assertEqual(input.encode([{'type': 'type', 'text': 'a\nb\tc'}]),
-                         ['T a', 'K 28 1', 'K 28 0', 'T b', 'K 15 1', 'K 15 0', 'T c'])
-        self.assertEqual(len(input.encode([{'type': 'click', 'x': 1, 'y': 1, 'count': 2}])), 5)
+    def test_input_needs_agent_control(self):
+        result = mcp.call_tool('input', {'generation': 0, 'actions': [{'type': 'key', 'keys': ['A']}]})
+        self.assertTrue(result['isError'])
+        self.assertIn('not_owner', result['content'][0]['text'])
+        self.assertTrue(mcp.call_tool('input', {'actions': [], 'bogus': 1})['isError'])
 
-    def test_delete_preserves_attached_project_and_unrelated_workspaces(self):
-        project = self.root / 'project'
-        project.mkdir()
-        (project / 'keep.txt').write_text('keep')
-        work = paths.ensure_dir(paths.work_dir('a'))
-        (work / '.aw-desktop').write_text('1')
-        (work / 'project-link').symlink_to(project, target_is_directory=True)
-        session._write_state('a', project=str(project))
-        other = paths.ensure_dir(paths.work_dir('b'))
-        with patch.object(paths, 'share_root', return_value=self.root / 'share'), \
-             patch.object(session, 'stop', return_value={'group_pids_left': []}) as stop:
-            with self.assertRaises(ValueError):
-                api.run('delete', {'id': 'a'})
-            stop.assert_not_called()
-            result = api.run('delete', {'id': 'a', 'confirm': True})
-        self.assertTrue(result['deleted'])
-        self.assertFalse(paths.session_dir('a').exists())
-        self.assertEqual((project / 'keep.txt').read_text(), 'keep')
-        self.assertTrue(other.is_dir())
+    def test_clipboard_daemon_never_inherits_the_jsonrpc_stdout(self):
+        control.set_owner('agent', 'agent')
+        with patch.object(api.subprocess, 'run') as run:
+            api.run('clipboard', {'action': 'write', 'text': 'x'}, by='agent')
+        self.assertIs(run.call_args.kwargs['stdout'], subprocess.DEVNULL)
+        control.set_owner('off', 'human')
+        with self.assertRaises(control.AwError):
+            api.run('clipboard', {'action': 'write', 'text': 'x'}, by='agent')
 
-    def test_delete_keeps_files_if_shutdown_fails_or_project_is_inside(self):
-        work = paths.ensure_dir(paths.work_dir('a'))
-        (work / '.aw-desktop').write_text('1')
-        with patch.object(session, 'stop', return_value={'bwrap_alive': True}):
-            with self.assertRaises(session.AwError):
-                api.run('delete', {'id': 'a', 'confirm': True})
-        self.assertTrue(work.exists())
-        session._write_state('a', project=str(work / 'important'))
-        with patch.object(session, 'stop') as stop:
-            with self.assertRaises(session.AwError) as error:
-                api.run('delete', {'id': 'a', 'confirm': True})
-            self.assertEqual(error.exception.code, 'project_inside_workspace')
-            stop.assert_not_called()
-
-    def test_mcp_stdio_initialization_tools_and_errors(self):
-        requests = [
-            {'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2025-11-25'}},
-            {'method': 'notifications/initialized'},
-            {'id': 2, 'method': 'tools/list'},
-            {'id': 3, 'method': 'tools/call', 'params': {'name': 'input', 'arguments': {'id': 'a'}}},
-            {'id': 4, 'method': 'missing'},
-        ]
+    def test_stdio_lists_tools_and_agent_grant_ends_with_server(self):
+        requests = [{'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2025-11-25'}},
+                    {'method': 'notifications/initialized'},
+                    {'id': 2, 'method': 'tools/list'},
+                    {'id': 3, 'method': 'tools/call', 'params': {'name': 'control', 'arguments': {'mode': 'agent'}}}]
         data = '\n'.join(json.dumps({'jsonrpc': '2.0', **r}) for r in requests) + '\n'
-        result = subprocess.run([str(Path(__file__).resolve().parents[1] / 'bin/aw'), 'mcp'],
+        result = subprocess.run([str(Path(__file__).resolve().parents[1] / 'bin/sideyard'), 'mcp'],
                                 input=data, text=True, capture_output=True, check=True)
         rows = [json.loads(line) for line in result.stdout.splitlines()]
-        self.assertEqual(len(rows), 4)
         self.assertEqual(rows[0]['result']['protocolVersion'], '2025-11-25')
-        self.assertEqual(len(rows[1]['result']['tools']), 11)
-        self.assertTrue(rows[2]['result']['isError'])
-        self.assertEqual(rows[3]['error']['code'], -32601)
+        self.assertEqual({t['name'] for t in rows[1]['result']['tools']}, set(mcp.SPECS))
+        self.assertEqual(json.loads(rows[2]['result']['content'][0]['text'])['enabled_by'], 'agent')
+        self.assertEqual(control.read_state()['owner'], 'off')
+        self.assertEqual(list(control.servers_dir().iterdir()), [])
         self.assertEqual(result.stderr, '')
 
 
