@@ -66,10 +66,13 @@ def _showing(acc, Atspi) -> bool:
     return state_set is None or _call(lambda: state_set.contains(Atspi.StateType.SHOWING), True)
 
 
-def _walk(app: str | None, depth: int):
+def _walk(app: str | None, depth: int, enable: bool = True):
     """Yield (id, accessible, level) depth-first over showing nodes."""
     Atspi = _atspi()
-    enable_bus()
+    # enable_bus writes org.a11y.Status over busctl. A caller that promises
+    # to only observe -- the index -- must be able to decline that.
+    if enable:
+        enable_bus()
     desktop = Atspi.get_desktop(0)
     visited = 0
     for index in range(_call(desktop.get_child_count, 0)):
@@ -92,9 +95,10 @@ def _walk(app: str | None, depth: int):
                 stack.extend(reversed(children))
 
 
-def tree(app: str | None = None, depth: int = 12, max_nodes: int = 400) -> dict:
+def tree(app: str | None = None, depth: int = 12, max_nodes: int = 400,
+         enable: bool = True) -> dict:
     nodes, truncated = [], False
-    for node_id, acc, level, Atspi in _walk(app, depth):
+    for node_id, acc, level, Atspi in _walk(app, depth, enable):
         row = _node(acc, node_id, Atspi)
         if level and not row['name'] and row['role'] in QUIET_ROLES and 'text' not in row:
             continue

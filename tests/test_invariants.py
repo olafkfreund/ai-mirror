@@ -311,11 +311,71 @@ o.bind("SUPER + SHIFT + S", nil, "omarchy-capture-screenshot")
 
     def test_the_default_payload_stays_small_enough_to_read(self):
         # An index too expensive to read at the start of a session is an index
-        # that stops being read.
-        data = {'keys': {'binds': [{'keys': 'SUPER + A', 'label': 'x', 'command': 'y'}] * 60,
-                         'duplicates': []},
-                'gotchas': index.gotchas()}
-        self.assertLess(len(index.render(data)), 20000)
+        # that stops being read. Rendered through build() so this measures the
+        # real default path rather than a payload invented by the test.
+        with tempfile.TemporaryDirectory() as tmp:
+            hypr, plug = Path(tmp) / 'hypr', Path(tmp) / 'plugins'
+            hypr.mkdir()
+            plug.mkdir()
+            hypr.joinpath('b.lua').write_text(
+                '\n'.join(f'o.bind("SUPER + {i}", "label {i}", "cmd-{i}")' for i in range(60)))
+            for i in range(30):
+                d = plug / f'vendor.p{i}'
+                d.mkdir()
+                d.joinpath('manifest.json').write_text(json.dumps(
+                    {'id': f'vendor.p{i}', 'name': f'P{i}', 'kinds': ['menu'],
+                     'description': 'x' * 200}))
+            with patch.object(index, 'HYPR_DIR', hypr), \
+                 patch.object(index, 'PLUGIN_DIR', plug), \
+                 patch.object(index, 'state', side_effect=RuntimeError('no compositor')), \
+                 patch.object(index, 'nav', side_effect=RuntimeError('no bus')):
+                rendered = index.render(index.build({}))
+        self.assertLess(len(rendered), 20000, f'default payload is {len(rendered)} bytes')
+
+    def test_a_commented_out_bind_is_not_reported_as_live(self):
+        # The exact failure this feature exists to prevent: an agent pressing a
+        # key the index promised, that nothing is bound to.
+        binds = self.parse('-- o.bind("SUPER + A", "gone", "old")\n'
+                           '--[[ o.bind("SUPER + Z", "also gone", "old") ]]\n'
+                           'o.bind("SUPER + B", "live", "cmd")\n')['binds']
+        self.assertEqual([b['keys'] for b in binds], ['SUPER + B'])
+
+    def test_a_long_string_argument_does_not_lose_the_binding(self):
+        binds = self.parse('o.bind("SUPER + B", [[a ) label]], "cmd")\n'
+                           'o.bind("SUPER + C", [==[nested ]] here]==], "cmd2")\n')['binds']
+        self.assertEqual([b['keys'] for b in binds], ['SUPER + B', 'SUPER + C'])
+        self.assertIn(')', binds[0]['label'])
+
+    def test_a_hide_binding_is_not_recorded_as_the_way_to_open(self):
+        # `... shell hide nixarchy.pkg` names the plugin too, so matching the
+        # id alone once labelled the closing key as the opening one.
+        with tempfile.TemporaryDirectory() as tmp:
+            hypr, plug = Path(tmp) / 'hypr', Path(tmp) / 'plugins'
+            hypr.mkdir()
+            (plug / 'nixarchy.pkg').mkdir(parents=True)
+            (plug / 'nixarchy.pkg' / 'manifest.json').write_text(
+                json.dumps({'id': 'nixarchy.pkg', 'name': 'P', 'kinds': [], 'description': ''}))
+            hypr.joinpath('b.lua').write_text(
+                'o.bind("SUPER + H", "Hide", "omarchy-shell shell hide nixarchy.pkg")\n'
+                'o.bind("SUPER + ALT + N", "Open", "omarchy-shell shell toggle nixarchy.pkg")\n')
+            with patch.object(index, 'HYPR_DIR', hypr), patch.object(index, 'PLUGIN_DIR', plug):
+                item = index.plugins()['items'][0]
+        self.assertEqual(item['opens_with'], 'SUPER + ALT + N')
+
+    def test_a_missing_source_is_unavailable_not_an_empty_inventory(self):
+        # An empty glob over a directory that does not exist reads as "this
+        # host has no keybindings", which is a different and wrong answer.
+        with patch.object(index, 'HYPR_DIR', Path('/nonexistent-hypr')):
+            out = index.build({'section': ['keys']})
+        self.assertIn('_unavailable', out['keys'])
+
+    def test_orientation_does_not_enable_the_accessibility_bus(self):
+        # nav() claims to be read-only and runs outside the ownership gate;
+        # a11y.tree normally writes org.a11y.Status over busctl.
+        from ai_mirror import a11y
+        with patch.object(a11y, 'tree', return_value={'nodes': []}) as tree:
+            index.nav()
+        self.assertIs(tree.call_args.kwargs.get('enable'), False)
 
 
 

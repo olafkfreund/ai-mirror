@@ -91,10 +91,12 @@ def check_index():
     opens = [p for p in plugins if p.get('opens_with')]
     assert opens, 'no plugin was joined to the key that opens it'
 
-    # The rule the whole navigation strategy rests on.
-    assert data['nav']['shell'] == 'keyboard'
+    # Only the positive claim is testable: something must really expose a
+    # tree. Asserting nav['shell'] == 'keyboard' would only re-read a constant
+    # this module wrote, which verifies nothing.
     assert any(a['strategy'] == 'a11y' for a in data['nav']['apps']), \
         'no application exposed an accessibility tree'
+    assert not data['nav']['truncated'], 'a11y tree truncated; strategies unreliable'
 
     assert data['gotchas']['text'].strip()
 

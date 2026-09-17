@@ -84,6 +84,58 @@ def state() -> dict:
     }
 
 
+def _strip_lua(text: str) -> str:
+    """Blank out comments and long strings, keeping every byte offset.
+
+    Without this a commented-out line is read as a live binding -- which is
+    precisely the "agent confidently presses the wrong key" failure this whole
+    module exists to prevent. Replacing rather than deleting keeps offsets
+    aligned so the remaining code can still be scanned in place.
+    """
+    out, i, n = list(text), 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch in '"\'':                                   # short string
+            quote, i = ch, i + 1
+            while i < n and text[i] != quote:
+                i += 2 if text[i] == '\\' else 1
+            i += 1
+        elif text.startswith('--', i):
+            long_open = re.compile(r'--\[(=*)\[').match(text, i)
+            if long_open:                                 # --[[ block comment ]]
+                close = text.find(f']{long_open.group(1)}]', long_open.end())
+                stop = n if close < 0 else close + long_open.end() - long_open.start() - 2
+            else:                                         # -- line comment
+                stop = text.find('\n', i)
+                stop = n if stop < 0 else stop
+            for j in range(i, stop):
+                if out[j] != '\n':
+                    out[j] = ' '
+            i = stop
+        else:
+            long_open = re.compile(r'\[(=*)\[').match(text, i)
+            if long_open:                                 # [[ long string ]]
+                mark = len(long_open.group(1)) + 2        # [[ or [=[ etc.
+                close = text.find(f']{long_open.group(1)}]', long_open.end())
+                stop = n if close < 0 else close + mark
+                # Rewrite the delimiters as plain quotes so the argument
+                # splitter still sees one argument, and blank anything inside
+                # that would otherwise end it early.
+                for j in range(i, min(i + mark, n)):
+                    out[j] = ' '
+                for j in range(max(stop - mark, 0), stop):
+                    out[j] = ' '
+                out[min(i + mark, n) - 1] = '"'
+                out[stop - 1] = '"'
+                for j in range(i + mark, max(stop - mark, i + mark)):
+                    if out[j] in '"\'':
+                        out[j] = ' '
+                i = stop
+            else:
+                i += 1
+    return ''.join(out)
+
+
 def _split_args(text: str, start: int) -> list[str]:
     """The argument list of a call, split on top-level commas.
 
@@ -129,8 +181,10 @@ def _literal(arg: str) -> tuple[str, bool]:
     more use to a reader than dropping the binding entirely.
     """
     arg = ' '.join(arg.split())
-    if len(arg) >= 2 and arg[0] == arg[-1] and arg[0] in '"\'' and arg[0] not in arg[1:-1]:
-        return arg[1:-1], True
+    if len(arg) >= 2 and arg[0] == arg[-1] and arg[0] in '"\'':
+        inner = arg[1:-1]
+        if arg[0] not in re.sub(r'\\.', '', inner):
+            return re.sub(r'\\(.)', r'\1', inner), True
     parts = []
     for piece in arg.split('..'):
         piece = piece.strip()
@@ -147,11 +201,15 @@ def _literal(arg: str) -> tuple[str, bool]:
 
 def keys() -> dict:
     """Every labelled keybinding, from the Lua that already describes them."""
+    # An empty glob over a directory that does not exist is indistinguishable
+    # from a host with no keybindings, so say which it is.
+    if not HYPR_DIR.is_dir():
+        raise FileNotFoundError(f'{HYPR_DIR} does not exist')
     binds, files = [], sorted(HYPR_DIR.glob('*.lua'))
     for path in files:
         if '.bak' in path.name or '.decoy' in path.name:
             continue
-        text = path.read_text(errors='replace')
+        text = _strip_lua(path.read_text(errors='replace'))
         for call in BIND_CALL_RE.finditer(text):
             args = _split_args(text, call.end())
             if len(args) < 2:
@@ -186,8 +244,17 @@ def keys() -> dict:
     return out
 
 
-def plugins() -> dict:
+#   omarchy-shell shell toggle nixarchy.pkg '{}'   opens it
+#   omarchy-shell shell hide   nixarchy.pkg        closes it
+# Both name the plugin, so matching the id alone once labelled `hide` as the
+# key that opens the panel. Only an opening verb counts.
+OPENS_RE = re.compile(r'\b(toggle|summon|open|show)\b')
+
+
+def plugins(parsed_keys: dict | None = None) -> dict:
     """Installed shell plugins, each with the key that opens it if one does."""
+    if not PLUGIN_DIR.is_dir():
+        raise FileNotFoundError(f'{PLUGIN_DIR} does not exist')
     items, by_id = [], {}
     for path in sorted(PLUGIN_DIR.glob('*/manifest.json')):
         try:
@@ -212,8 +279,14 @@ def plugins() -> dict:
 
     # The join worth building the whole thing for: a bind's command names a
     # plugin id, so every plugin gets its opening keystroke with nothing to
-    # maintain by hand.
-    for bind in _section(keys).get('binds', []):
+    # maintain by hand. Reuses the caller's parse rather than reading every
+    # Lua file and running hyprctl a second time inside one build.
+    binds = (parsed_keys or _section(keys)).get('binds', [])
+    for bind in binds:
+        # A computed key is not a key anyone can press, and a `hide` command
+        # would otherwise be recorded as the way to open the panel.
+        if bind.get('computed') or not OPENS_RE.search(bind['command']):
+            continue
         for candidate in PLUGIN_ID_RE.findall(bind['command']):
             if candidate in by_id:
                 by_id[candidate].setdefault('opens_with', bind['keys'])
@@ -221,37 +294,39 @@ def plugins() -> dict:
 
 
 def nav() -> dict:
-    """Which surfaces answer to a11y, and which are keyboard-only."""
+    """Which surfaces answer to a11y, and which have to be driven by keyboard.
+
+    Deliberately does not enable the accessibility bus. `a11y.tree` normally
+    calls `enable_bus`, which writes `org.a11y.Status IsEnabled` over busctl --
+    a real system change, and this operation claims to be read-only and sits
+    outside the ownership gate. Orientation must not turn anything on.
+    """
     from . import a11y
 
-    tree = a11y.tree(None, 1, 200)
-    apps, seen = [], set()
-    for node in tree.get('nodes', []):
-        if node.get('depth') or node.get('role') != 'application':
-            continue
-        name = node.get('name') or '(unnamed)'
-        if name in seen:
-            continue
-        seen.add(name)
-        apps.append(name)
+    tree = a11y.tree(None, 1, 200, enable=False)
     children = {n.get('id', '').split('.')[0] for n in tree.get('nodes', [])
                 if n.get('depth')}
     strategy = []
     for node in tree.get('nodes', []):
         if node.get('depth') or node.get('role') != 'application':
             continue
-        has_kids = node.get('id') in children
+        # No children returned is not proof of no accessibility: the tree is
+        # capped and filtered, and a hidden window looks the same. Only a
+        # positive result is claimed; everything else is unknown.
         strategy.append({'app': node.get('name') or '(unnamed)',
-                         'strategy': 'a11y' if has_kids else 'keyboard'})
+                         'strategy': 'a11y' if node.get('id') in children else 'unknown'})
     return {
         'apps': strategy,
-        # Stated rather than derived because it is the rule that matters and it
-        # holds even when no panel happens to be open at this instant.
+        'truncated': bool(tree.get('truncated')),
+        # Stated rather than derived: it is the rule that matters, and it holds
+        # even when no panel happens to be open at this instant.
         'shell': 'keyboard',
         'note': ('QuickShell exposes no accessibility tree, so the bar and '
                  'every plugin panel are keyboard-only. Use a11y_find for '
-                 'ordinary applications; never store pixel coordinates -- '
-                 'hovering the bar expands the tray and moves every widget.'),
+                 'ordinary applications; "unknown" means nothing was returned '
+                 'at depth 1, not that the app has no tree. Never store pixel '
+                 'coordinates -- hovering the bar expands the tray and moves '
+                 'every widget.'),
     }
 
 
@@ -269,20 +344,28 @@ def gotchas() -> dict:
 def commands(query: str) -> dict:
     """Search the omarchy-* summaries. Never returned whole -- there are ~460,
     and an index too large to read is an index nobody reads."""
-    root = Path(os.environ.get('OMARCHY_PATH', '')) / 'bin'
+    # Unset would make Path('') / 'bin' a *relative* path, so an index run from
+    # a directory that happens to contain ./bin would search that instead.
+    base = os.environ.get('OMARCHY_PATH')
+    if not base:
+        raise FileNotFoundError('OMARCHY_PATH is not set')
+    root = Path(base) / 'bin'
     if not root.is_dir():
-        raise FileNotFoundError('OMARCHY_PATH/bin not found')
+        raise FileNotFoundError(f'{root} is not a directory')
     # Every word must appear somewhere, rather than the phrase appearing
     # verbatim: "notification silencing" should find
     # omarchy-toggle-notification-silencing, and a phrase match does not.
     # Hyphens and underscores are word breaks for the same reason.
     terms = [t for t in re.split(r'[^a-z0-9]+', query.lower()) if t]
     hits = []
-    for path in sorted(root.iterdir()):
+    for path in sorted(root.glob('omarchy-*')):
         if not path.is_file():
             continue
         try:
-            head = path.read_text(errors='replace')[:2048]
+            # Bounded at the read, not after it: slicing read_text() still
+            # decodes the whole file first, and these are arbitrary binaries.
+            with path.open('rb') as handle:
+                head = handle.read(2048).decode('utf-8', 'replace')
         except OSError:
             continue
         found = SUMMARY_RE.search(head)
@@ -314,7 +397,12 @@ def build(args: dict | None = None) -> dict:
     builders = {'state': state, 'keys': keys, 'plugins': plugins,
                 'nav': nav, 'apps': apps, 'gotchas': gotchas}
     for name in wanted:
-        out[name] = _section(builders[name])
+        if name == 'plugins':
+            # Hand over the parse this build already did rather than re-reading
+            # every Lua file and running hyprctl a second time.
+            out[name] = _section(plugins, out.get('keys') or _section(keys))
+        else:
+            out[name] = _section(builders[name])
     if args.get('find'):
         out['commands'] = _section(commands, args['find'])
     return out
