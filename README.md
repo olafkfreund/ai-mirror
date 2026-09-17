@@ -1,5 +1,3 @@
-![ai-mirror — your agent gets the keyboard, you keep the off switch](assets/hero.svg)
-
 # ai-mirror
 
 **Let an AI agent use your actual desktop — and stop it with one keypress.**
@@ -8,15 +6,25 @@ ai-mirror is a small MCP server and Omarchy bar plugin for [Nixarchy](https://gi
 (Omarchy on NixOS, Hyprland). It gives Claude Code, Codex, Gemini CLI, opencode or any other
 local MCP client eyes and hands on your real session: screenshots of any monitor, a full
 keyboard and mouse, window management, the clipboard, and the accessibility tree of your apps.
-While it is in control, your top bar says so in red. Click it, or press **Super + Shift + Esc**,
+While it is in control, a red mark sits in your top bar. Click it, or press **Super + Shift + Esc**,
 and control is gone — including any key the agent was holding down.
 
 <p>
-  <img src="assets/indicator-on.png" alt="Omarchy bar with a red AGENT CONTROL indicator" width="100%"><br>
-  <sub>Agent control on — the indicator sits in your real bar, next to the tray.</sub><br>
-  <img src="assets/indicator-off.png" alt="Omarchy bar with the dim ai-mirror icon" width="100%"><br>
-  <sub>Off — a dim icon. Click it to hand control to your agent, click again to take it back.</sub>
+  <img src="assets/indicator-on.png" alt="Omarchy bar with the ai-mirror mark in red" width="100%"><br>
+  <sub>Agent control on — the mark turns red and stays there, next to the tray.</sub><br>
+  <img src="assets/indicator-off.png" alt="Omarchy bar with the ai-mirror mark dimmed" width="100%"><br>
+  <sub>Off — a dim mark. Click it to hand control to your agent, click again to take it back.</sub>
 </p>
+
+## See it work
+
+[![Five minutes of an agent driving a real nixarchy desktop](assets/demo-poster.jpg)](https://github.com/olafkfreund/ai-mirror/releases/download/demo-2026-09-18/nixarchy-desktop-showcase.mp4)
+
+<sub>**[▶ Watch the five-minute recording](https://github.com/olafkfreund/ai-mirror/releases/download/demo-2026-09-18/nixarchy-desktop-showcase.mp4)** — an agent takes control, hands it back
+on camera, then drives the desktop through the plugins' own keybindings: nixpkgs search, GitHub
+Actions, the herdr session menu, nixi, and a full re-theme. The narration is
+[nixarchy-voice](https://github.com/olafkfreund/nixarchy-voice) speaking through its own
+text-to-speech — the system describing itself, not a voiceover.</sub>
 
 ---
 
