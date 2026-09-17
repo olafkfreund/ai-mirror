@@ -10,9 +10,9 @@ While it is in control, a red mark sits in your top bar. Click it, or press **Su
 and control is gone — including any key the agent was holding down.
 
 <p>
-  <img src="assets/indicator-on.png" alt="Omarchy bar with the ai-mirror mark in red" width="100%"><br>
+  <img src="assets/bar-agent-control.png" alt="Omarchy bar with the ai-mirror mark in red" width="100%"><br>
   <sub>Agent control on — the mark turns red and stays there, next to the tray.</sub><br>
-  <img src="assets/indicator-off.png" alt="Omarchy bar with the ai-mirror mark dimmed" width="100%"><br>
+  <img src="assets/bar-idle.png" alt="Omarchy bar with the ai-mirror mark dimmed" width="100%"><br>
   <sub>Off — a dim mark. Click it to hand control to your agent, click again to take it back.</sub>
 </p>
 
