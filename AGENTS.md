@@ -27,6 +27,8 @@ Full reference: `docs/usage.md`.
 | `src/ai_mirror/control.py` | State file, `set_owner`, `require_agent`, MCP server registry + `signal_servers`, `Helper` (ai-mirror-input process), `run_batch`, `screenshot` (grim) |
 | `src/ai_mirror/host.py` | `hyprctl`: monitors, `layout_box`, windows, `window_dispatch` (validated Lua) |
 | `src/ai_mirror/input.py` | Actions → helper lines `M x y` / `B code 0\|1` / `S dx dy` / `K code 0\|1` / `T utf8`; evdev key table |
+| `src/ai_mirror/index.py` | What this host looks like: keys from `~/.config/hypr/*.lua`, plugins, nav strategy, gotchas. Derived per call, never cached, never written to disk |
+| `src/ai_mirror/gotchas.md` | The hand-written half of the index. Read only; nothing generates it |
 | `src/ai_mirror/a11y.py` | AT-SPI via `gi.repository.Atspi`: tree, find, act |
 | `src/ai_mirror_input/ai_mirror_input.c` | Persistent wlr virtual pointer + virtual keyboard; `C` releases all; stdin EOF releases and exits |
 | `plugin/` | Omarchy bar widget: `FileView` on the state file, click toggles control; `@ai-mirror@` substituted by Nix |
@@ -63,6 +65,14 @@ Style: stdlib Python (PyGObject only for a11y), JSON in/out, small functions, no
 dependencies. New tool = `api.run` branch + `mcp.TOOLS` entry + CLI subcommand + test.
 
 ## Driving this desktop — measured facts, not guesses
+
+**Run `ai-mirror index` first.** Keybindings, plugins and the key that opens
+each, monitors and workspaces, which surfaces expose accessibility, and the
+gotchas below — derived from this machine rather than remembered. `--find
+<query>` searches the ~460 `omarchy-*` commands; `--section apps` adds what the
+host declares. The prose here is the reasoning; the command is the current
+answer, and where they disagree the command is right.
+
 
 Re-derived from scratch once during a screencast; written down so the next agent
 does not pay for it again. Re-measure anything marked *(machine-specific)*.
