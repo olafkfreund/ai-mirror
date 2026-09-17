@@ -30,6 +30,18 @@ Two edits landed this way during one session: `chrome.enable = true`, and a
 around any scripted run and restore them if they changed. Prefer a path option,
 whose editor cancels on Escape, over a boolean, which toggles on `Return`.
 
+## Navigating the package panel
+
+It opens with the *list* focused, not the search box — deliberately, so `l`
+changes tab instead of typing an `l`. A caller that types a query straight after
+opening has it eaten as single-key commands, which is how a tab count came to be
+wrong and a `Return` landed on the wrong row.
+
+**Do:** click the filter box before typing (`/` is supposed to focus it and did
+not reliably). Then `Tab` and `Shift+Tab` cycle Apps → Services → Packages →
+Options → Drafts; arrows or `j`/`k` move the cursor; `Return` opens the
+selected row. Never send a bare `a`: it applies.
+
 ## Escape does not reliably close a shell panel
 
 A focused search field swallows the first Escape, so the panel stays up — and
