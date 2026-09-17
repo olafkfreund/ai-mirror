@@ -272,7 +272,12 @@ def commands(query: str) -> dict:
     root = Path(os.environ.get('OMARCHY_PATH', '')) / 'bin'
     if not root.is_dir():
         raise FileNotFoundError('OMARCHY_PATH/bin not found')
-    needle, hits = query.lower(), []
+    # Every word must appear somewhere, rather than the phrase appearing
+    # verbatim: "notification silencing" should find
+    # omarchy-toggle-notification-silencing, and a phrase match does not.
+    # Hyphens and underscores are word breaks for the same reason.
+    terms = [t for t in re.split(r'[^a-z0-9]+', query.lower()) if t]
+    hits = []
     for path in sorted(root.iterdir()):
         if not path.is_file():
             continue
@@ -282,7 +287,8 @@ def commands(query: str) -> dict:
             continue
         found = SUMMARY_RE.search(head)
         summary = found.group(1).strip() if found else ''
-        if needle in path.name.lower() or needle in summary.lower():
+        haystack = f'{path.name} {summary}'.lower()
+        if terms and all(t in haystack for t in terms):
             hits.append({'command': path.name, 'summary': summary})
     return {'query': query, 'matches': hits[:40], 'total': len(hits)}
 
