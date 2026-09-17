@@ -67,5 +67,45 @@ def main():
         print('control:', control.read_state()['owner'], '(was generation', state['generation'], ')')
 
 
+def check_index():
+    """The index must describe THIS host, not merely fail to raise.
+
+    A parser that quietly returns nothing looks identical to a machine with no
+    keybindings, so the assertions are plausible minimums rather than "not
+    empty". This is the half that fixtures cannot cover: it reads the real
+    config, the real plugin manifests and the real accessibility tree.
+    """
+    from ai_mirror import index
+
+    data = index.build({})
+    broken = {k: v['_unavailable'] for k, v in data.items() if '_unavailable' in v}
+    assert not broken, f'sections unavailable: {broken}'
+
+    binds = data['keys']['binds']
+    assert len(binds) >= 30, f'only {len(binds)} keybindings parsed'
+    raw = data['keys'].get('hyprctl_bind_count')
+    assert raw is None or raw > len(binds), 'hyprctl reported fewer binds than the config'
+
+    plugins = data['plugins']['items']
+    assert len(plugins) >= 20, f'only {len(plugins)} plugins found'
+    opens = [p for p in plugins if p.get('opens_with')]
+    assert opens, 'no plugin was joined to the key that opens it'
+
+    # Only the positive claim is testable: something must really expose a
+    # tree. Asserting nav['shell'] == 'keyboard' would only re-read a constant
+    # this module wrote, which verifies nothing.
+    assert any(a['strategy'] == 'a11y' for a in data['nav']['apps']), \
+        'no application exposed an accessibility tree'
+    assert not data['nav']['truncated'], 'a11y tree truncated; strategies unreliable'
+
+    assert data['gotchas']['text'].strip()
+
+    rendered = index.render(data)
+    assert len(rendered) < 20000, f'default payload is {len(rendered)} bytes'
+    print(f'PASS: index -- {len(binds)} keys, {len(plugins)} plugins, '
+          f'{len(opens)} joined to a key, {len(rendered)} bytes')
+
+
 if __name__ == '__main__':
+    check_index()
     main()

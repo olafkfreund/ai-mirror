@@ -27,6 +27,8 @@ Full reference: `docs/usage.md`.
 | `src/ai_mirror/control.py` | State file, `set_owner`, `require_agent`, MCP server registry + `signal_servers`, `Helper` (ai-mirror-input process), `run_batch`, `screenshot` (grim) |
 | `src/ai_mirror/host.py` | `hyprctl`: monitors, `layout_box`, windows, `window_dispatch` (validated Lua) |
 | `src/ai_mirror/input.py` | Actions → helper lines `M x y` / `B code 0\|1` / `S dx dy` / `K code 0\|1` / `T utf8`; evdev key table |
+| `src/ai_mirror/index.py` | What this host looks like: keys from `~/.config/hypr/*.lua`, plugins, nav strategy, gotchas. Derived per call, never cached, never written to disk |
+| `src/ai_mirror/gotchas.md` | The hand-written half of the index. Read only; nothing generates it |
 | `src/ai_mirror/a11y.py` | AT-SPI via `gi.repository.Atspi`: tree, find, act |
 | `src/ai_mirror_input/ai_mirror_input.c` | Persistent wlr virtual pointer + virtual keyboard; `C` releases all; stdin EOF releases and exits |
 | `plugin/` | Omarchy bar widget: `FileView` on the state file, click toggles control; `@ai-mirror@` substituted by Nix |
@@ -61,3 +63,61 @@ AI_MIRROR_HELPER=$(nix build .#ai-mirror-input --print-out-paths)/bin/ai-mirror-
 
 Style: stdlib Python (PyGObject only for a11y), JSON in/out, small functions, no new
 dependencies. New tool = `api.run` branch + `mcp.TOOLS` entry + CLI subcommand + test.
+
+## Driving this desktop — measured facts, not guesses
+
+**Run `ai-mirror index` first.** Keybindings, plugins and the key that opens
+each, monitors and workspaces, which surfaces expose accessibility, and the
+gotchas below — derived from this machine rather than remembered. `--find
+<query>` searches the ~460 `omarchy-*` commands; `--section apps` adds what the
+host declares. The prose here is the reasoning; the command is the current
+answer, and where they disagree the command is right.
+
+
+Re-derived from scratch once during a screencast; written down so the next agent
+does not pay for it again. Re-measure anything marked *(machine-specific)*.
+
+**Generation.** Re-read `ai-mirror status` before every `input`. `control off`
+then `control agent` bumps it, so a generation cached across a handover is stale
+and every action silently fails.
+
+**CLI, not just MCP.** `ai-mirror input --generation N '<json-array>'` does
+everything the MCP tool does. A script driving the desktop end-to-end beats an
+agent doing it turn by turn: each MCP round trip is dead air in a recording and
+a visible stutter on screen.
+
+**Hyprland 0.56 dispatch is Lua.** `hyprctl dispatch 'hl.dsp.focus({ workspace
+= "8" })'`, not `hyprctl dispatch workspace 8` — the old form is a syntax error.
+Window matching: `hl.dsp.window.move({ workspace = "8", window = "title:x" })`.
+`hl.dsp.window.close({ window = "class:..." })` can match nothing and report
+`ok`, so verify with `hyprctl clients` or kill the process instead.
+
+**Bar widget coordinates** *(machine-specific)*. Read them off a screenshot:
+`grim -o DP-1 f.png` then crop and scale with `flags=neighbor` — the tool's
+`max_size` only shrinks, so it cannot zoom. Bar widgets sit at y≈12 global.
+Only widgets with something to show render; an enabled widget that is idle
+leaves no icon and no gap.
+
+**Before recording anything:**
+- `omarchy-toggle-notification-silencing` — a personal notification will
+  otherwise land in frame. One did.
+- Chrome needs `--user-data-dir=<scratch> --no-first-run`. The real profile puts
+  the human's bookmarks bar across the top of every frame.
+- Park the work on an empty workspace on a monitor the human is not using.
+
+**Speech.** `omarchy-voice`'s `elevenlabs.synth(text, config)` returns int16 mono
+PCM; the key is `/run/agenix/api-elevenlabs`. Play into a `module-null-sink` the
+recorder captures, plus a `module-loopback` to `@DEFAULT_SINK@` so the room hears
+the take live — without it, silence and success look identical until the file is
+written.
+
+**Recording.** `gpu-screen-recorder -w DP-1 -f 30 -s 1920x1080 -a <sink>.monitor
+-k h264 -q very_high -o out.mp4`, SIGINT to stop (it flushes the moov atom).
+Roughly 11 MB/min raw; a second x264 pass is what hits a size limit. For
+Discord's 10 MB free cap, 1280x720 at crf 26 gives about 2.5 MB/min and keeps
+small UI text readable.
+
+**herdr will not nest.** A pane started from inside a herdr session dies with
+"nested herdr is disabled by default". Strip `HERDR_ENV`, `HERDR_SESSION`,
+`HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_SOCKET_PATH`, `HERDR_WORKSPACE_ID` from
+the child's environment.

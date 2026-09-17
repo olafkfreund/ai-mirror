@@ -55,6 +55,11 @@ def build_parser():
     p.add_argument('node')
     p.add_argument('action')
     p.add_argument('--text')
+    p = commands.add_parser('index', help='what this host looks like: keys, plugins, gotchas')
+    p.add_argument('--section', action='append',
+                   help='add a section (repeatable); default is state, keys, plugins, nav, gotchas')
+    p.add_argument('--find', help='search the omarchy-* command summaries')
+    p.add_argument('--json', action='store_true', help='JSON instead of Markdown')
     return parser
 
 
@@ -66,8 +71,15 @@ def main(argv=None):
         return mcp.main()
     if op == 'launch' and args['argv'][:1] == ['--']:
         args['argv'] = args['argv'][1:]
+    # The index is the one operation whose usual reader is a language model, so
+    # it prints Markdown unless a program asks for JSON.
+    as_markdown = op == 'index' and not args.pop('json', False)
     try:
         result = api.run(op, {k: v for k, v in args.items() if v is not None})
+        if as_markdown:
+            from . import index
+            sys.stdout.write(index.render(result))
+            return 0
         print(json.dumps(result, ensure_ascii=False))
         return 1 if result.get('ok') is False else 0
     except (MirrorError, OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:

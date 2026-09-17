@@ -65,6 +65,11 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
     if op == 'a11y_find':
         from . import a11y
         return a11y.find(args.get('name'), args.get('role'), args.get('app'), args.get('limit', 20))
+    if op == 'index':
+        # Read-only, and deliberately outside the ownership gate: orienting
+        # before asking for control is the point of having it.
+        from . import index
+        return index.build(args)
     if op in MUTATING:
         # Agents always need a current grant; the human using the CLI does too, so
         # scripted input never lands while control is off.

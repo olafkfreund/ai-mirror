@@ -26,7 +26,7 @@ ACTION = {'type': 'object', 'properties': {
 }, 'required': ['type'], 'additionalProperties': False}
 FRAMES = {}  # This connection's last 32 observations.
 FRAME_NUMBER = 0
-READ_ONLY = {'status', 'screenshot', 'windows', 'a11y_tree', 'a11y_find'}
+READ_ONLY = {'status', 'screenshot', 'windows', 'a11y_tree', 'a11y_find', 'index'}
 DESTRUCTIVE = {'control', 'input', 'window', 'launch', 'a11y_act'}
 
 
@@ -42,8 +42,10 @@ def tool(name, description, properties=None, required=None):
 
 
 TOOLS = [
+    tool('index', 'What this host looks like: keybindings with their labels, shell plugins and the key that opens each, monitors and workspaces, which apps expose accessibility and which are keyboard-only, and the gotchas that bite. Read-only, no control needed. section=apps adds declared apps/services; find=<query> searches the omarchy-* commands instead.',
+         {'section': {'type': 'array', 'items': STR}, 'find': STR}),
     tool('status', 'Control owner (agent/off), generation, and monitor layout in global pixels.'),
-    tool('control', 'mode=agent takes keyboard/mouse control of the real desktop (the bar shows AGENT CONTROL); mode=off releases it. The human can revoke at any time.',
+    tool('control', 'mode=agent takes keyboard/mouse control of the real desktop (the mark in the bar turns red); mode=off releases it. The human can revoke at any time.',
          {'mode': {'type': 'string', 'enum': ['agent', 'off']}}, ['mode']),
     tool('screenshot', 'Observe: PNG + frame id for input. output = monitor name or "all" (default focused). region [x,y,w,h] in global pixels zooms. Default longest edge 1280. image=false returns a file path.',
          {'output': STR, 'region': {'type': 'array', 'items': INT, 'minItems': 4, 'maxItems': 4},
@@ -73,7 +75,9 @@ TYPES = {'string': str, 'array': list, 'object': dict}
 INSTRUCTIONS = ('This server drives the user\'s REAL desktop. Call control with mode=agent before acting and '
                 'mode=off when done. Prefer a11y_find/windows over screenshots. Use the frame from the latest '
                 'screenshot for input. Any not_owner or stale_generation error means the human revoked or '
-                'changed control: stop, observe again, and never retry blindly.')
+                'changed control: stop, observe again, and never retry blindly. '
+                'Call index first on an unfamiliar host: it gives you the keybinding for each '
+                'panel, so you press the key the user presses instead of hunting for pixels.')
 
 
 def text(value):
