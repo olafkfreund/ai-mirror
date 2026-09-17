@@ -138,6 +138,8 @@ def _literal(arg: str) -> tuple[str, bool]:
             parts.append(piece[1:-1])
         elif piece.startswith('function'):
             parts.append('<lua function>')
+        elif piece == 'nil':
+            parts.append('')
         else:
             parts.append(f'<{piece}>')
     return ''.join(parts).strip(), False
@@ -162,7 +164,19 @@ def keys() -> dict:
                           'command': command,
                           'computed': not exact,
                           'source': path.name})
-    out = {'binds': binds, 'files': [p.name for p in files]}
+    # Two binds on one combo is not an error, it is a race the reader needs to
+    # know about: whichever file loads last wins, and pressing the key does
+    # something other than what the first row promises. SUPER + H is both nixi
+    # and voxtype on this host.
+    seen: dict[str, int] = {}
+    for bind in binds:
+        seen[bind['keys']] = seen.get(bind['keys'], 0) + 1
+    for bind in binds:
+        if seen[bind['keys']] > 1 and bind['keys']:
+            bind['duplicate'] = True
+
+    out = {'binds': binds, 'files': [p.name for p in files],
+           'duplicates': sorted(k for k, n in seen.items() if n > 1 and k)}
     try:
         # Not a source, a sanity check: thousands of raw binds against a
         # handful of parsed ones means the regex stopped matching.
@@ -278,9 +292,13 @@ def commands(query: str) -> dict:
 def build(args: dict | None = None) -> dict:
     """Assemble the requested sections. Default stays small on purpose."""
     args = args or {}
-    wanted = args.get('section') or list(DEFAULT_SECTIONS)
+    wanted = args.get('section')
     if isinstance(wanted, str):
         wanted = [wanted]
+    if not wanted:
+        # A search is a question, not a request for the whole index. Answering
+        # `--find theme` with every section buries the answer.
+        wanted = [] if args.get('find') else list(DEFAULT_SECTIONS)
     unknown = [s for s in wanted if s not in ALL_SECTIONS]
     if unknown:
         raise ValueError(f'unknown section {unknown[0]!r}; '
@@ -311,9 +329,22 @@ def render(data: dict) -> str:
 def _render_section(name: str, section: dict) -> list[str]:
     if name == 'gotchas':
         return [section['text'].rstrip()]
+    if name == 'state':
+        rows = [f"- {section['hyprland'].split(' built from')[0]}",
+                f"- dispatch: `{section['dispatch']}`",
+                f"- workspaces in use: {section['occupied']}", '',
+                '| monitor | at | size | focused |', '| --- | --- | --- | --- |']
+        rows += [f"| `{m['name']}` | {m['x']},{m['y']} | {m['w']}x{m['h']} |"
+                 f" {'yes' if m['focused'] else ''} |" for m in section['monitors']]
+        return rows
     if name == 'keys':
-        rows = ['| keys | does | command |', '| --- | --- | --- |']
-        rows += [f"| `{b['keys']}` | {b['label']} | `{_trim(b['command'])}` |"
+        rows = []
+        if section.get('duplicates'):
+            rows += ['Bound twice — last file loaded wins: '
+                     + ', '.join(f'`{k}`' for k in section['duplicates']), '']
+        rows += ['| keys | does | command |', '| --- | --- | --- |']
+        rows += [f"| `{b['keys']}`{' ⚠' if b.get('duplicate') else ''} "
+                 f"| {b['label'] or '—'} | `{_trim(b['command'])}` |"
                  for b in section['binds']]
         return rows
     if name == 'plugins':
