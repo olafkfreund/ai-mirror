@@ -1,5 +1,3 @@
-![ai-mirror — your agent gets the keyboard, you keep the off switch](assets/hero.svg)
-
 # ai-mirror
 
 **Let an AI agent use your actual desktop — and stop it with one keypress.**
