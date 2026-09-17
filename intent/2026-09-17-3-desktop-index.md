@@ -73,6 +73,34 @@ repeat the wallpaper incident, does not measure coordinates, and does not
 discover the package panel's write behaviour by writing to the user's
 configuration.
 
+## What this does not fix
+
+Named here because the measurements above invite a conclusion they do not
+support: that knowing more makes an agent fail less, therefore an index is the
+fix. It is *a* fix, for one of three causes.
+
+**It does not fix acting blind.** The worst outcome in that session — a removal
+of `azure-cli` written into the user's configuration — came from typing into a
+filter that never took focus, which shifted the tab count, so a `Return`
+intended for an option list landed on a package row. No prior knowledge
+prevents that; only checking does. And checking is expensive: the shell answers
+`Function not found` to `isOpen`, `visible`, `panels`, `activePanel`,
+`listOpen`, `openPanels` and `status`, so "is this panel open, and which tab has
+focus?" can only be answered by taking a screenshot and looking at it. Scripts
+therefore skip verification and proceed on assumption. That gap belongs to
+nixarchy's QuickShell plugins rather than to ai-mirror, and is tracked
+separately as olafkfreund/nixarchy#749.
+
+**It does not make the server faster.** ai-mirror returns in milliseconds. What
+was slow was the agent: one model round trip per action. The cure for that was
+batching — a single script drove ~40 actions and 28 narration steps with no
+round trips at all — and it is already available to anyone who writes one. An
+index lowers a per-session cost; batching lowers a per-action cost.
+
+The honest ordering is that an index is the cheapest of the three and a
+precondition for the second: you cannot write useful verification until you
+know which states are worth asserting. It should not be sold as more than that.
+
 ## Affected users and systems
 
 - **p620** and any other nixarchy host running the ai-mirror MCP server.
@@ -135,7 +163,16 @@ configuration.
    or is explicitly a p620 tool until someone needs otherwise, changes how much
    of the layout is allowed to be hard-coded.
 
-5. **Is ai-mirror the right owner?** The data it describes belongs to nixarchy
+5. **Is this the right lever to pull first?** Given the section above, an index
+   addresses the guessing class but not the acting-blind class, and the second
+   is what edited the user's configuration twice. If readable panel state is
+   judged the more urgent of the two, this work should wait behind it rather
+   than ship first and imply the problem is solved. My own reading is that the
+   index goes first because it is cheap and informs what to verify — but that
+   is a judgement about sequencing, not a fact, and it is the approver's to
+   make.
+
+6. **Is ai-mirror the right owner?** The data it describes belongs to nixarchy
    and omarchy; ai-mirror only consumes it. The counter-argument is delivery:
    ai-mirror is what agents already load, and its server instructions are the
    only channel that reaches every session regardless of project. If the answer
