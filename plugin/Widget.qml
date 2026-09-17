@@ -4,12 +4,18 @@ import Quickshell.Io
 import qs.Ui
 import qs.Commons
 
-// Red "AGENT CONTROL" while an agent may drive the desktop; click to stop.
+// Warns, in the bar, while an agent may drive the desktop; click to stop.
+//
+// Icon and colour only, no caps banner. That follows omarchy's own
+// ScreenRecording indicator, which signals a live recording the same way, and
+// it gives back the width a 13-character label was taking on a bar that
+// already carries twenty widgets. Nothing is lost: the tooltip still says who
+// is driving and since when, and the mark is unmistakable at a glance.
 BarWidget {
   id: root
   moduleName: "olafkfreund.ai-mirror"
   implicitWidth: button.implicitWidth
-  implicitHeight: barSize
+  implicitHeight: button.implicitHeight
   property var state: null
   readonly property bool on: state !== null && state.owner === "agent"
 
@@ -34,13 +40,38 @@ BarWidget {
     onTriggered: file.reload()
   }
 
-  WidgetButton {
+  // Live control is the one state worth interrupting someone for, so it is the
+  // only one that moves. A still mark in a busy bar is easy to walk past.
+  SequentialAnimation on opacity {
+    running: root.on
+    loops: Animation.Infinite
+    alwaysRunToEnd: true
+    NumberAnimation { from: 1.0; to: 0.5; duration: 700; easing.type: Easing.InOutSine }
+    NumberAnimation { from: 0.5; to: 1.0; duration: 700; easing.type: Easing.InOutSine }
+  }
+
+  BarIconButton {
     id: button
     bar: root.bar
     fixedHeight: root.barSize
-    active: root.on
-    text: root.on ? "󰚩 AGENT CONTROL" : "󰚩"
-    dimmed: !root.on
+
+    // A drawn mark instead of `text`: the robot glyph this used to set is also
+    // skal.bar's and sits beside the shell's own agents robot. See AgentMark.
+    iconComponent: Component {
+      Item {
+        AgentMark {
+          anchors.centerIn: parent
+          iconSize: Style.bar.iconCanvas * 0.92
+          color: root.on
+                 ? (root.bar ? root.bar.urgent : Color.urgent)
+                 : (root.bar ? root.bar.barForeground : Color.foreground)
+          active: root.on
+          opacity: root.on ? 1.0 : 0.45
+          Behavior on opacity { NumberAnimation { duration: 160 } }
+        }
+      }
+    }
+
     interactive: !command.busy
     tooltipText: command.error || (root.on
       ? "An AI agent controls keyboard and mouse (since " + root.state.since + "). Click to stop."
