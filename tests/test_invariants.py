@@ -10,7 +10,7 @@ import time
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from ai_mirror import api, control, host, input, mcp
+from ai_mirror import api, control, host, index, input, mcp
 
 LAYOUT = [{'name': 'DP-2', 'x': 0, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
           {'name': 'DP-1', 'x': 2560, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
@@ -212,6 +212,111 @@ class McpTests(Base):
         self.assertEqual(control.read_state()['owner'], 'off')
         self.assertEqual(list(control.servers_dir().iterdir()), [])
         self.assertEqual(result.stderr, '')
+
+
+class DesktopIndex(unittest.TestCase):
+    """The index parses this host's config shapes and never dies on one source."""
+
+    LUA = """
+-- a plain bind
+o.bind("SUPER + ALT + N", "nixarchy packages", "omarchy-shell shell toggle nixarchy.pkg '{}'")
+-- a bare function reference where the command goes
+o.bind("SUPER + CTRL + G", "Reclaim windows", grab_rogue_windows)
+-- an inline function, with a comma inside it
+o.bind("SUPER + CTRL + LEFT", "Previous workspace", function()
+  cycle_group(-1, "a, b")
+end)
+-- a computed key: unresolvable without running the config
+for _, key in ipairs(keys) do
+  o.bind("SUPER + " .. key, "Workspace " .. group, function() focus_group(group) end)
+end
+-- no label at all
+o.bind("SUPER + SHIFT + S", nil, "omarchy-capture-screenshot")
+"""
+
+    def parse(self, text):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / 'bindings.lua').write_text(text)
+            with patch.object(index, 'HYPR_DIR', Path(tmp)):
+                return index.keys()
+
+    def test_every_bind_form_is_parsed_not_only_the_quoted_one(self):
+        # A regex over the quoted form alone dropped 14 of 36 binds on a real
+        # host, including every workspace movement key.
+        binds = self.parse(self.LUA)['binds']
+        self.assertEqual(len(binds), 5)
+        by_label = {b['label']: b for b in binds}
+        self.assertEqual(by_label['nixarchy packages']['keys'], 'SUPER + ALT + N')
+        self.assertIn('nixarchy.pkg', by_label['nixarchy packages']['command'])
+        self.assertEqual(by_label['Reclaim windows']['command'], '<grab_rogue_windows>')
+        # a comma inside the function body must not end the argument
+        self.assertEqual(by_label['Previous workspace']['command'], '<lua function>')
+
+    def test_a_computed_key_is_reported_not_dropped(self):
+        binds = self.parse(self.LUA)['binds']
+        computed = [b for b in binds if b['computed']]
+        self.assertEqual(len(computed), 1)
+        self.assertEqual(computed[0]['keys'], 'SUPER + <key>')
+
+    def test_a_nil_label_is_blank_rather_than_the_word_nil(self):
+        binds = self.parse(self.LUA)['binds']
+        row = [b for b in binds if b['keys'] == 'SUPER + SHIFT + S'][0]
+        self.assertEqual(row['label'], '')
+
+    def test_two_binds_on_one_combo_are_flagged(self):
+        # Whichever file loads last wins, so presenting one row as the truth
+        # would be wrong. SUPER + H is bound twice on a real host.
+        duplicated = self.LUA + '\no.bind("SUPER + ALT + N", "something else", "other")\n'
+        out = self.parse(duplicated)
+        self.assertEqual(out['duplicates'], ['SUPER + ALT + N'])
+        self.assertTrue(all(b.get('duplicate') for b in out['binds']
+                            if b['keys'] == 'SUPER + ALT + N'))
+
+    def test_a_plugin_gets_the_key_that_opens_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'hypr').mkdir()
+            (root / 'hypr' / 'bindings.lua').write_text(self.LUA)
+            (root / 'plugins' / 'nixarchy.pkg').mkdir(parents=True)
+            (root / 'plugins' / 'nixarchy.pkg' / 'manifest.json').write_text(
+                json.dumps({'id': 'nixarchy.pkg', 'name': 'Packages',
+                            'kinds': ['menu'], 'description': 'search nixpkgs'}))
+            with patch.object(index, 'HYPR_DIR', root / 'hypr'), \
+                 patch.object(index, 'PLUGIN_DIR', root / 'plugins'):
+                items = index.plugins()['items']
+        self.assertEqual(items[0]['opens_with'], 'SUPER + ALT + N')
+
+    def test_a_broken_source_degrades_that_section_only(self):
+        with patch.object(index, 'HYPR_DIR', Path('/nonexistent')), \
+             patch.object(index, 'state', side_effect=RuntimeError('hyprctl gone')):
+            out = index.build({'section': ['state', 'gotchas']})
+        self.assertIn('_unavailable', out['state'])
+        self.assertIn('hyprctl gone', out['state']['_unavailable'])
+        self.assertNotIn('_unavailable', out['gotchas'])
+
+    def test_an_unknown_section_is_rejected_by_name(self):
+        with self.assertRaises(ValueError) as caught:
+            index.build({'section': ['nonsense']})
+        self.assertIn('nonsense', str(caught.exception))
+
+    def test_find_answers_only_the_question(self):
+        # Returning every section alongside the matches buries the answer.
+        with patch.object(index, 'commands', return_value={'query': 'x', 'matches': [], 'total': 0}):
+            self.assertEqual(list(index.build({'find': 'x'})), ['commands'])
+
+    def test_gotchas_are_shipped_beside_the_module(self):
+        # flake.nix installs the package directory wholesale, so a data file
+        # inside it needs no packaging change -- but it must actually be there.
+        self.assertTrue(index.gotchas()['text'].strip())
+
+    def test_the_default_payload_stays_small_enough_to_read(self):
+        # An index too expensive to read at the start of a session is an index
+        # that stops being read.
+        data = {'keys': {'binds': [{'keys': 'SUPER + A', 'label': 'x', 'command': 'y'}] * 60,
+                         'duplicates': []},
+                'gotchas': index.gotchas()}
+        self.assertLess(len(index.render(data)), 20000)
+
 
 
 if __name__ == '__main__':
