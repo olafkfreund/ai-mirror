@@ -26,7 +26,7 @@ ACTION = {'type': 'object', 'properties': {
 }, 'required': ['type'], 'additionalProperties': False}
 FRAMES = {}  # This connection's last 32 observations.
 FRAME_NUMBER = 0
-READ_ONLY = {'status', 'screenshot', 'windows', 'a11y_tree', 'a11y_find', 'index'}
+READ_ONLY = {'status', 'screenshot', 'windows', 'a11y_tree', 'a11y_find', 'index', 'wait'}
 DESTRUCTIVE = {'control', 'input', 'window', 'launch', 'a11y_act'}
 
 
@@ -42,6 +42,10 @@ def tool(name, description, properties=None, required=None):
 
 
 TOOLS = [
+    tool('wait', 'Confirm a prerequisite holds before acting on it: after pressing the key that opens a panel, wait for it rather than typing blind. Exactly one predicate. absent=true waits for it to STOP holding, which is how you close one panel before opening the next. result=not_confirmed means it did not hold before the deadline -- NOT that the action failed; it may still land, and retrying can toggle shut a panel that had just opened. result=unavailable means the state could not be read at all.',
+         {'layer': STR, 'window_class': STR, 'window_title': STR, 'workspace': STR,
+          'monitor': STR, 'layout': STR, 'absent': {'type': 'boolean'},
+          'timeout': {'type': 'number', 'minimum': 0.1, 'maximum': 30}}),
     tool('index', 'What this host looks like: keybindings with their labels, shell plugins and the key that opens each, monitors and workspaces, which apps expose accessibility and which are keyboard-only, and the gotchas that bite. Read-only, no control needed. section=apps adds declared apps/services; find=<query> searches the omarchy-* commands instead.',
          {'section': {'type': 'array', 'items': STR}, 'find': STR}),
     tool('status', 'Control owner (agent/off), generation, and monitor layout in global pixels.'),
@@ -77,7 +81,9 @@ INSTRUCTIONS = ('This server drives the user\'s REAL desktop. Call control with 
                 'screenshot for input. Any not_owner or stale_generation error means the human revoked or '
                 'changed control: stop, observe again, and never retry blindly. '
                 'Call index first on an unfamiliar host: it gives you the keybinding for each '
-                'panel, so you press the key the user presses instead of hunting for pixels.')
+                'panel, so you press the key the user presses instead of hunting for pixels. '
+                'After an action that should open a panel or a window, confirm it with wait '
+                'before sending anything that depends on it.')
 
 
 def text(value):
