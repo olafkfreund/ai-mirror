@@ -112,10 +112,8 @@ def check_wait():
     A happy-path-only check would not have caught the failure this came from,
     which is precisely a step that did not happen being treated as one that did.
     """
-    import json
     from ai_mirror import api, control, wait
 
-    root = Path(__file__).resolve().parents[1]
     control.set_owner('agent', 'human')
     try:
         gen = control.read_state()['generation']
@@ -141,6 +139,9 @@ def check_wait():
 
         # The negative: a prerequisite that will never hold must stop the
         # sequence rather than let it run on.
+        # The negative result itself. This asserts what wait returns, not that
+        # a caller obeyed it -- obedience is the caller's job and is covered by
+        # the acceptance run in the PR, not here.
         out = wait.until({'layer': 'no-such-layer', 'timeout': 1})
         assert out['result'] == 'not_confirmed', out
         assert 900 < out['waited_ms'] < 2000, out

@@ -214,7 +214,7 @@ class McpTests(Base):
         self.assertEqual(result.stderr, '')
 
 
-class DesktopIndex(unittest.TestCase):
+class DesktopIndex(Base):
     """The index parses this host's config shapes and never dies on one source."""
 
     LUA = """
@@ -379,7 +379,7 @@ o.bind("SUPER + SHIFT + S", nil, "omarchy-capture-screenshot")
 
 
 
-class Wait(unittest.TestCase):
+class Wait(Base):
     """Confirming a prerequisite, and the three answers kept apart."""
 
     LAYERS = {'DP-1': {'levels': {'2': [{'namespace': 'nixarchy-pkg-menu'}]}},
@@ -388,7 +388,7 @@ class Wait(unittest.TestCase):
 
     def hypr(self, payloads):
         """Stub host.ctl; a payload may be an exception to raise."""
-        def ctl(*args):
+        def ctl(*args, **kwargs):
             value = payloads[args[0]]
             if isinstance(value, Exception):
                 raise value
@@ -430,7 +430,7 @@ class Wait(unittest.TestCase):
     def test_a_prerequisite_that_becomes_true_is_noticed_before_the_deadline(self):
         state = {'n': 0}
 
-        def ctl(*args):
+        def ctl(*args, **kwargs):
             state['n'] += 1
             present = state['n'] >= 3
             return json.dumps({'M': {'levels': {'0': [{'namespace': 'late'}] if present else []}}})
@@ -462,6 +462,63 @@ class Wait(unittest.TestCase):
                 out = wait.until({'layer': 'nope', 'timeout': 600})
         self.assertEqual(out['result'], 'not_confirmed')
         self.assertLess(time.monotonic() - started, 5)
+
+
+    def test_the_monitor_predicate(self):
+        with patch.object(host, 'monitors', return_value=LAYOUT):
+            self.assertEqual(wait.until({'monitor': 'HDMI-A-1'})['result'], 'confirmed')
+            self.assertEqual(wait.until({'monitor': 'DP-1', 'timeout': 0.2})['result'],
+                             'not_confirmed')
+
+    def test_a_non_finite_timeout_is_rejected_rather_than_waiting_for_ever(self):
+        # min(nan, MAX) is nan and nothing is ever >= nan, so an unvalidated
+        # nan polls until the process is killed.
+        for bad in (float('nan'), float('inf'), -1, 'soon'):
+            with self.assertRaises(ValueError):
+                wait.until({'layer': 'x', 'timeout': bad})
+
+    def test_timeout_zero_means_look_once(self):
+        with self.hypr({'layers': self.LAYERS}):
+            started = time.monotonic()
+            out = wait.until({'layer': 'nope', 'timeout': 0})
+        self.assertEqual(out['result'], 'not_confirmed')
+        self.assertEqual(out['polls'], 1, 'zero was swallowed by a falsy default')
+        self.assertLess(time.monotonic() - started, 0.5)
+
+    def test_the_deadline_bounds_the_query_too(self):
+        # host.ctl allows itself ten seconds; a caller waiting 0.2 must not be
+        # held for ten by one slow probe.
+        seen = {}
+
+        def ctl(*args, **kwargs):
+            seen['timeout'] = kwargs.get('timeout')
+            return json.dumps(self.LAYERS)
+
+        with patch.object(host, 'ctl', side_effect=ctl):
+            wait.until({'layer': 'nope', 'timeout': 0.2})
+        self.assertIsNotNone(seen['timeout'])
+        self.assertLessEqual(seen['timeout'], 0.2 + 1e-6)
+
+    def test_a_malformed_reply_is_unavailable_not_confirmed_absence(self):
+        # Reporting confident absence from a reply we could not parse is the
+        # same mistake as conflating "could not look" with "not there".
+        for payloads, args in (({'layers': {'DP-1': {}}}, {'layer': 'x', 'absent': True}),
+                               ({'layers': {}}, {'layer': 'x', 'absent': True}),
+                               ({'devices': {}}, {'layout': 'x', 'absent': True}),
+                               ({'activeworkspace': {}}, {'workspace': 'None'}),
+                               ({'clients': {}}, {'window_class': 'x', 'absent': True})):
+            with self.hypr(payloads):
+                out = wait.until({**args, 'timeout': 0.2})
+            self.assertEqual(out['result'], 'unavailable', (payloads, args))
+
+    def test_the_mcp_schema_accepts_a_timeout(self):
+        # 'number' was not in TYPES, so every MCP call carrying a timeout died
+        # with KeyError before the wait ever ran.
+        mcp.validate('wait', {'layer': 'x', 'timeout': 1})
+        mcp.validate('wait', {'layer': 'x', 'timeout': 1.5})
+        for bad in (True, 'soon', float('nan')):
+            with self.assertRaises(ValueError):
+                mcp.validate('wait', {'layer': 'x', 'timeout': bad})
 
     def test_wait_needs_no_control_grant(self):
         control.set_owner('off', 'human')

@@ -2,6 +2,7 @@
 import base64
 import copy
 import json
+import math
 import signal
 import subprocess
 import sys
@@ -159,7 +160,11 @@ def validate(name, args):
     for key, value in args.items():
         prop = schema['properties'][key]
         kind = prop['type']
+        # `number` accepts an int or a float but never a bool (a subclass of
+        # int), and never nan/inf: a non-finite timeout compares false against
+        # every deadline, which is an unbounded wait rather than a bad value.
         ok = (type(value) is int if kind == 'integer' else type(value) is bool if kind == 'boolean'
+              else type(value) in (int, float) and math.isfinite(value) if kind == 'number'
               else isinstance(value, TYPES[kind]))
         if not ok:
             raise ValueError(f'Invalid type for {key}')
