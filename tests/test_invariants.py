@@ -10,7 +10,7 @@ import time
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from ai_mirror import api, control, host, index, input, mcp
+from ai_mirror import api, control, host, index, input, mcp, wait
 
 LAYOUT = [{'name': 'DP-2', 'x': 0, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
           {'name': 'DP-1', 'x': 2560, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
@@ -376,6 +376,98 @@ o.bind("SUPER + SHIFT + S", nil, "omarchy-capture-screenshot")
         with patch.object(a11y, 'tree', return_value={'nodes': []}) as tree:
             index.nav()
         self.assertIs(tree.call_args.kwargs.get('enable'), False)
+
+
+
+class Wait(unittest.TestCase):
+    """Confirming a prerequisite, and the three answers kept apart."""
+
+    LAYERS = {'DP-1': {'levels': {'2': [{'namespace': 'nixarchy-pkg-menu'}]}},
+              'DP-2': {'levels': {'0': [{'namespace': 'omarchy-background'}]}}}
+    CLIENTS = [{'class': 'Google-chrome', 'title': 'nixarchy — Omarchy, vendored'}]
+
+    def hypr(self, payloads):
+        """Stub host.ctl; a payload may be an exception to raise."""
+        def ctl(*args):
+            value = payloads[args[0]]
+            if isinstance(value, Exception):
+                raise value
+            return json.dumps(value)
+        return patch.object(host, 'ctl', side_effect=ctl)
+
+    def test_each_predicate_holds_and_does_not(self):
+        with self.hypr({'layers': self.LAYERS, 'clients': self.CLIENTS,
+                        'activeworkspace': {'id': 8, 'monitor': 'DP-1'},
+                        'devices': {'keyboards': [{'active_keymap': 'English (UK)'}]}}):
+            for args in ({'layer': 'nixarchy-pkg-menu'},
+                         {'window_class': 'Google-chrome'},
+                         {'window_title': 'vendored'},
+                         {'workspace': 8},
+                         {'layout': 'English (UK)'}):
+                self.assertEqual(wait.until({**args, 'timeout': 0.2})['result'],
+                                 'confirmed', args)
+            for args in ({'layer': 'nope'}, {'window_class': 'nope'},
+                         {'window_title': 'nope'}, {'workspace': 99},
+                         {'layout': 'German'}):
+                self.assertEqual(wait.until({**args, 'timeout': 0.2})['result'],
+                                 'not_confirmed', args)
+
+    def test_absent_inverts_the_predicate(self):
+        with self.hypr({'layers': self.LAYERS}):
+            self.assertEqual(wait.until({'layer': 'gone', 'absent': True})['result'],
+                             'confirmed')
+            self.assertEqual(wait.until({'layer': 'nixarchy-pkg-menu', 'absent': True,
+                                         'timeout': 0.2})['result'], 'not_confirmed')
+
+    def test_an_already_true_prerequisite_returns_on_the_first_poll(self):
+        # The case an event-based design cannot see at all: nothing transitions,
+        # so a listener would wait out the entire timeout.
+        with self.hypr({'layers': self.LAYERS}):
+            out = wait.until({'layer': 'nixarchy-pkg-menu', 'timeout': 5})
+        self.assertEqual(out['polls'], 1)
+        self.assertLess(out['waited_ms'], 500)
+
+    def test_a_prerequisite_that_becomes_true_is_noticed_before_the_deadline(self):
+        state = {'n': 0}
+
+        def ctl(*args):
+            state['n'] += 1
+            present = state['n'] >= 3
+            return json.dumps({'M': {'levels': {'0': [{'namespace': 'late'}] if present else []}}})
+
+        with patch.object(host, 'ctl', side_effect=ctl):
+            out = wait.until({'layer': 'late', 'timeout': 5})
+        self.assertEqual(out['result'], 'confirmed')
+        self.assertEqual(out['polls'], 3)
+        self.assertLess(out['waited_ms'], 1000, 'noticed at the deadline, not on change')
+
+    def test_a_failure_to_look_is_unavailable_and_never_not_confirmed(self):
+        # Conflating these makes a caller act on the absence of evidence.
+        with self.hypr({'layers': RuntimeError('Hyprland: no such request')}):
+            out = wait.until({'layer': 'anything', 'timeout': 5})
+        self.assertEqual(out['result'], 'unavailable')
+        self.assertIn('no such request', out['reason'])
+        self.assertLess(out['waited_ms'], 1000, 'should fail fast, not poll to the deadline')
+
+    def test_exactly_one_predicate_is_required(self):
+        for args in ({}, {'layer': 'a', 'monitor': 'b'}):
+            with self.assertRaises(ValueError) as caught:
+                wait.until(args)
+            self.assertIn('exactly one', str(caught.exception))
+
+    def test_timeout_is_clamped(self):
+        with self.hypr({'layers': self.LAYERS}):
+            started = time.monotonic()
+            with patch.object(wait, 'MAX_TIMEOUT', 0.2):
+                out = wait.until({'layer': 'nope', 'timeout': 600})
+        self.assertEqual(out['result'], 'not_confirmed')
+        self.assertLess(time.monotonic() - started, 5)
+
+    def test_wait_needs_no_control_grant(self):
+        control.set_owner('off', 'human')
+        with self.hypr({'layers': self.LAYERS}):
+            self.assertEqual(api.run('wait', {'layer': 'nixarchy-pkg-menu'}, by='agent')['result'],
+                             'confirmed')
 
 
 

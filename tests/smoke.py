@@ -106,6 +106,55 @@ def check_index():
           f'{len(opens)} joined to a key, {len(rendered)} bytes')
 
 
+def check_wait():
+    """Live: the sequence that motivated this, including the negative case.
+
+    A happy-path-only check would not have caught the failure this came from,
+    which is precisely a step that did not happen being treated as one that did.
+    """
+    import json
+    from ai_mirror import api, control, wait
+
+    root = Path(__file__).resolve().parents[1]
+    control.set_owner('agent', 'human')
+    try:
+        gen = control.read_state()['generation']
+        subprocess.run(['hyprctl', 'dispatch', 'hl.dsp.focus({ monitor = "DP-1" })'],
+                       capture_output=True)
+        time.sleep(0.4)
+
+        # Nothing is open: the absent form must confirm immediately.
+        out = wait.until({'layer': 'nixarchy-pkg-menu', 'absent': True, 'timeout': 2})
+        assert out['result'] == 'confirmed', out
+
+        api.run('input', {'generation': gen,
+                          'actions': [{'type': 'key', 'keys': ['N'],
+                                       'modifiers': ['SUPER', 'ALT']}]})
+        out = wait.until({'layer': 'nixarchy-pkg-menu', 'timeout': 5})
+        assert out['result'] == 'confirmed', f'panel never appeared: {out}'
+        opened_ms = out['waited_ms']
+
+        subprocess.run(['omarchy-shell', '-q', 'shell', 'hide', 'nixarchy.pkg'],
+                       capture_output=True)
+        out = wait.until({'layer': 'nixarchy-pkg-menu', 'absent': True, 'timeout': 5})
+        assert out['result'] == 'confirmed', f'panel never closed: {out}'
+
+        # The negative: a prerequisite that will never hold must stop the
+        # sequence rather than let it run on.
+        out = wait.until({'layer': 'no-such-layer', 'timeout': 1})
+        assert out['result'] == 'not_confirmed', out
+        assert 900 < out['waited_ms'] < 2000, out
+
+        print(f'PASS: wait -- panel confirmed in {opened_ms} ms, close confirmed, '
+              f'absent layer correctly not_confirmed')
+    finally:
+        subprocess.run(['omarchy-shell', '-q', 'shell', 'hide', 'nixarchy.pkg'],
+                       capture_output=True)
+        control.set_owner('off', 'human')
+        control.HELPER.stop()
+
+
 if __name__ == '__main__':
     check_index()
+    check_wait()
     main()
