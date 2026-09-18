@@ -65,6 +65,12 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
     if op == 'a11y_find':
         from . import a11y
         return a11y.find(args.get('name'), args.get('role'), args.get('app'), args.get('limit', 20))
+    if op == 'wait':
+        # Read-only, and outside the ownership gate for the same reason as
+        # index: observing is not acting. A caller whose control was revoked
+        # already fails on its next input with not_owner.
+        from . import wait
+        return wait.until(args)
     if op == 'index':
         # Read-only, and deliberately outside the ownership gate: orienting
         # before asking for control is the point of having it.

@@ -10,7 +10,7 @@ import time
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from ai_mirror import api, control, host, index, input, mcp
+from ai_mirror import api, control, host, index, input, mcp, wait
 
 LAYOUT = [{'name': 'DP-2', 'x': 0, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
           {'name': 'DP-1', 'x': 2560, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
@@ -214,7 +214,7 @@ class McpTests(Base):
         self.assertEqual(result.stderr, '')
 
 
-class DesktopIndex(unittest.TestCase):
+class DesktopIndex(Base):
     """The index parses this host's config shapes and never dies on one source."""
 
     LUA = """
@@ -376,6 +376,155 @@ o.bind("SUPER + SHIFT + S", nil, "omarchy-capture-screenshot")
         with patch.object(a11y, 'tree', return_value={'nodes': []}) as tree:
             index.nav()
         self.assertIs(tree.call_args.kwargs.get('enable'), False)
+
+
+
+class Wait(Base):
+    """Confirming a prerequisite, and the three answers kept apart."""
+
+    LAYERS = {'DP-1': {'levels': {'2': [{'namespace': 'nixarchy-pkg-menu'}]}},
+              'DP-2': {'levels': {'0': [{'namespace': 'omarchy-background'}]}}}
+    CLIENTS = [{'class': 'Google-chrome', 'title': 'nixarchy — Omarchy, vendored'}]
+
+    def hypr(self, payloads):
+        """Stub host.ctl; a payload may be an exception to raise."""
+        def ctl(*args, **kwargs):
+            value = payloads[args[0]]
+            if isinstance(value, Exception):
+                raise value
+            return json.dumps(value)
+        return patch.object(host, 'ctl', side_effect=ctl)
+
+    def test_each_predicate_holds_and_does_not(self):
+        with self.hypr({'layers': self.LAYERS, 'clients': self.CLIENTS,
+                        'activeworkspace': {'id': 8, 'monitor': 'DP-1'},
+                        'devices': {'keyboards': [{'active_keymap': 'English (UK)'}]}}):
+            for args in ({'layer': 'nixarchy-pkg-menu'},
+                         {'window_class': 'Google-chrome'},
+                         {'window_title': 'vendored'},
+                         {'workspace': 8},
+                         {'layout': 'English (UK)'}):
+                self.assertEqual(wait.until({**args, 'timeout': 0.2})['result'],
+                                 'confirmed', args)
+            for args in ({'layer': 'nope'}, {'window_class': 'nope'},
+                         {'window_title': 'nope'}, {'workspace': 99},
+                         {'layout': 'German'}):
+                self.assertEqual(wait.until({**args, 'timeout': 0.2})['result'],
+                                 'not_confirmed', args)
+
+    def test_absent_inverts_the_predicate(self):
+        with self.hypr({'layers': self.LAYERS}):
+            self.assertEqual(wait.until({'layer': 'gone', 'absent': True})['result'],
+                             'confirmed')
+            self.assertEqual(wait.until({'layer': 'nixarchy-pkg-menu', 'absent': True,
+                                         'timeout': 0.2})['result'], 'not_confirmed')
+
+    def test_an_already_true_prerequisite_returns_on_the_first_poll(self):
+        # The case an event-based design cannot see at all: nothing transitions,
+        # so a listener would wait out the entire timeout.
+        with self.hypr({'layers': self.LAYERS}):
+            out = wait.until({'layer': 'nixarchy-pkg-menu', 'timeout': 5})
+        self.assertEqual(out['polls'], 1)
+        self.assertLess(out['waited_ms'], 500)
+
+    def test_a_prerequisite_that_becomes_true_is_noticed_before_the_deadline(self):
+        state = {'n': 0}
+
+        def ctl(*args, **kwargs):
+            state['n'] += 1
+            present = state['n'] >= 3
+            return json.dumps({'M': {'levels': {'0': [{'namespace': 'late'}] if present else []}}})
+
+        with patch.object(host, 'ctl', side_effect=ctl):
+            out = wait.until({'layer': 'late', 'timeout': 5})
+        self.assertEqual(out['result'], 'confirmed')
+        self.assertEqual(out['polls'], 3)
+        self.assertLess(out['waited_ms'], 1000, 'noticed at the deadline, not on change')
+
+    def test_a_failure_to_look_is_unavailable_and_never_not_confirmed(self):
+        # Conflating these makes a caller act on the absence of evidence.
+        with self.hypr({'layers': RuntimeError('Hyprland: no such request')}):
+            out = wait.until({'layer': 'anything', 'timeout': 5})
+        self.assertEqual(out['result'], 'unavailable')
+        self.assertIn('no such request', out['reason'])
+        self.assertLess(out['waited_ms'], 1000, 'should fail fast, not poll to the deadline')
+
+    def test_exactly_one_predicate_is_required(self):
+        for args in ({}, {'layer': 'a', 'monitor': 'b'}):
+            with self.assertRaises(ValueError) as caught:
+                wait.until(args)
+            self.assertIn('exactly one', str(caught.exception))
+
+    def test_timeout_is_clamped(self):
+        with self.hypr({'layers': self.LAYERS}):
+            started = time.monotonic()
+            with patch.object(wait, 'MAX_TIMEOUT', 0.2):
+                out = wait.until({'layer': 'nope', 'timeout': 600})
+        self.assertEqual(out['result'], 'not_confirmed')
+        self.assertLess(time.monotonic() - started, 5)
+
+
+    def test_the_monitor_predicate(self):
+        with patch.object(host, 'monitors', return_value=LAYOUT):
+            self.assertEqual(wait.until({'monitor': 'HDMI-A-1'})['result'], 'confirmed')
+            self.assertEqual(wait.until({'monitor': 'DP-1', 'timeout': 0.2})['result'],
+                             'not_confirmed')
+
+    def test_a_non_finite_timeout_is_rejected_rather_than_waiting_for_ever(self):
+        # min(nan, MAX) is nan and nothing is ever >= nan, so an unvalidated
+        # nan polls until the process is killed.
+        for bad in (float('nan'), float('inf'), -1, 'soon'):
+            with self.assertRaises(ValueError):
+                wait.until({'layer': 'x', 'timeout': bad})
+
+    def test_timeout_zero_means_look_once(self):
+        with self.hypr({'layers': self.LAYERS}):
+            started = time.monotonic()
+            out = wait.until({'layer': 'nope', 'timeout': 0})
+        self.assertEqual(out['result'], 'not_confirmed')
+        self.assertEqual(out['polls'], 1, 'zero was swallowed by a falsy default')
+        self.assertLess(time.monotonic() - started, 0.5)
+
+    def test_the_deadline_bounds_the_query_too(self):
+        # host.ctl allows itself ten seconds; a caller waiting 0.2 must not be
+        # held for ten by one slow probe.
+        seen = {}
+
+        def ctl(*args, **kwargs):
+            seen['timeout'] = kwargs.get('timeout')
+            return json.dumps(self.LAYERS)
+
+        with patch.object(host, 'ctl', side_effect=ctl):
+            wait.until({'layer': 'nope', 'timeout': 0.2})
+        self.assertIsNotNone(seen['timeout'])
+        self.assertLessEqual(seen['timeout'], 0.2 + 1e-6)
+
+    def test_a_malformed_reply_is_unavailable_not_confirmed_absence(self):
+        # Reporting confident absence from a reply we could not parse is the
+        # same mistake as conflating "could not look" with "not there".
+        for payloads, args in (({'layers': {'DP-1': {}}}, {'layer': 'x', 'absent': True}),
+                               ({'layers': {}}, {'layer': 'x', 'absent': True}),
+                               ({'devices': {}}, {'layout': 'x', 'absent': True}),
+                               ({'activeworkspace': {}}, {'workspace': 'None'}),
+                               ({'clients': {}}, {'window_class': 'x', 'absent': True})):
+            with self.hypr(payloads):
+                out = wait.until({**args, 'timeout': 0.2})
+            self.assertEqual(out['result'], 'unavailable', (payloads, args))
+
+    def test_the_mcp_schema_accepts_a_timeout(self):
+        # 'number' was not in TYPES, so every MCP call carrying a timeout died
+        # with KeyError before the wait ever ran.
+        mcp.validate('wait', {'layer': 'x', 'timeout': 1})
+        mcp.validate('wait', {'layer': 'x', 'timeout': 1.5})
+        for bad in (True, 'soon', float('nan')):
+            with self.assertRaises(ValueError):
+                mcp.validate('wait', {'layer': 'x', 'timeout': bad})
+
+    def test_wait_needs_no_control_grant(self):
+        control.set_owner('off', 'human')
+        with self.hypr({'layers': self.LAYERS}):
+            self.assertEqual(api.run('wait', {'layer': 'nixarchy-pkg-menu'}, by='agent')['result'],
+                             'confirmed')
 
 
 

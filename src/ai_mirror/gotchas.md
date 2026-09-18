@@ -30,6 +30,24 @@ Two edits landed this way during one session: `chrome.enable = true`, and a
 around any scripted run and restore them if they changed. Prefer a path option,
 whose editor cancels on Escape, over a boolean, which toggles on `Return`.
 
+## `input` returning does not mean anything happened
+
+It reports that the keystroke was delivered, nothing more. Measured here: the
+call returned at 164 ms and the panel it opened did not exist until 225 ms. A
+sequence that types in that window types into whatever was behind.
+
+**Do:** `ai-mirror wait --layer nixarchy-pkg-menu` after pressing the key, and
+only continue on `confirmed`. Use `--absent` to wait for a panel to close
+before opening the next, since panels do not stack.
+
+`not_confirmed` means it did not hold before the deadline — **not** that the
+action failed. It may still land. Retrying on it can toggle shut the panel that
+had just opened. `unavailable` is a third thing again: the state could not be
+read, so nothing was learned either way.
+
+It confirms a state, not a cause. Another agent or the human can satisfy the
+same predicate, and a confirmed state can stop holding before the next action.
+
 ## Navigating the package panel
 
 It opens with the *list* focused, not the search box — deliberately, so `l`

@@ -27,6 +27,7 @@ Full reference: `docs/usage.md`.
 | `src/ai_mirror/control.py` | State file, `set_owner`, `require_agent`, MCP server registry + `signal_servers`, `Helper` (ai-mirror-input process), `run_batch`, `screenshot` (grim) |
 | `src/ai_mirror/host.py` | `hyprctl`: monitors, `layout_box`, windows, `window_dispatch` (validated Lua) |
 | `src/ai_mirror/input.py` | Actions → helper lines `M x y` / `B code 0\|1` / `S dx dy` / `K code 0\|1` / `T utf8`; evdev key table |
+| `src/ai_mirror/wait.py` | Polls Hyprland state until one named prerequisite holds or a deadline passes. No events: a prerequisite that already holds never transitions |
 | `src/ai_mirror/index.py` | What this host looks like: keys from `~/.config/hypr/*.lua`, plugins, nav strategy, gotchas. Derived per call, never cached, never written to disk |
 | `src/ai_mirror/gotchas.md` | The hand-written half of the index. Read only; nothing generates it |
 | `src/ai_mirror/a11y.py` | AT-SPI via `gi.repository.Atspi`: tree, find, act |
@@ -65,6 +66,12 @@ Style: stdlib Python (PyGObject only for a11y), JSON in/out, small functions, no
 dependencies. New tool = `api.run` branch + `mcp.TOOLS` entry + CLI subcommand + test.
 
 ## Driving this desktop — measured facts, not guesses
+
+**Confirm before you act on it.** `input` returning means the keystroke was
+delivered, not that anything happened -- measured here, 164 ms to return and
+225 ms until the panel existed. `ai-mirror wait --layer <namespace>` after
+pressing the key, `--absent` to wait for one to close before opening the next.
+`not_confirmed` does not mean the action failed.
 
 **Run `ai-mirror index` first.** Keybindings, plugins and the key that opens
 each, monitors and workspaces, which surfaces expose accessibility, and the
