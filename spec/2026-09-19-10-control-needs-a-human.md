@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 10
 intent: intent/2026-09-19-10-control-needs-a-human.md
 ---
@@ -208,3 +208,5 @@ file, with no compositor. Each is shown failing on `295762d` (today's
 The widget's dialog is checked by hand on a live session: Allow grants, Deny and
 Escape refuse, the countdown expires, the watching mark appears and fades.
 There's no display in the test suite, as with the existing mark.
+
+**Decided on approval (owner, 2026-09-19):** the stated limit is accepted: the gate holds for agents reaching ai-mirror through MCP alone, and an agent with a shell as the same user could answer its own prompt.
