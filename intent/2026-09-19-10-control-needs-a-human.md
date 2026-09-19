@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 10
 author: olafkfreund
 ---
@@ -72,3 +72,5 @@ the flake's outputs. nixarchy's #773 depends on it.
 2. **The timeout**, and whether a confirmed grant expires on its own (for
    example after N minutes, or when the MCP session ends; the latter already
    happens, `mcp.py:251`).
+
+**Decided on approval (owner, 2026-09-19):** observation shows a visible watching indicator rather than needing a separate grant; the confirm timeout and grant expiry are settled in the spec.
