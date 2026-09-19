@@ -22,8 +22,10 @@ with a shell.** Kernel `ptrace_scope` is 1 on nixarchy, which stops it reading
 another process's memory. It does not stop it writing our files or driving our
 seat. A channel that would hold (a different uid, or a compositor that tells
 physical from virtual input and refuses the latter for this one prompt) is out
-of reach here: Hyprland fires binds from virtual keyboards too, and ai-mirror
-does not run privileged code.
+of reach here. We know of no Hyprland setting that makes a bind or a layer
+surface refuse virtual input, and ai-mirror does not run privileged code. The
+implementer checks the first part before building; if such a setting exists,
+it strengthens this design and does not change it.
 
 So the gate protects against three things, and the spec does not claim more:
 
