@@ -22,7 +22,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import host
+from . import guard, host
 
 REPO_HELPER = Path(__file__).resolve().parents[2] / 'build/ai-mirror-input'
 
@@ -314,6 +314,7 @@ class Helper:
     def start(self) -> None:
         if self.running:
             return
+        guard.check('control.Helper.start', 'control.HELPER with a fake helper')
         box = host.layout_box()
         self.origin = box[:2]
         env = dict(os.environ, AI_MIRROR_EXTENT_W=str(box[2]), AI_MIRROR_EXTENT_H=str(box[3]))
@@ -328,6 +329,7 @@ class Helper:
         self.proc = proc
 
     def cmd(self, line: str, timeout: float = 15.0) -> str:
+        guard.check('control.Helper.cmd', 'control.HELPER with a fake helper')
         proc = self.proc
         if proc is None:
             raise RuntimeError('helper not started')
