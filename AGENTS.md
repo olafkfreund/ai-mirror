@@ -33,7 +33,7 @@ Full reference: `docs/usage.md`.
 | `src/ai_mirror/gotchas.md` | The hand-written half of the index. Read only; nothing generates it |
 | `src/ai_mirror/a11y.py` | AT-SPI via `gi.repository.Atspi`: tree, find, act |
 | `src/ai_mirror_input/ai_mirror_input.c` | Persistent wlr virtual pointer + virtual keyboard; `C` releases all; stdin EOF releases and exits |
-| `plugin/ConfirmDialog.qml` | The human's half of the gate: layer-shell dialog over everything, exclusive keyboard focus, Deny on Escape/Enter, Allow on `A` |
+| `plugin/AgentConfirmDialog.qml` | The human's half of the gate: layer-shell dialog over everything, exclusive keyboard focus, Deny on Escape/Enter, Allow on `A` |
 | `plugin/` | Omarchy bar widget: `FileView` on the state file, click asks for control; `@ai-mirror@` substituted by Nix |
 | `flake.nix` | `packages.{ai-mirror,ai-mirror-input,plugin}`, `homeManagerModules.default`, `checks`, `devShells` |
 | `tests/test_invariants.py` | Fast regressions (no Wayland); `tests/smoke.py` live desktop check |
