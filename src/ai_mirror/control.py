@@ -22,7 +22,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import guard, host
+from . import guard, host, privacy
 
 REPO_HELPER = Path(__file__).resolve().parents[2] / 'build/ai-mirror-input'
 
@@ -417,6 +417,14 @@ def screenshot(dest: Path, output: str | None = None, region=None, max_size=None
     else:
         monitor = host.monitor(output)
         x, y, width, height, name = monitor['x'], monitor['y'], monitor['w'], monitor['h'], monitor['name']
+    # Before grim, not after: every agent-visible frame comes through here,
+    # including the one mcp.py base64s, so one check covers the surface rather
+    # than each caller remembering. The code is its own, so an agent can tell a
+    # refusal that will never succeed from a capture that merely failed.
+    refusal = privacy.refuse((x, y, width, height), host.windows(),
+                             host.visible_workspaces())
+    if refusal:
+        raise MirrorError('sensitive', refusal)
     options = ['-g', f'{x},{y} {width}x{height}']
     scale = 1.0
     if max_size is not None:

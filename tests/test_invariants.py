@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from ai_mirror import a11y, api, control, guard, host, index, input, mcp, wait
+from ai_mirror import a11y, api, control, guard, host, index, input, mcp, privacy, wait
 
 LAYOUT = [{'name': 'DP-2', 'x': 0, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
           {'name': 'DP-1', 'x': 2560, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
@@ -819,6 +819,60 @@ class A11yCoverage(Base):
         with self.walk(0, 1):
             a11y.tree(enable=False)
         self.assertEqual(self.bus_writes, [])
+
+class SensitiveWindows(Base):
+    """#19: a capture that would include a credential prompt does not happen.
+
+    Base, not TestCase: it arms the guard and isolates XDG_RUNTIME_DIR, and a
+    test class in this file that opts out of that is exactly how a test reaches
+    the real desktop (#15).
+    """
+
+    WINS = [
+        {'class': '1Password', 'title': 'Personal Vault', 'at': [2600, 0],
+         'size': [800, 600], 'workspace': '4'},
+        {'class': 'foot', 'title': 'p620: notes', 'at': [0, 0],
+         'size': [800, 600], 'workspace': '4'},
+    ]
+
+    def test_class_and_title_are_both_needed(self):
+        # a generic title, identified only by class
+        self.assertEqual(privacy.kind('gcr-prompter', 'Unlock'), 'a credential prompt')
+        # an opaque class, identified only by title -- the web app case
+        self.assertEqual(privacy.kind('chrome-abc-Default', 'Revolut - Payments'),
+                         'a banking or payment page')
+        self.assertIsNone(privacy.kind('foot', 'p620: notes'))
+
+    def test_the_category_is_a_fixed_string_never_the_window(self):
+        found = privacy.kind('chrome-x', 'Revolut  someone@example.com  Inbox (7)')
+        self.assertIn(found, {c for c, _ in privacy.SENSITIVE})
+        self.assertNotIn('someone@example.com', found)
+
+    def test_the_unit_is_the_rectangle_not_the_focused_window(self):
+        # the vault is at x=2600; a whole-layout capture includes it
+        self.assertTrue(privacy.refuse((0, 0, 5120, 1440), self.WINS, {'4'}))
+        # a region that stops short of it does not
+        self.assertIsNone(privacy.refuse((0, 0, 800, 600), self.WINS, {'4'}))
+
+    def test_a_window_on_another_workspace_does_not_refuse(self):
+        self.assertIsNone(privacy.refuse((0, 0, 5120, 1440), self.WINS, {'9'}))
+
+    def test_the_refusal_names_the_way_forward_and_admits_it_is_a_heuristic(self):
+        msg = privacy.refuse((0, 0, 5120, 1440), self.WINS, {'4'})
+        self.assertIn('narrower' if 'narrower' in msg else 'specific region', msg)
+        self.assertIn('misfires', msg)
+        self.assertNotIn('Personal Vault', msg)
+
+    def test_screenshot_raises_the_sensitive_code(self):
+        import tempfile
+        from pathlib import Path as P
+        with patch.object(host, 'windows', lambda: self.WINS), \
+             patch.object(host, 'visible_workspaces', lambda: {'4'}), \
+             patch.object(host, 'monitor', lambda n=None: {
+                 'x': 0, 'y': 0, 'w': 5120, 'h': 1440, 'name': 'DP-1'}):
+            with self.assertRaises(control.MirrorError) as err:
+                control.screenshot(P(tempfile.mkdtemp()) / 'x.png')
+        self.assertEqual(err.exception.code, 'sensitive')
 
 if __name__ == '__main__':
     unittest.main()

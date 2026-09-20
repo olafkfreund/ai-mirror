@@ -95,6 +95,16 @@ is answerable only by screenshot.
 is the shape a caller wants even where plugins currently discard it. Tracked as
 olafkfreund/nixarchy#749.
 
+## Captures are refused over password managers and credential prompts
+
+`screenshot` raises `sensitive` when a password manager, a credential prompt, a private
+browsing window or a banking page is visible anywhere in the rectangle being captured --
+not just when it has focus. The refusal names the kind and never the window title.
+
+**Do:** capture a narrower region that excludes it, or ask the user to close it. Treat this
+as best-effort: it matches on window class and title, so it misses things and it misfires.
+It does not make a screen safe to photograph.
+
 ## Accessibility trees are per-application, and mostly absent
 
 quickshell exposes none, so bar and plugin panels are keyboard-only. Native GTK
