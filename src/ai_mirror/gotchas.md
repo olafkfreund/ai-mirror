@@ -82,15 +82,15 @@ is answerable only by screenshot.
 is the shape a caller wants even where plugins currently discard it. Tracked as
 olafkfreund/nixarchy#749.
 
-## QuickShell exposes no accessibility tree
+## Accessibility trees are per-application, and mostly absent
 
-`a11y-tree` returns `{"role":"application","name":"quickshell","states":[]}`
-with no children. The bar and every plugin panel are therefore keyboard-only.
-Electron and GTK applications do expose full trees with bounds and actions.
+quickshell exposes none, so bar and plugin panels are keyboard-only. Native GTK
+apps do expose trees; Chromium and Electron give only an application and a
+frame unless launched with `--force-renderer-accessibility` (#13).
 
-**Do:** `a11y_find` for ordinary applications; keybindings and keyboard
-navigation for anything the shell draws. Never assume a11y covers the desktop
-itself.
+**Do:** read `content` in any a11y result -- false means the tree is
+unavailable, not that the screen is empty, so screenshot instead. Keybindings
+for anything the shell draws. Never assume a11y covers the desktop itself.
 
 ## Panels render on the focused monitor
 

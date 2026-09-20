@@ -16,6 +16,7 @@ QUIET_ROLES = ('filler', 'panel', 'section', 'redundant object', 'unknown')
 VISIT_CAP = 20000
 A11Y_STATUS = ('org.a11y.Bus', '/org/a11y/bus', 'org.a11y.Status')
 A11Y_PROPS = ('IsEnabled', 'ScreenReaderEnabled')
+_enabled = False  # enable_bus is worth doing once, not once per walk
 
 
 def _atspi():
@@ -104,8 +105,13 @@ def _walk(app: str | None, depth: int, enable: bool = True):
     Atspi = _atspi()
     # enable_bus writes org.a11y.Status over busctl. A caller that promises
     # to only observe -- the index -- must be able to decline that.
-    if enable:
-        enable_bus()
+    # Control already enables this when the agent takes over; this is the
+    # fallback for a bare CLI read, and it is worth one subprocess per process
+    # rather than one per walk.
+    global _enabled
+    if enable and not _enabled:
+        enable_bus()  # on failure the flag stays down, so the next walk retries
+        _enabled = True
     desktop = Atspi.get_desktop(0)
     visited = 0
     for index in range(_call(desktop.get_child_count, 0)):
@@ -128,10 +134,33 @@ def _walk(app: str | None, depth: int, enable: bool = True):
                 stack.extend(reversed(children))
 
 
+CONTENT_DEPTH = 2  # an app holds a frame holds content; depth 2 is the first real node
+NO_CONTENT = ('this desktop exposed no accessibility content: every node was an '
+              'application or a window frame, with no controls under them. An empty '
+              'result here means the tree is unavailable, NOT that the screen is '
+              'empty -- use screenshot instead. Chromium and Electron only expose '
+              'content when launched with --force-renderer-accessibility.')
+
+
+def _coverage(visited: int, deep: bool, truncated: bool) -> dict:
+    """What the walk saw, so an empty result is not read as an empty screen.
+
+    Both counts come from the traversal that already runs -- no second walk and
+    no extra AT-SPI calls. `deep` uses the walk's own level rather than asking
+    each node its role, which would be a round trip per node.
+    """
+    coverage = {'visited': visited, 'content': deep}
+    if not deep and not truncated:
+        coverage['note'] = NO_CONTENT
+    return coverage
+
+
 def tree(app: str | None = None, depth: int = 12, max_nodes: int = 400,
          enable: bool = True) -> dict:
-    nodes, truncated = [], False
+    nodes, truncated, visited, deep = [], False, 0, False
     for node_id, acc, level, Atspi in _walk(app, depth, enable):
+        visited += 1
+        deep = deep or level >= CONTENT_DEPTH
         row = _node(acc, node_id, Atspi)
         if level and not row['name'] and row['role'] in QUIET_ROLES and 'text' not in row:
             continue
@@ -140,14 +169,16 @@ def tree(app: str | None = None, depth: int = 12, max_nodes: int = 400,
             break
         row['depth'] = level
         nodes.append(row)
-    return {'nodes': nodes, 'truncated': truncated}
+    return {'nodes': nodes, 'truncated': truncated, **_coverage(visited, deep, truncated)}
 
 
 def find(name: str | None = None, role: str | None = None, app: str | None = None, limit: int = 20) -> dict:
     if not name and not role:
         raise ValueError('give name and/or role')
-    matches = []
-    for node_id, acc, _level, Atspi in _walk(app, 64):
+    matches, visited, deep = [], 0, False
+    for node_id, acc, level, Atspi in _walk(app, 64):
+        visited += 1
+        deep = deep or level >= CONTENT_DEPTH
         if name and name.lower() not in (_call(acc.get_name, '') or '').lower():
             continue
         if role and role.lower() != (_call(acc.get_role_name, '') or '').lower():
@@ -155,7 +186,7 @@ def find(name: str | None = None, role: str | None = None, app: str | None = Non
         matches.append(_node(acc, node_id, Atspi))
         if len(matches) >= limit:
             break
-    return {'nodes': matches}
+    return {'nodes': matches, **_coverage(visited, deep, False)}
 
 
 def resolve(node_id: str):
