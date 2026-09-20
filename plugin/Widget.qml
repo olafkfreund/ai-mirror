@@ -25,9 +25,9 @@ BarWidget {
   property double now: Date.now() / 1000
   readonly property bool watching: !root.on && root.now - root.lastLook < 10
 
-  Command { id: command }
+  AgentCommand { id: command }
 
-  ConfirmDialog {
+  AgentConfirmDialog {
     request: root.pending ? root.state.request : null
     command: command
   }

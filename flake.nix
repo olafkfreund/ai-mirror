@@ -59,7 +59,7 @@
       plugin = pkgs.runCommand "ai-mirror-plugin-${version}" { } ''
         cp -r ${./plugin} $out
         chmod -R u+w $out
-        substituteInPlace $out/Command.qml --replace-fail "@ai-mirror@" "${ai-mirror}/bin/ai-mirror"
+        substituteInPlace $out/AgentCommand.qml --replace-fail "@ai-mirror@" "${ai-mirror}/bin/ai-mirror"
         ${licenceFiles}
       '';
     in
