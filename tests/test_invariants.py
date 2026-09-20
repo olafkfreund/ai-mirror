@@ -820,8 +820,13 @@ class A11yCoverage(Base):
             a11y.tree(enable=False)
         self.assertEqual(self.bus_writes, [])
 
-class SensitiveWindows(unittest.TestCase):
-    """#19: a capture that would include a credential prompt does not happen."""
+class SensitiveWindows(Base):
+    """#19: a capture that would include a credential prompt does not happen.
+
+    Base, not TestCase: it arms the guard and isolates XDG_RUNTIME_DIR, and a
+    test class in this file that opts out of that is exactly how a test reaches
+    the real desktop (#15).
+    """
 
     WINS = [
         {'class': '1Password', 'title': 'Personal Vault', 'at': [2600, 0],
