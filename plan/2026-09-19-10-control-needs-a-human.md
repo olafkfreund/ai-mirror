@@ -217,3 +217,26 @@ old way.
 **Dependants to warn:** nixarchy-voice's backend must handle `pending`
 (nixarchy-voice#17 gates the whole link off by default), and nixarchy#773
 describes this gate as the reason ai-mirror may ship installed.
+
+## Deviations, recorded while implementing
+
+Five, all small, all in the same commit as the code they describe.
+
+1. **`watching` holds the time of the last look, not an empty file.** The plan
+   had the widget stat its mtime on a 1 s timer. QML has no stat, and a
+   `FileView` cannot see a change in a file whose content never changes, so the
+   file holds the unix seconds and the widget reads it the way it already reads
+   `state.json`. The 1 s timer stays, but only to age the value out.
+2. **`locked()` is re-entrant.** `read_state()` writes a lapsed request under
+   the lock, and it is called from inside `set_owner`'s lock; a second `flock`
+   on a new fd from the same process would deadlock.
+3. **`last_input` is refreshed in `require_agent`** (the decision the plan left
+   open), coalesced to once a minute. Writing state.json per input batch would
+   make the bar's `FileView` re-parse on every mouse move for no gain against a
+   ten-minute limit.
+4. **Deny is the default in every direction.** Escape, Return and `D` all deny;
+   Allow needs `A` or a click. An Enter left over from whatever had focus must
+   not hand an agent the keyboard.
+5. **Two more audit events than the table listed:** `off` (a stop, and who did
+   it) and `idle` (a grant that timed out), so the log accounts for every
+   transition rather than only the answered ones.

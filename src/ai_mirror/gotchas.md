@@ -8,6 +8,19 @@ generates or rewrites it. An agent that learns something new proposes a diff
 like anyone else, because a wrong lesson recorded silently is worse than no
 lesson at all.
 
+## Asking for control is not having it
+
+`control agent` opens a dialog on the user's desktop and returns
+`owner: pending`. Input stays refused until they answer. Poll `status`: `agent`
+means yes, `off` means no or that nobody answered within 30 seconds.
+
+**Do:** ask, poll, and if it comes back `off`, say so and stop. Asking twice
+because the first attempt "failed" is asking a person who already said no.
+
+**Also:** a grant ends by itself after ten minutes with no input. A long think
+between actions can outlive it; expect `not_owner` and ask again rather than
+retrying the input.
+
 ## The bar expands under a hovering cursor
 
 Resting the pointer on the top bar expands the system tray, which shifts every

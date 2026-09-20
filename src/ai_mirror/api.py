@@ -10,6 +10,8 @@ from .control import MirrorError
 from .input import encode
 
 MUTATING = {'input', 'window', 'launch', 'a11y_act'}
+# Ungated reads. An agent doing any of these lights the watching mark in the bar.
+OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'wait', 'index'}
 
 
 def doctor() -> dict:
@@ -30,13 +32,22 @@ def _generation(args) -> int:
 
 def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
     args = args or {}
+    if by == 'agent' and op in OBSERVING:
+        control.watch()
     if op == 'doctor':
         return doctor()
     if op == 'status':
         state = control.read_state()
         return {**state, 'monitors': host.monitors()}
     if op == 'control':
-        return control.set_owner(args.get('mode'), by)
+        mode = args.get('mode')
+        if mode in ('confirm', 'deny'):
+            # Only the human answers, and the agent reaches this dispatcher with by='agent'.
+            if by == 'agent':
+                raise MirrorError('not_owner', 'only the person at the keyboard confirms or denies a request')
+            request = args.get('id') or control.read_state().get('request', {}).get('id')
+            return control.confirm_request(request) if mode == 'confirm' else control.deny_request(request)
+        return control.set_owner(mode, by)
     if op == 'screenshot':
         dest = Path(args.get('out') or control.root() / 'shot.png').absolute()
         return control.screenshot(dest, args.get('output'), args.get('region'), args.get('max_size'))
