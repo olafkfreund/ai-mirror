@@ -214,9 +214,18 @@ def find(name: str | None = None, role: str | None = None, app: str | None = Non
     if not name and not role:
         raise ValueError('give name and/or role')
     matches, visited, deep = [], 0, False
+    # Per application, so an empty result can say which ones had nothing to
+    # match rather than implying the element is absent. Keyed by the walk's own
+    # root index; one get_name per application, not per node.
+    apps: dict[str, list] = {}
     for node_id, acc, level, Atspi in _walk(app, 64):
         visited += 1
         deep = deep or level >= CONTENT_DEPTH
+        root = node_id.split('.')[0]
+        if level == 0:
+            apps[root] = [(_call(acc.get_name, '') or '?')[:40], False]
+        elif level >= CONTENT_DEPTH and root in apps:
+            apps[root][1] = True
         if name and name.lower() not in (_call(acc.get_name, '') or '').lower():
             continue
         if role and role.lower() != (_call(acc.get_role_name, '') or '').lower():
@@ -224,7 +233,36 @@ def find(name: str | None = None, role: str | None = None, app: str | None = Non
         matches.append(_node(acc, node_id, Atspi))
         if len(matches) >= limit:
             break
-    return {'nodes': matches, **_coverage(visited, deep, False)}
+    coverage = _coverage(visited, deep, False)
+    if matches:
+        # A match proves the tree is usable, so the no-content note must not
+        # fire. It could: this loop breaks at `limit`, so `deep` only reflects
+        # what was walked before the break -- `--role frame --limit 2` stops at
+        # depth 1 and looked like a desktop exposing nothing.
+        coverage.pop('note', None)
+    else:
+        coverage.setdefault('note', _why_empty(apps))
+    return {'nodes': matches, **coverage}
+
+
+def _why_empty(apps: dict[str, list]) -> str:
+    """Why a find came back empty, when the desktop as a whole has a tree.
+
+    _coverage only speaks when NOTHING anywhere exposed content. The commoner
+    case is a desktop where some applications do and the ones being asked about
+    do not -- and there the bare empty list reads as "the element is not there",
+    which is the wrong conclusion and the one #13 is about.
+    """
+    silent = [name for name, has in apps.values() if not has]
+    if not silent:
+        return ('no match, and every application walked did expose content, so '
+                'the element is genuinely not there right now.')
+    return (f'no match. Of {len(apps)} applications walked, {len(silent)} exposed no '
+            f'content at all and so could not match anything: '
+            f'{", ".join(sorted(silent))}. That is not the same as the element '
+            f'being absent -- use screenshot for those. Chromium and Electron '
+            f'expose content only when launched with '
+            f'--force-renderer-accessibility (#13).')
 
 
 def resolve(node_id: str):

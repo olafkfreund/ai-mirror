@@ -769,6 +769,28 @@ class A11yCoverage(Base):
         self.assertEqual(result['nodes'], [])
         self.assertIn('the tree is unavailable', result['note'])
 
+    def test_an_empty_find_names_the_applications_that_had_nothing(self):
+        def _walk(app, depth, enable=True):
+            if enable:
+                a11y.ensure_enabled()
+            for i, (level, name) in enumerate(((0, 'Google Chrome'), (1, ''),
+                                               (0, 'qemu'), (1, ''), (2, 'a menu'))):
+                yield ('0' if i < 2 else '2') + ('' if level == 0 else f'.{level}'), \
+                      self.accessible(name=name), level, None
+        with patch.multiple(a11y, _walk=_walk,
+                            _node=lambda acc, node_id, Atspi: {'id': node_id}):
+            result = a11y.find(role='push button')
+        self.assertEqual(result['nodes'], [])
+        self.assertIn('Google Chrome', result['note'])
+        self.assertNotIn('qemu', result['note'])  # qemu had content; it is not the reason
+
+    def test_a_matched_find_does_not_claim_the_tree_is_empty(self):
+        """#13: find breaks at `limit`, so `deep` under-reports what exists."""
+        with self.walk(0, 1):   # never reaches CONTENT_DEPTH
+            result = a11y.find(role='frame', limit=1)
+        self.assertEqual(len(result['nodes']), 1)
+        self.assertNotIn('note', result)
+
     def test_enable_is_paid_once_per_process(self):
         with self.walk(0, 1):
             a11y.tree()
