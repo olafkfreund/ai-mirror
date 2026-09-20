@@ -18,6 +18,11 @@ from ai_mirror import api, control, mcp
 LONG = 'ok Ω ' + ''.join(chr(0x4E00 + i) for i in range(95))
 
 
+def take_control():
+    """Ask for control and answer yes; you are the human this script speaks for."""
+    return control.confirm_request(control.set_owner('agent', 'human')['request']['id'])
+
+
 def wait_for(check, seconds=10):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -30,7 +35,7 @@ def wait_for(check, seconds=10):
 def main():
     proof = Path(tempfile.mkdtemp()) / 'proof'
     app_id = f'ai-mirror-smoke-{os.getpid()}'
-    gen = api.run('control', {'mode': 'agent'})['generation']
+    gen = take_control()['generation']
     window = None
     try:
         # A plain `read`, not the user's shell: slow shell startup discards type-ahead.
@@ -59,7 +64,7 @@ def main():
             assert exc.code in ('not_owner', 'stale_generation'), exc
         print('PASS: launch, windows, focus, frame input, Unicode typing, clipboard, kill switch')
     finally:
-        state = control.set_owner('agent', 'human')
+        state = take_control()
         if window and any(w['address'] == window['address'] for w in api.run('windows')['windows']):
             api.run('window', {'action': 'close', 'address': window['address']})
         control.set_owner('off', 'human')
@@ -114,7 +119,7 @@ def check_wait():
     """
     from ai_mirror import api, control, wait
 
-    control.set_owner('agent', 'human')
+    take_control()
     try:
         gen = control.read_state()['generation']
         subprocess.run(['hyprctl', 'dispatch', 'hl.dsp.focus({ monitor = "DP-1" })'],

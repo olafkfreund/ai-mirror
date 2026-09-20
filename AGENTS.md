@@ -11,7 +11,8 @@ An earlier sandboxed design (nested desktops for Arch/Omarchy) was removed in 2.
 
 ## Using it (MCP)
 
-`claude mcp add ai-mirror -- ai-mirror mcp`. Loop: `control agent` → `a11y_find`/`windows`
+`claude mcp add ai-mirror -- ai-mirror mcp`. Loop: `control agent` (asks a human; poll `status`
+until `owner` is `agent` or `off`) → `a11y_find`/`windows`
 (cheap) or `screenshot` → `input` with the frame → … → `control off`. On `not_owner` or
 `stale_generation`: the human stopped you; stop, observe again, never retry blindly.
 Full reference: `docs/usage.md`.
@@ -24,7 +25,7 @@ Full reference: `docs/usage.md`.
 | `src/ai_mirror/cli.py` | argparse → `api.run`, prints JSON; stops the helper on exit |
 | `src/ai_mirror/mcp.py` | Hand-rolled stdio JSON-RPC server: tool schemas + validation, frames (`observe`, `from_frame`), SIGUSR1 → `HELPER.abort()`, revokes agent grants on exit |
 | `src/ai_mirror/api.py` | Single dispatcher for CLI/MCP/bar; ownership gate for mutating ops; clipboard, launch |
-| `src/ai_mirror/control.py` | State file, `set_owner`, `require_agent`, MCP server registry + `signal_servers`, `Helper` (ai-mirror-input process), `run_batch`, `screenshot` (grim) |
+| `src/ai_mirror/control.py` | State file, `set_owner` (asks), `confirm_request`/`deny_request` (answer), `audit`, `watch`, `require_agent`, MCP server registry + `signal_servers`, `Helper` (ai-mirror-input process), `run_batch`, `screenshot` (grim) |
 | `src/ai_mirror/host.py` | `hyprctl`: monitors, `layout_box`, windows, `window_dispatch` (validated Lua) |
 | `src/ai_mirror/input.py` | Actions → helper lines `M x y` / `B code 0\|1` / `S dx dy` / `K code 0\|1` / `T utf8`; evdev key table |
 | `src/ai_mirror/wait.py` | Polls Hyprland state until one named prerequisite holds or a deadline passes. No events: a prerequisite that already holds never transitions |
@@ -32,12 +33,17 @@ Full reference: `docs/usage.md`.
 | `src/ai_mirror/gotchas.md` | The hand-written half of the index. Read only; nothing generates it |
 | `src/ai_mirror/a11y.py` | AT-SPI via `gi.repository.Atspi`: tree, find, act |
 | `src/ai_mirror_input/ai_mirror_input.c` | Persistent wlr virtual pointer + virtual keyboard; `C` releases all; stdin EOF releases and exits |
-| `plugin/` | Omarchy bar widget: `FileView` on the state file, click toggles control; `@ai-mirror@` substituted by Nix |
+| `plugin/ConfirmDialog.qml` | The human's half of the gate: layer-shell dialog over everything, exclusive keyboard focus, Deny on Escape/Enter, Allow on `A` |
+| `plugin/` | Omarchy bar widget: `FileView` on the state file, click asks for control; `@ai-mirror@` substituted by Nix |
 | `flake.nix` | `packages.{ai-mirror,ai-mirror-input,plugin}`, `homeManagerModules.default`, `checks`, `devShells` |
 | `tests/test_invariants.py` | Fast regressions (no Wayland); `tests/smoke.py` live desktop check |
 
 ## Invariants — do not break
 
+- **Control is a request a human answers.** `set_owner('agent', …)` only ever writes
+  `owner: pending`; `confirm_request(id)` grants. The gate is unforgeable only for an agent
+  that reaches ai-mirror through MCP alone — one with a shell on the same account can run the
+  CLI. Do not add machinery claiming more.
 - **Generation + owner gate all mutating operations.** `set_owner` bumps generation on every change.
 - **`run_batch` re-reads the state before every helper line** and sends `C` (release all) on
   *every* failure path — state change, helper error, non-`OK` ack.

@@ -41,9 +41,11 @@ under a switch you control.**
 
 ai-mirror is that, with three rules:
 
-1. **Visible.** Control is either on or off, and when it is on the bar shows it.
-2. **Instantly revocable.** One keypress or click wins over anything the agent is doing, mid-action.
-3. **Cheap to observe.** Agents read windows and accessibility trees first and only take
+1. **Yours to give.** An agent asks; a dialog on your desktop is the only thing that says yes.
+   Nothing it can call answers that dialog.
+2. **Visible.** Control is either on or off, and when it is on the bar shows it.
+3. **Instantly revocable.** One keypress or click wins over anything the agent is doing, mid-action.
+4. **Cheap to observe.** Agents read windows and accessibility trees first and only take
    screenshots when pixels matter — scaled, cropped, and mapped back to exact coordinates for them.
 
 > **There is no sandbox.** While control is on, the agent can do anything you can do with a
@@ -57,7 +59,7 @@ ai-mirror is that, with three rules:
 | **Act** | `input`: move, click (1–3×), drag along a path, scroll, type any Unicode, key combos, hold keys or buttons, shift-click / ctrl-drag via `modifiers` |
 | **Manage** | `window`: focus, close, float, center, fullscreen / maximize, move to workspace, resize · `launch` apps · `clipboard` read/write |
 | **Understand** | `a11y_tree` / `a11y_find` list buttons, fields and links by role and name · `a11y_act` clicks, focuses or fills them — no pixel guessing |
-| **Switch** | `control` on/off — the agent can ask for control; you can always take it away |
+| **Switch** | `control` on/off — the agent *asks*, you allow or deny in a dialog, and you can always take it away |
 
 Example requests:
 
@@ -144,7 +146,9 @@ nix run github:olafkfreund/ai-mirror -- status
 Everything the agent does is also a CLI command that prints JSON:
 
 ```sh
-ai-mirror control agent                          # same as clicking the dim icon
+ai-mirror control agent                          # ask for control (same as clicking the dim icon)
+ai-mirror control confirm                        # allow the waiting request (what the dialog runs)
+ai-mirror control deny
 ai-mirror screenshot --output all --max-size 1600
 ai-mirror windows
 ai-mirror a11y-find --role "push button" --name Save
@@ -169,8 +173,13 @@ agent Oma's Omarchy and Hyprland tools.
   and **auditable in the moment** — that is all.
 - Observation tools work while control is off, so an agent can look but not touch until it is on.
   Anything that types, clicks, launches, changes windows or writes the clipboard needs control.
-- When an agent turns control on and its MCP server exits, that grant is revoked automatically.
-  Control you granted yourself stays until you turn it off.
+- **An agent cannot turn control on.** It asks, and a dialog on your desktop is answered by
+  whoever is at the keyboard; an unanswered request lapses after 30 seconds. The gate is
+  unforgeable for an agent that reaches ai-mirror through MCP alone — an agent that also has
+  a shell on your account can run the CLI, and no state file can stop that.
+- A grant ends when its MCP server exits, when you stop it, and by itself after ten minutes
+  with no input.
+- Every request, answer and stop is a line in `$XDG_RUNTIME_DIR/ai-mirror/audit.jsonl`.
 - Treat agent control like screen sharing with someone who has your keyboard: don't leave it on
   while you are away, and be careful with password managers and banking tabs.
 

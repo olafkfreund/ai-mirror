@@ -10,6 +10,12 @@
       inherit (pkgs) lib;
       version = "2.0.0";
 
+      # Everything installable ships the licence it is under, in one place.
+      licenceFiles = ''
+        install -Dm644 ${./LICENSE} $out/share/doc/ai-mirror/LICENSE
+        install -Dm644 ${./NOTICE} $out/share/doc/ai-mirror/NOTICE
+      '';
+
       ai-mirror-input = pkgs.stdenv.mkDerivation {
         pname = "ai-mirror-input";
         inherit version;
@@ -20,7 +26,11 @@
           "BUILD=build"
           "WLR_PROTO=${pkgs.wlr-protocols}/share/wlr-protocols/unstable/wlr-virtual-pointer-unstable-v1.xml"
         ];
-        installPhase = "install -Dm755 build/ai-mirror-input $out/bin/ai-mirror-input";
+        installPhase = ''
+          install -Dm755 build/ai-mirror-input $out/bin/ai-mirror-input
+          ${licenceFiles}
+        '';
+        meta.license = lib.licenses.mit;
       };
 
       python = pkgs.python3.withPackages (p: [ p.pygobject3 ]);
@@ -40,8 +50,9 @@
             --set AI_MIRROR_HELPER ${ai-mirror-input}/bin/ai-mirror-input \
             --prefix GI_TYPELIB_PATH : ${lib.makeSearchPath "lib/girepository-1.0" [ pkgs.at-spi2-core pkgs.glib.out pkgs.gobject-introspection ]} \
             --suffix PATH : ${lib.makeBinPath (with pkgs; [ grim wl-clipboard systemd ])}
+          ${licenceFiles}
         '';
-        meta.mainProgram = "ai-mirror";
+        meta = { mainProgram = "ai-mirror"; license = lib.licenses.mit; };
       };
 
       # A plain directory (no symlinks inside) so omarchy-plugin-validate accepts it.
@@ -49,6 +60,7 @@
         cp -r ${./plugin} $out
         chmod -R u+w $out
         substituteInPlace $out/Command.qml --replace-fail "@ai-mirror@" "${ai-mirror}/bin/ai-mirror"
+        ${licenceFiles}
       '';
     in
     {
@@ -99,6 +111,14 @@
           cp -r ${./.} src && chmod -R u+w src && cd src
           patchShebangs bin
           XDG_RUNTIME_DIR=$TMPDIR python3 -m unittest discover -s tests -v
+          touch $out
+        '';
+        # Every output someone can install carries the licence it ships under.
+        licence = pkgs.runCommand "ai-mirror-licence-check" { } ''
+          for installed in ${ai-mirror} ${ai-mirror-input} ${plugin}; do
+            test -s $installed/share/doc/ai-mirror/LICENSE || { echo "no LICENSE in $installed"; exit 1; }
+            test -s $installed/share/doc/ai-mirror/NOTICE || { echo "no NOTICE in $installed"; exit 1; }
+          done
           touch $out
         '';
         # Mirrors the checks Nixarchy runs when it installs a plugin.

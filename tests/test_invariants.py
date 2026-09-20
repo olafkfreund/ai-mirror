@@ -47,6 +47,11 @@ def bus_result(returncode=0, stdout='', stderr=''):
     return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
 
 
+def grant(by='agent'):
+    """Ask for control and answer yes, as the human does from the bar dialog."""
+    return control.confirm_request(control.set_owner('agent', by)['request']['id'])
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -80,7 +85,9 @@ class ControlTests(Base):
         with self.assertRaises(control.MirrorError) as off:
             control.require_agent(0)
         self.assertEqual(off.exception.code, 'not_owner')
-        on = control.set_owner('agent', 'human')
+        asked = control.set_owner('agent', 'human')
+        self.assertEqual(asked['owner'], 'pending')
+        on = control.confirm_request(asked['request']['id'])
         control.require_agent(on['generation'])
         with self.assertRaises(control.MirrorError) as stale:
             control.require_agent(on['generation'] - 1)
@@ -88,11 +95,12 @@ class ControlTests(Base):
         off_state = control.set_owner('off', 'human')
         self.assertEqual(off_state['generation'], on['generation'] + 1)
         self.assertIsNone(off_state['enabled_by'])
+        self.assertEqual(on['enabled_by'], 'human-confirmed')
         with self.assertRaises(ValueError):
             control.set_owner('human', 'human')
 
     def test_ownership_rechecked_between_every_line(self):
-        gen = control.set_owner('agent', 'agent')['generation']
+        gen = grant()['generation']
         helper = FakeHelper(on_cmd=lambda line: line == 'M 1 1' and control.set_owner('off', 'human'))
         with self.assertRaises(control.MirrorError) as err:
             control.run_batch(['M 1 1', 'M 2 2'], gen, helper)
@@ -100,7 +108,7 @@ class ControlTests(Base):
         self.assertEqual(helper.sent, ['M 1 1', 'C'])
 
     def test_bug1_helper_error_mid_batch_releases_held_input(self):
-        gen = control.set_owner('agent', 'agent')['generation']
+        gen = grant()['generation']
         for failure in ('ERR bad move', RuntimeError('helper exited mid-batch')):
             helper = FakeHelper(acks=['OK', failure])
             with self.assertRaises(control.MirrorError):
@@ -108,7 +116,7 @@ class ControlTests(Base):
             self.assertEqual(helper.sent, ['B 272 1', 'M 5 5', 'C'])
 
     def test_moves_are_offset_by_layout_origin(self):
-        gen = control.set_owner('agent', 'agent')['generation']
+        gen = grant()['generation']
         helper = FakeHelper(origin=(-1920, 0))
         control.run_batch(['M 0 10', 'K 30 1'], gen, helper)
         self.assertEqual(helper.sent, ['M 1920 10', 'K 30 1'])
@@ -121,7 +129,7 @@ class ControlTests(Base):
                                   {'pid': child.pid, 'start': control.proc_start(child.pid)})
         stale = control.servers_dir() / '999999.json'
         control.atomic_write_json(stale, {'pid': 999999, 'start': 'x'})
-        control.set_owner('agent', 'agent')
+        grant()
         control.set_owner('off', 'human')
         self.assertEqual(child.wait(timeout=5), -signal.SIGUSR1)
         self.assertFalse(stale.exists())
@@ -129,6 +137,124 @@ class ControlTests(Base):
     def test_layout_box_spans_gapped_monitors(self):
         self.assertEqual(host.layout_box(LAYOUT), (0, 0, 5120, 2520))
 
+
+class ConfirmGate(Base):
+    """#10: control is a request a human answers, not a switch an agent throws."""
+
+    def ask(self, by='agent'):
+        state = control.set_owner('agent', by)
+        return state['request']['id']
+
+    def test_asking_for_control_does_not_take_it(self):
+        state = control.set_owner('agent', 'agent')
+        self.assertEqual(state['owner'], 'pending')
+        with self.assertRaises(control.MirrorError) as err:
+            control.require_agent(state['generation'])
+        self.assertEqual(err.exception.code, 'not_owner')
+
+    def test_a_bar_click_asks_too_so_one_path_grants_control(self):
+        state = control.set_owner('agent', 'human')
+        self.assertEqual(state['owner'], 'pending')
+        self.assertEqual(state['request']['by'], 'human')
+
+    def test_confirming_the_request_grants_control(self):
+        request = self.ask()
+        granted = control.confirm_request(request)
+        self.assertEqual(granted['owner'], 'agent')
+        self.assertEqual(granted['enabled_by'], 'human-confirmed')
+        self.assertEqual(granted['request_by'], 'agent')
+        control.require_agent(granted['generation'])
+
+    def test_denying_the_request_leaves_control_off(self):
+        request = self.ask()
+        self.assertEqual(control.deny_request(request)['owner'], 'off')
+        with self.assertRaises(control.MirrorError) as err:
+            control.require_agent(0)
+        self.assertEqual(err.exception.code, 'not_owner')
+
+    def test_a_wrong_answered_or_expired_id_is_refused(self):
+        request = self.ask()
+        for wrong in ('', 'deadbeefdeadbeef'):
+            with self.assertRaises(control.MirrorError) as err:
+                control.confirm_request(wrong)
+            self.assertEqual(err.exception.code, 'bad_request')
+        control.confirm_request(request)
+        with self.assertRaises(control.MirrorError) as again:
+            control.confirm_request(request)
+        self.assertEqual(again.exception.code, 'bad_request')
+        control.set_owner('off', 'human')
+        expired = self.ask()
+        with patch.object(control, 'now', lambda: time.time() + control.REQUEST_TTL + 1):
+            with self.assertRaises(control.MirrorError) as late:
+                control.confirm_request(expired)
+        self.assertEqual(late.exception.code, 'bad_request')
+
+    def test_an_agent_cannot_answer_its_own_request(self):
+        request = self.ask()
+        for mode in ('confirm', 'deny'):
+            with self.assertRaises(control.MirrorError) as err:
+                api.run('control', {'mode': mode, 'id': request}, by='agent')
+            self.assertEqual(err.exception.code, 'not_owner')
+        self.assertEqual(control.read_state()['owner'], 'pending')
+        self.assertNotIn('confirm', mcp.SPECS['control']['inputSchema']['properties']['mode']['enum'])
+        self.assertNotIn('id', mcp.SPECS['control']['inputSchema']['properties'])
+
+    def test_an_unanswered_request_expires_on_its_own(self):
+        self.ask()
+        with patch.object(control, 'now', lambda: time.time() + control.REQUEST_TTL + 1):
+            self.assertEqual(control.read_state()['owner'], 'off')
+        self.assertEqual(control.read_state()['owner'], 'off')
+        self.assertNotIn('request', control.read_state())
+
+    def test_a_request_nobody_can_see_names_the_widget(self):
+        self.ask()
+        with patch.object(control, 'now', lambda: time.time() + control.REQUEST_TTL + 1):
+            lapsed = control.read_state()
+        self.assertIn('bar widget', lapsed['why'])
+        with self.assertRaises(control.MirrorError) as err:
+            control.require_agent(lapsed['generation'])
+        self.assertIn('olafkfreund.ai-mirror', str(err.exception))
+
+    def test_a_grant_nobody_uses_ends(self):
+        granted = control.confirm_request(self.ask())
+        with patch.object(control, 'now', lambda: time.time() + control.IDLE_LIMIT + 1):
+            with self.assertRaises(control.MirrorError) as err:
+                control.require_agent(granted['generation'])
+        self.assertEqual(err.exception.code, 'not_owner')
+        self.assertEqual(control.read_state()['owner'], 'off')
+
+    def test_using_the_grant_keeps_it_alive(self):
+        granted = control.confirm_request(self.ask())
+        later = time.time() + control.IDLE_LIMIT - 10
+        with patch.object(control, 'now', lambda: later):
+            control.run_batch(['M 1 1'], granted['generation'], FakeHelper())
+        with patch.object(control, 'now', lambda: later + control.IDLE_LIMIT - 10):
+            control.require_agent(granted['generation'])
+
+    def test_turning_control_off_withdraws_a_pending_request(self):
+        request = self.ask()
+        off = control.set_owner('off', 'human')
+        self.assertEqual(off['owner'], 'off')
+        self.assertNotIn('request', off)
+        with self.assertRaises(control.MirrorError) as err:
+            control.confirm_request(request)
+        self.assertEqual(err.exception.code, 'bad_request')
+
+    def test_an_agent_that_looks_is_visible_in_the_bar(self):
+        watching = control.root() / 'watching'
+        api.run('index', {'sections': ['gotchas']}, by='human')
+        self.assertFalse(watching.exists())
+        api.run('index', {'sections': ['gotchas']}, by='agent')
+        self.assertTrue(watching.exists())
+
+    def test_every_decision_leaves_an_audit_line(self):
+        control.deny_request(self.ask())
+        control.confirm_request(self.ask())
+        control.set_owner('off', 'human')
+        lines = [json.loads(line) for line in (control.root() / 'audit.jsonl').read_text().splitlines()]
+        self.assertEqual([row['event'] for row in lines],
+                         ['requested', 'denied', 'requested', 'confirmed', 'off'])
+        self.assertTrue(all(row.get('at') for row in lines))
 
 class InputTests(unittest.TestCase):
     def test_encoder_basics_and_limits(self):
@@ -213,7 +339,7 @@ class McpTests(Base):
         self.assertTrue(mcp.call_tool('input', {'actions': [], 'bogus': 1})['isError'])
 
     def test_clipboard_daemon_never_inherits_the_jsonrpc_stdout(self):
-        control.set_owner('agent', 'agent')
+        grant()
         with patch.object(api.subprocess, 'run') as run:
             api.run('clipboard', {'action': 'write', 'text': 'x'}, by='agent')
         self.assertIs(run.call_args.kwargs['stdout'], subprocess.DEVNULL)
@@ -232,7 +358,7 @@ class McpTests(Base):
         rows = [json.loads(line) for line in result.stdout.splitlines()]
         self.assertEqual(rows[0]['result']['protocolVersion'], '2025-11-25')
         self.assertEqual({t['name'] for t in rows[1]['result']['tools']}, set(mcp.SPECS))
-        self.assertEqual(json.loads(rows[2]['result']['content'][0]['text'])['enabled_by'], 'agent')
+        self.assertEqual(json.loads(rows[2]['result']['content'][0]['text'])['owner'], 'pending')
         self.assertEqual(control.read_state()['owner'], 'off')
         self.assertEqual(list(control.servers_dir().iterdir()), [])
         self.assertEqual(result.stderr, '')
@@ -568,28 +694,40 @@ class A11yEnablement(Base):
 
     def test_control_off_leaves_a_humans_screen_reader_alone(self):
         self.bus.update(IsEnabled=True, ScreenReaderEnabled=True)
-        control.set_owner('agent', 'human')
+        grant('human')
         self.bus_writes.clear()
         control.set_owner('off', 'human')
         self.assertEqual(self.bus_writes, [])
 
     def test_control_off_restores_only_what_it_switched_on(self):
         self.bus.update(IsEnabled=True, ScreenReaderEnabled=False)
-        control.set_owner('agent', 'human')
+        grant('human')
         self.bus_writes.clear()
         control.set_owner('off', 'human')
         self.assertEqual(self.bus_writes, [('ScreenReaderEnabled', 'false')])
 
     def test_regrant_keeps_the_first_grants_record(self):
-        control.set_owner('agent', 'human')
+        grant('human')
         first = control.read_state()['a11y_before']
-        control.set_owner('agent', 'agent')
+        grant('agent')  # asking again from a live grant must not lose the record
         self.assertEqual(control.read_state()['a11y_before'], first)
 
     def test_taking_control_survives_a_broken_bus(self):
         with patch.object(a11y, '_busctl', lambda *a: bus_result(1, stderr='no bus')):
-            state = control.set_owner('agent', 'human')
+            state = grant('human')
         self.assertEqual(state['owner'], 'agent')
+
+    def test_asking_does_not_switch_the_bus_on(self):
+        control.set_owner('agent', 'agent')  # #11: asking is not being granted
+        self.assertEqual(control.read_state()['owner'], 'pending')
+        self.assertEqual(self.bus_writes, [])
+
+    def test_a_denied_request_puts_back_a_live_grant(self):
+        grant('human')
+        self.bus_writes.clear()
+        pending = control.set_owner('agent', 'agent')
+        control.deny_request(pending['request']['id'])
+        self.assertEqual(self.bus_writes, [(p, 'false') for p in a11y.A11Y_PROPS])
 
 
 class A11yCoverage(Base):
@@ -644,7 +782,7 @@ class A11yCoverage(Base):
         self.assertEqual(self.bus_writes, [(p, 'false') for p in a11y.A11Y_PROPS])
 
     def test_release_leaves_an_agents_grant_alone(self):
-        control.set_owner('agent', 'human')
+        grant('human')
         with self.walk(0, 1):
             a11y.tree()
         self.bus_writes.clear()
