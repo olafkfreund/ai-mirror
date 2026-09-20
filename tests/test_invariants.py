@@ -63,6 +63,8 @@ class Base(unittest.TestCase):
         stub.start()
         self.addCleanup(stub.stop)
         a11y._enabled = False
+        a11y._restore.clear()
+        self.addCleanup(a11y._restore.clear)
         self.addCleanup(setattr, a11y, '_enabled', False)
 
     def fake_busctl(self, verb, prop, *value):
@@ -599,9 +601,8 @@ class A11yCoverage(Base):
 
     def walk(self, *levels):
         def _walk(app, depth, enable=True):
-            if enable and not a11y._enabled:
-                a11y.enable_bus()
-                a11y._enabled = True
+            if enable:
+                a11y.ensure_enabled()  # the real seam, not a re-implementation
             for index_, level in enumerate(levels):
                 yield str(index_), self.accessible(), level, None
         return patch.multiple(a11y, _walk=_walk,
@@ -631,6 +632,24 @@ class A11yCoverage(Base):
             a11y.tree()
             a11y.tree()
         self.assertEqual([prop for prop, _ in self.bus_writes], list(a11y.A11Y_PROPS))
+
+    def test_a_bare_read_puts_the_bus_back_on_teardown(self):
+        with self.walk(0, 1):
+            a11y.tree()
+        self.assertEqual(self.bus_writes, [(p, 'true') for p in a11y.A11Y_PROPS])
+        self.bus_writes.clear()
+        a11y.release_bus()
+        self.assertEqual(self.bus_writes, [(p, 'false') for p in a11y.A11Y_PROPS])
+        a11y.release_bus()  # idempotent
+        self.assertEqual(self.bus_writes, [(p, 'false') for p in a11y.A11Y_PROPS])
+
+    def test_release_leaves_an_agents_grant_alone(self):
+        control.set_owner('agent', 'human')
+        with self.walk(0, 1):
+            a11y.tree()
+        self.bus_writes.clear()
+        a11y.release_bus()
+        self.assertEqual(self.bus_writes, [])
 
     def test_declining_to_enable_writes_nothing(self):
         with self.walk(0, 1):

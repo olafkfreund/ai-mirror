@@ -17,6 +17,7 @@ VISIT_CAP = 20000
 A11Y_STATUS = ('org.a11y.Bus', '/org/a11y/bus', 'org.a11y.Status')
 A11Y_PROPS = ('IsEnabled', 'ScreenReaderEnabled')
 _enabled = False  # enable_bus is worth doing once, not once per walk
+_restore: dict[str, bool] = {}  # what a bare read switched on, for teardown
 
 
 def _atspi():
@@ -66,6 +67,39 @@ def enable_bus() -> dict[str, bool | None]:
     return before
 
 
+def ensure_enabled() -> None:
+    """Enable the bus once per process, remembering what we switched on.
+
+    Control puts back what control switched on. A bare read has no such
+    lifecycle, so without the record an `a11y-find` would enable the bus for
+    good and quietly defeat the gating. On failure the flag stays down, so the
+    next walk retries.
+    """
+    global _enabled
+    if _enabled:
+        return
+    before = enable_bus()
+    _enabled = True
+    _restore.update({prop: was for prop, was in before.items() if was is False})
+
+
+def release_bus() -> None:
+    """Put back what a bare read switched on. Idempotent; never raises.
+
+    Skipped while an agent holds control: the grant switched the bus on for its
+    own tenure and `control off` is what ends that.
+    """
+    from .control import read_state
+    if not _restore or read_state().get('owner') == 'agent':
+        return
+    for prop in list(_restore):
+        try:
+            set_bus_property(prop, False)
+        except MirrorError:
+            pass
+        _restore.pop(prop, None)
+
+
 def _call(fn, default=None):
     try:
         return fn()
@@ -108,10 +142,8 @@ def _walk(app: str | None, depth: int, enable: bool = True):
     # Control already enables this when the agent takes over; this is the
     # fallback for a bare CLI read, and it is worth one subprocess per process
     # rather than one per walk.
-    global _enabled
-    if enable and not _enabled:
-        enable_bus()  # on failure the flag stays down, so the next walk retries
-        _enabled = True
+    if enable:
+        ensure_enabled()
     desktop = Atspi.get_desktop(0)
     visited = 0
     for index in range(_call(desktop.get_child_count, 0)):
