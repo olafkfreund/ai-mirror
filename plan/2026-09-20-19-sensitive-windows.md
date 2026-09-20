@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 19
 spec: spec/2026-09-20-19-sensitive-windows.md
 ---
