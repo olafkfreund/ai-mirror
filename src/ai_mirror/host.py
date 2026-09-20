@@ -35,6 +35,21 @@ def monitors() -> list[dict]:
     return rows
 
 
+def visible_workspaces() -> set[str]:
+    """Workspace names currently on a screen, including special ones.
+
+    monitors() deliberately returns only geometry, and changing that would
+    change a contract other callers rely on, so this asks separately.
+    """
+    names = set()
+    for m in json.loads(ctl('monitors', '-j')):
+        for key in ('activeWorkspace', 'specialWorkspace'):
+            name = (m.get(key) or {}).get('name')
+            if name:
+                names.add(str(name))
+    return names
+
+
 def layout_box(rows=None) -> tuple[int, int, int, int]:
     rows = rows if rows is not None else monitors()
     x0, y0 = min(m['x'] for m in rows), min(m['y'] for m in rows)
