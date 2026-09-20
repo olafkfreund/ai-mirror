@@ -18,8 +18,35 @@ BarWidget {
   implicitHeight: button.implicitHeight
   property var state: null
   readonly property bool on: state !== null && state.owner === "agent"
+  readonly property bool pending: state !== null && state.owner === "pending"
+  // Looking is not driving, so it gets a steady neutral mark rather than the red
+  // pulse. Stale after ten seconds: the file records when an agent last looked.
+  property double lastLook: 0
+  property double now: Date.now() / 1000
+  readonly property bool watching: !root.on && root.now - root.lastLook < 10
 
   Command { id: command }
+
+  ConfirmDialog {
+    request: root.pending ? root.state.request : null
+    command: command
+  }
+
+  FileView {
+    id: looks
+    path: Quickshell.env("XDG_RUNTIME_DIR") + "/ai-mirror/watching"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.lastLook = parseFloat(String(text() || "0")) || 0
+    onLoadFailed: root.lastLook = 0
+  }
+  Timer {
+    interval: 1000
+    repeat: true
+    running: root.lastLook > 0
+    onTriggered: root.now = Date.now() / 1000
+  }
 
   FileView {
     id: file
@@ -66,7 +93,7 @@ BarWidget {
                  ? (root.bar ? root.bar.urgent : Color.urgent)
                  : (root.bar ? root.bar.barForeground : Color.foreground)
           active: root.on
-          opacity: root.on ? 1.0 : 0.45
+          opacity: root.on ? 1.0 : (root.watching || root.pending ? 0.8 : 0.45)
           Behavior on opacity { NumberAnimation { duration: 160 } }
         }
       }
@@ -75,7 +102,11 @@ BarWidget {
     interactive: !command.busy
     tooltipText: command.error || (root.on
       ? "An AI agent controls keyboard and mouse (since " + root.state.since + "). Click to stop."
-      : "ai-mirror: agent control is off. Click to allow agent control.")
+      : root.pending
+        ? "An agent is asking to use this desktop. Answer the dialog."
+        : root.watching
+          ? "An agent is reading the screen. It cannot type or click."
+          : "ai-mirror: agent control is off. Click to ask for agent control.")
     onPressed: command.run(["control", root.on ? "off" : "agent"])
   }
 }

@@ -14,6 +14,7 @@ import os
 import select
 import shutil
 import signal
+import secrets
 import struct
 import subprocess
 import tempfile
@@ -55,11 +56,23 @@ def atomic_write_json(path: Path, obj: object) -> None:
         Path(tmp).unlink(missing_ok=True)
 
 
+_HELD: set[str] = set()
+
+
 @contextmanager
 def locked(name: str):
+    # Re-entrant: flock on a second fd from the same process would deadlock, and
+    # read_state() writes an expiry from inside set_owner's lock.
+    if name in _HELD:
+        yield
+        return
     with open(root() / f'{name}.lock', 'w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        yield
+        _HELD.add(name)
+        try:
+            yield
+        finally:
+            _HELD.discard(name)
 
 
 def proc_start(pid: int) -> str | None:
@@ -73,7 +86,33 @@ def proc_start(pid: int) -> str | None:
 
 # -- control state -----------------------------------------------------------
 
-def read_state() -> dict:
+REQUEST_TTL = 30       # seconds a request waits for the human before it lapses
+IDLE_LIMIT = 600       # seconds a grant survives without the agent using it
+
+
+# A request nobody answers usually means nothing drew the dialog, so say where it comes from.
+LAPSED = ('nobody answered the request within 30s; the ai-mirror bar widget draws the dialog '
+          '(omarchy plugin enable olafkfreund.ai-mirror --section right)')
+
+
+def now() -> float:
+    """The clock, in one place, so the tests can move it."""
+    return time.time()
+
+
+def stamp() -> str:
+    return time.strftime('%Y-%m-%dT%H:%M:%S%z')
+
+
+def audit(event: str, **fields) -> None:
+    """One JSON object per line; the record of who asked and who answered."""
+    line = json.dumps({'event': event, 'at': stamp(), **fields}, sort_keys=True)
+    path = root() / 'audit.jsonl'
+    with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600), 'a', encoding='utf-8') as fh:
+        fh.write(line + '\n')
+
+
+def _load() -> dict:
     try:
         state = json.loads((root() / 'state.json').read_text())
         if isinstance(state, dict):
@@ -83,27 +122,96 @@ def read_state() -> dict:
     return {'owner': 'off', 'generation': 0}
 
 
+def _write(state: dict) -> dict:
+    atomic_write_json(root() / 'state.json', state)
+    return state
+
+
+def _lapsed(state: dict) -> bool:
+    return state.get('owner') == 'pending' and now() > state.get('request', {}).get('expires', 0)
+
+
+def read_state() -> dict:
+    """The state as it stands, with a request nobody answered already lapsed."""
+    state = _load()
+    if not _lapsed(state):
+        return state
+    with locked('control'):
+        state = _load()
+        if not _lapsed(state):
+            return state
+        audit('expired', request=state['request'].get('id'), by=state['request'].get('by'))
+        return _write({'owner': 'off', 'generation': int(state.get('generation', 0)) + 1,
+                       'since': stamp(), 'enabled_by': None, 'why': LAPSED})
+
+
 def set_owner(mode: str, by: str) -> dict:
+    """mode=agent asks the human; only confirm_request grants control."""
     if mode not in ('agent', 'off') or by not in ('agent', 'human'):
         raise ValueError('mode must be agent or off')
     with locked('control'):
         state = read_state()
-        state = {'owner': mode, 'generation': int(state.get('generation', 0)) + 1,
-                 'since': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
-                 'enabled_by': by if mode == 'agent' else None}
-        atomic_write_json(root() / 'state.json', state)
+        generation = int(state.get('generation', 0)) + 1
+        if mode == 'agent':
+            request = {'id': secrets.token_hex(8), 'by': by, 'since': stamp(), 'expires': now() + REQUEST_TTL}
+            audit('requested', request=request['id'], by=by)
+            state = _write({'owner': 'pending', 'generation': generation, 'since': stamp(),
+                            'enabled_by': None, 'request': request})
+        else:
+            audit('off', by=by, was=state.get('owner'))
+            state = _write({'owner': 'off', 'generation': generation, 'since': stamp(), 'enabled_by': None})
     if mode == 'off':
         signal_servers()
     return state
 
 
+def _answer(request_id: str, granted: bool) -> dict:
+    with locked('control'):
+        state = read_state()
+        request = state.get('request') or {}
+        if state.get('owner') != 'pending' or not request_id or request_id != request.get('id'):
+            raise MirrorError('bad_request', 'no request with that id is waiting; ask again')
+        generation = int(state.get('generation', 0)) + 1
+        audit('confirmed' if granted else 'denied', request=request_id, by=request.get('by'))
+        if not granted:
+            return _write({'owner': 'off', 'generation': generation, 'since': stamp(), 'enabled_by': None})
+        return _write({'owner': 'agent', 'generation': generation, 'since': stamp(),
+                       'enabled_by': 'human-confirmed', 'request_by': request.get('by'),
+                       'last_input': now()})
+
+
+def confirm_request(request_id: str) -> dict:
+    return _answer(request_id, True)
+
+
+def deny_request(request_id: str) -> dict:
+    return _answer(request_id, False)
+
+
 def require_agent(generation: int) -> dict:
     state = read_state()
+    if state.get('owner') == 'pending':
+        raise MirrorError('not_owner', 'a human has been asked; poll status until owner is agent or off')
     if state.get('owner') != 'agent':
-        raise MirrorError('not_owner', 'agent control is off; call control with mode agent')
+        raise MirrorError('not_owner', state.get('why')
+                          or 'agent control is off; call control with mode agent to ask the human')
+    if now() - state.get('last_input', 0) > IDLE_LIMIT:
+        with locked('control'):
+            audit('idle', by=state.get('request_by'))
+            _write({'owner': 'off', 'generation': int(state.get('generation', 0)) + 1,
+                    'since': stamp(), 'enabled_by': None})
+        raise MirrorError('not_owner', f'the grant went unused for {IDLE_LIMIT} seconds; ask again')
     if generation != state.get('generation'):
         raise MirrorError('stale_generation', f"have {state.get('generation')}, want {generation}; observe again")
+    if now() - state.get('last_input', 0) > 60:  # ponytail: coarse, so a drag is not a write per batch
+        with locked('control'):
+            _write({**state, 'last_input': now()})
     return state
+
+
+def watch() -> None:
+    """The moment an agent last looked. The bar shows a mark while this is fresh."""
+    (root() / 'watching').write_text(f'{now():.0f}\n')
 
 
 # -- MCP server registry for the kill switch ---------------------------------

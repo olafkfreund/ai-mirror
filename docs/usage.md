@@ -2,8 +2,21 @@
 
 ## Control model
 
-`$XDG_RUNTIME_DIR/ai-mirror/state.json` holds `{owner: agent|off, generation, since, enabled_by}`.
+`$XDG_RUNTIME_DIR/ai-mirror/state.json` holds `{owner: agent|pending|off, generation, since, enabled_by}`.
 
+- **Control is asked for, not taken.** `control agent` — from an agent, the CLI or the bar —
+  writes `owner: pending` with a `request {id, by, since, expires}` and opens a dialog on your
+  desktop. Only you answer it: **A** allows, **Escape** (or Enter, or Deny) refuses. An
+  unanswered request lapses after 30 seconds and the state goes back to `off`.
+- A confirmed grant records `enabled_by: "human-confirmed"` and `request_by` (who asked).
+  An agent cannot answer its own request: `control confirm|deny` over MCP is `not_owner`, and
+  no confirm tool exists.
+- **A grant expires.** It ends when the asking MCP server exits, when you stop it, and by
+  itself after ten minutes with no input (`not_owner`, "ask again").
+- While an agent only *looks*, `watching` records when it last did and the bar shows a steady
+  neutral mark: reading the screen is visible, even though it needs no grant.
+- Every request, answer, expiry and stop is one JSON line in
+  `$XDG_RUNTIME_DIR/ai-mirror/audit.jsonl`.
 - Every change bumps `generation`. Screenshots and input carry the generation they were made
   under; input from an older generation is refused with `stale_generation`.
 - Input, `window`, `launch`, `a11y_act` and clipboard writes need `owner: agent` (`not_owner` otherwise).
@@ -19,7 +32,7 @@
 | Tool | Purpose |
 |---|---|
 | `status` | owner, generation, monitors `{name,x,y,w,h,scale,focused}` |
-| `control` | `mode: agent\|off` |
+| `control` | `mode: agent\|off` — `agent` asks the human; poll `status` until `owner` is `agent` or `off` |
 | `screenshot` | `output` (monitor name or `all`, default focused), `region [x,y,w,h]` global px, `max_size` 320–3840 (default 1280), `image` |
 | `windows` | address, class, title, `at`, `size`, monitor, workspace, floating, fullscreen |
 | `input` | `frame` (image px) or `generation` (global px), `actions[1..16]`, `screenshot`, `wait_ms` |
@@ -62,7 +75,8 @@ Every command prints JSON; errors are `{"error":{"code","message"}}` with a nonz
 
 ```sh
 ai-mirror status
-ai-mirror control agent|off
+ai-mirror control agent|off              # agent asks; off revokes
+ai-mirror control confirm|deny [ID]      # answer the waiting request (what the dialog runs)
 ai-mirror screenshot [--output DP-1|all] [--region x,y,w,h] [--max-size N] [--out file.png]
 ai-mirror windows
 ai-mirror input --generation N '[{"type":"click","x":300,"y":200,"modifiers":["CTRL"]}]'
@@ -87,7 +101,13 @@ and `toolkit-accessibility`; ai-mirror also sets the AT-SPI `IsEnabled` flag on 
 
 ## Troubleshooting
 
-- `not_owner` — turn control on. `stale_generation` — control changed; take a new screenshot.
+- `not_owner` — ask for control (`control agent`) and wait for the human to allow it; after ten
+  idle minutes a grant ends and has to be asked for again. `stale_generation` — control changed;
+  take a new screenshot.
+- No dialog appears — the bar widget draws it, so enable the plugin
+  (`omarchy plugin enable olafkfreund.ai-mirror --section right`). With it disabled, nobody can
+  answer and every request lapses after 30 seconds; `ai-mirror control confirm` from a terminal
+  is the way out.
 - `ai-mirror-input helper not found` — use the flake package, or set `AI_MIRROR_HELPER`.
 - Indicator missing — `omarchy plugin enable olafkfreund.ai-mirror --section right`.
 - Kill switch key does nothing — add `pcall(require, "hypr.ai-mirror-binds")` to `bindings.lua`.

@@ -20,8 +20,10 @@ def build_parser():
     commands = parser.add_subparsers(dest='op', required=True)
     for name in ('status', 'doctor', 'windows', 'mcp'):
         commands.add_parser(name)
-    p = commands.add_parser('control', help='agent: allow agent input; off: revoke and release held keys')
-    p.add_argument('mode', choices=['agent', 'off'])
+    p = commands.add_parser('control', help='agent: ask the human for control; off: revoke and release held keys; '
+                                            'confirm/deny: answer the waiting request')
+    p.add_argument('mode', choices=['agent', 'off', 'confirm', 'deny'])
+    p.add_argument('id', nargs='?', help='the request id to answer (default: the one waiting)')
     p = commands.add_parser('screenshot')
     p.add_argument('--out')
     p.add_argument('--output', help="monitor name or 'all' (default: focused)")
