@@ -40,6 +40,12 @@ Full reference: `docs/usage.md`.
 
 ## Invariants — do not break
 
+- **Tests cannot reach the desktop.** `Base.setUp` calls `guard.arm()`, and the seams that
+  change the world outside the process — the bus write in `a11y._busctl`, `Helper.start`/
+  `.cmd`, `host.ctl dispatch` — raise `guard.Blocked` while it is armed. Reads are
+  deliberately not guarded. A test that genuinely needs a live seam calls `guard.disarm()`,
+  in one line. Put the check on the innermost real call, the one a test stubs, never on the
+  wrapper above it.
 - **Control is a request a human answers.** `set_owner('agent', …)` only ever writes
   `owner: pending`; `confirm_request(id)` grants. The gate is unforgeable only for an agent
   that reaches ai-mirror through MCP alone — one with a shell on the same account can run the
