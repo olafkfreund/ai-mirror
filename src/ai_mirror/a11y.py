@@ -9,6 +9,7 @@ from __future__ import annotations
 import subprocess
 
 from . import guard
+from . import privacy
 from .control import MirrorError
 
 STATES = ('enabled', 'focused', 'focusable', 'editable', 'checked', 'selected',
@@ -154,15 +155,29 @@ def _walk(app: str | None, depth: int, enable: bool = True):
     visited = 0
     for index in range(_call(desktop.get_child_count, 0)):
         root = _call(lambda: desktop.get_child_at_index(index))
-        if root is None or (app and app.lower() not in (_call(root.get_name, '') or '').lower()):
+        if root is None:
             continue
+        root_name = _call(root.get_name, '') or ''
+        if app and app.lower() not in root_name.lower():
+            continue
+        # #20: an application node's name plays the part of a window class, so
+        # 1Password or gcr-prompter is refused whole. A frame's name plays the
+        # part of a title, and is checked per frame below -- one Google Chrome
+        # node carries a frame per window, so refusing the application because
+        # one window is a bank would remove every Chrome window from the tree.
+        app_withheld = privacy.kind(root_name, '')
         stack = [(str(index), root, 0)]
         while stack:
             node_id, acc, level = stack.pop()
             visited += 1
             if visited > VISIT_CAP:
                 return
-            yield node_id, acc, level, Atspi
+            withheld = app_withheld if level == 0 else None
+            if withheld is None and level == 1:
+                withheld = privacy.kind(root_name, _call(acc.get_name, '') or '')
+            yield node_id, acc, level, Atspi, withheld
+            if withheld:
+                continue  # yielded as a fact, never descended into
             if level < depth:
                 children = []
                 for i in range(_call(acc.get_child_count, 0)):
@@ -196,9 +211,15 @@ def _coverage(visited: int, deep: bool, truncated: bool) -> dict:
 def tree(app: str | None = None, depth: int = 12, max_nodes: int = 400,
          enable: bool = True) -> dict:
     nodes, truncated, visited, deep = [], False, 0, False
-    for node_id, acc, level, Atspi in _walk(app, depth, enable):
+    for node_id, acc, level, Atspi, withheld in _walk(app, depth, enable):
         visited += 1
         deep = deep or level >= CONTENT_DEPTH
+        if withheld:
+            # The fact, never the name: a frame's name is the sensitive part.
+            # _node() is not called at all, so no text or bounds are read.
+            nodes.append({'id': node_id, 'role': _call(acc.get_role_name, '') or '',
+                          'withheld': withheld, 'depth': level})
+            continue
         row = _node(acc, node_id, Atspi)
         if level and not row['name'] and row['role'] in QUIET_ROLES and 'text' not in row:
             continue
@@ -214,13 +235,17 @@ def find(name: str | None = None, role: str | None = None, app: str | None = Non
     if not name and not role:
         raise ValueError('give name and/or role')
     matches, visited, deep = [], 0, False
+    kept_out: list[str] = []
     # Per application, so an empty result can say which ones had nothing to
     # match rather than implying the element is absent. Keyed by the walk's own
     # root index; one get_name per application, not per node.
     apps: dict[str, list] = {}
-    for node_id, acc, level, Atspi in _walk(app, 64):
+    for node_id, acc, level, Atspi, withheld in _walk(app, 64):
         visited += 1
         deep = deep or level >= CONTENT_DEPTH
+        if withheld:
+            kept_out.append(withheld)
+            continue
         root = node_id.split('.')[0]
         if level == 0:
             apps[root] = [(_call(acc.get_name, '') or '?')[:40], False]
@@ -234,12 +259,23 @@ def find(name: str | None = None, role: str | None = None, app: str | None = Non
         if len(matches) >= limit:
             break
     coverage = _coverage(visited, deep, False)
+    if kept_out:
+        coverage['withheld'] = len(kept_out)
     if matches:
         # A match proves the tree is usable, so the no-content note must not
         # fire. It could: this loop breaks at `limit`, so `deep` only reflects
         # what was walked before the break -- `--role frame --limit 2` stops at
         # depth 1 and looked like a desktop exposing nothing.
         coverage.pop('note', None)
+    elif kept_out:
+        # Different from "this desktop exposes nothing" (#18): here something
+        # WAS there and was deliberately not looked at, which changes what an
+        # agent should do next.
+        kinds = ", ".join(sorted(set(kept_out)))
+        coverage['note'] = (f'no match, and {len(kept_out)} window(s) were not looked at '
+                            f'because of what they are ({kinds}). The element may well be '
+                            'inside one of those. Ask the user to close it, or work from a '
+                            'screenshot of a region that excludes it.')
     else:
         coverage.setdefault('note', _why_empty(apps))
     return {'nodes': matches, **coverage}
@@ -271,10 +307,25 @@ def resolve(node_id: str):
     if not parts or not all(p.isdigit() for p in parts):
         raise ValueError('node must be an id from a11y_tree or a11y_find')
     acc = Atspi.get_desktop(0)
-    for part in parts:
+    # #20: re-checked here, not only during the walk. Without this an id taken
+    # a moment before a window became sensitive still resolves, and act() would
+    # reach inside it. Part 0 is the application, part 1 its window.
+    app_name = ''
+    for depth, part in enumerate(parts):
         acc = _call(lambda: acc.get_child_at_index(int(part)))
         if acc is None:
             raise MirrorError('stale_node', 'the element is gone; read the tree again')
+        if depth == 0:
+            app_name = _call(acc.get_name, '') or ''
+            refused = privacy.kind(app_name, '')
+        elif depth == 1:
+            refused = privacy.kind(app_name, _call(acc.get_name, '') or '')
+        else:
+            refused = None
+        if refused:
+            raise MirrorError('sensitive',
+                              f'that element is inside {refused}, so it was not read '
+                              'and cannot be acted on.')
     return acc, Atspi
 
 

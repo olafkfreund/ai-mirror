@@ -101,6 +101,11 @@ olafkfreund/nixarchy#749.
 browsing window or a banking page is visible anywhere in the rectangle being captured --
 not just when it has focus. The refusal names the kind and never the window title.
 
+The accessibility tools are guarded the same way: `a11y_tree` reports such a window as
+`withheld` with no name and does not read inside it, `a11y_find` cannot match there and says
+so, and `a11y_act` refuses an id within one. A tree is machine-readable text, so reaching for
+`a11y_find` is not a way round a refused screenshot.
+
 **Do:** capture a narrower region that excludes it, or ask the user to close it. Treat this
 as best-effort: it matches on window class and title, so it misses things and it misfires.
 It does not make a screen safe to photograph.
