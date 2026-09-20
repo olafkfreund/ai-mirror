@@ -746,7 +746,7 @@ class A11yCoverage(Base):
             if enable:
                 a11y.ensure_enabled()  # the real seam, not a re-implementation
             for index_, level in enumerate(levels):
-                yield str(index_), self.accessible(), level, None
+                yield str(index_), self.accessible(), level, None, None
         return patch.multiple(a11y, _walk=_walk,
                               _node=lambda acc, node_id, Atspi: {'id': node_id, 'role': 'frame', 'name': ''})
 
@@ -776,7 +776,7 @@ class A11yCoverage(Base):
             for i, (level, name) in enumerate(((0, 'Google Chrome'), (1, ''),
                                                (0, 'qemu'), (1, ''), (2, 'a menu'))):
                 yield ('0' if i < 2 else '2') + ('' if level == 0 else f'.{level}'), \
-                      self.accessible(name=name), level, None
+                      self.accessible(name=name), level, None, None
         with patch.multiple(a11y, _walk=_walk,
                             _node=lambda acc, node_id, Atspi: {'id': node_id}):
             result = a11y.find(role='push button')
@@ -872,6 +872,76 @@ class SensitiveWindows(Base):
                  'x': 0, 'y': 0, 'w': 5120, 'h': 1440, 'name': 'DP-1'}):
             with self.assertRaises(control.MirrorError) as err:
                 control.screenshot(P(tempfile.mkdtemp()) / 'x.png')
+        self.assertEqual(err.exception.code, 'sensitive')
+
+class A11yPrivacy(Base):
+    """#20: the tree does not read inside a window it should not read."""
+
+    @staticmethod
+    def acc(name, role='frame'):
+        return SimpleNamespace(get_name=lambda: name, get_role_name=lambda: role)
+
+    def walk_of(self, app_name, frames):
+        """A fake desktop: one application, several frames, guarded as _walk does."""
+        def _walk(app, depth, enable=True):
+            app_withheld = privacy.kind(app_name, '')
+            yield '6', self.acc(app_name, 'application'), 0, None, app_withheld
+            if app_withheld:
+                return  # _walk does not descend into a refused application
+            for i, title in enumerate(frames):
+                yield f'6.{i}', self.acc(title), 1, None, privacy.kind(app_name, title)
+        return patch.multiple(
+            a11y, _walk=_walk,
+            _node=lambda acc, node_id, At: {'id': node_id, 'role': acc.get_role_name(),
+                                            'name': acc.get_name()})
+
+    def test_a_refused_frame_does_not_cost_its_siblings(self):
+        """The Chrome case. Getting this wrong is an outage, not a leak."""
+        with self.walk_of('Google Chrome',
+                          ['Revolut - Payments', 'GitHub - a repo', 'Docs - a page']):
+            nodes = a11y.tree()['nodes']
+        kept = [n for n in nodes if n['id'].startswith('6.') and 'withheld' not in n]
+        self.assertEqual(len(kept), 2)
+
+    def test_a_refused_frame_carries_the_kind_and_not_the_name(self):
+        with self.walk_of('Google Chrome', ['Revolut  someone@example.com']):
+            hidden = [n for n in a11y.tree()['nodes'] if 'withheld' in n]
+        self.assertEqual(len(hidden), 1)
+        self.assertEqual(hidden[0]['withheld'], 'a banking or payment page')
+        self.assertNotIn('name', hidden[0])
+
+    def test_a_sensitive_application_is_refused_whole(self):
+        with self.walk_of('1Password', ['Personal Vault']):
+            nodes = a11y.tree()['nodes']
+        self.assertEqual(len(nodes), 1)          # never descended
+        self.assertEqual(nodes[0]['withheld'], 'a password manager')
+
+    def test_find_says_it_withheld_rather_than_implying_absence(self):
+        with self.walk_of('Google Chrome', ['Revolut - Payments', 'GitHub']):
+            result = a11y.find(name='Revolut')
+        self.assertEqual(result['nodes'], [])
+        self.assertEqual(result['withheld'], 1)
+        self.assertIn('not looked at', result['note'])
+
+    def test_an_ordinary_desktop_is_unchanged(self):
+        with self.walk_of('Google Chrome', ['GitHub - a repo']):
+            result = a11y.tree()
+        self.assertFalse(any('withheld' in n for n in result['nodes']))
+        self.assertTrue(all('name' in n for n in result['nodes']))
+
+    def test_act_cannot_reach_inside_a_refused_window(self):
+        chain = [self.acc('1Password', 'application'), self.acc('Personal Vault')]
+
+        class Desk:
+            def __init__(self): self.i = -1
+            def get_child_at_index(self, _i):
+                self.i += 1
+                return chain[self.i] if self.i < len(chain) else None
+
+        with patch.object(a11y, '_atspi',
+                          lambda: SimpleNamespace(get_desktop=lambda n: Desk())):
+            with self.assertRaises(control.MirrorError) as err:
+                a11y.resolve('3.0')
         self.assertEqual(err.exception.code, 'sensitive')
 
 if __name__ == '__main__':
