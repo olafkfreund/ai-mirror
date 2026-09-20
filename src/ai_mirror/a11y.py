@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import subprocess
 
+from . import guard
 from .control import MirrorError
 
 STATES = ('enabled', 'focused', 'focusable', 'editable', 'checked', 'selected',
@@ -31,6 +32,11 @@ def _atspi():
 
 
 def _busctl(verb: str, prop: str, *value: str) -> subprocess.CompletedProcess:
+    if verb == 'set-property':
+        # The guard belongs on the innermost real call -- the one a test stubs.
+        # Above it, on set_bus_property, a correctly stubbed test is blocked
+        # too. Reads are not guarded, per the spec.
+        guard.check('a11y._busctl set-property', 'a11y._busctl')
     try:
         return subprocess.run(['busctl', '--user', verb, *A11Y_STATUS, prop, *value],
                               capture_output=True, text=True, timeout=5)

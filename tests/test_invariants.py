@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from ai_mirror import a11y, api, control, host, index, input, mcp, wait
+from ai_mirror import a11y, api, control, guard, host, index, input, mcp, wait
 
 LAYOUT = [{'name': 'DP-2', 'x': 0, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
           {'name': 'DP-1', 'x': 2560, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
@@ -59,6 +59,10 @@ class Base(unittest.TestCase):
         env = patch.dict(os.environ, {'XDG_RUNTIME_DIR': temp.name})
         env.start()
         self.addCleanup(env.stop)
+        # The seams that would change the real desktop refuse from here. A test
+        # that genuinely needs one calls guard.disarm().
+        guard.arm()
+        self.addCleanup(guard.disarm)
         # set_owner('agent') enables accessibility, so every test that takes
         # control would otherwise write org.a11y.Status on the real session
         # bus. 584d8ee fixed the same shape of bug for the desktop.

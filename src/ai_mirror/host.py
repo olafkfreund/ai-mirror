@@ -3,6 +3,8 @@ import json
 import re
 import subprocess
 
+from . import guard
+
 ADDRESS_RE = re.compile(r'0x[0-9a-f]{1,16}')
 WORKSPACE_RE = re.compile(r'[0-9]{1,3}|special(:[A-Za-z0-9_-]{1,32})?')
 
@@ -10,6 +12,10 @@ WORKSPACE_RE = re.compile(r'[0-9]{1,3}|special(:[A-Za-z0-9_-]{1,32})?')
 def ctl(*args, timeout=10):
     # Callers with their own deadline pass what is left of it: a caller waiting
     # 0.1s for something must not be held for ten by one slow query.
+    if args and args[0] == 'dispatch':
+        # Queries are left alone on purpose: reading where the windows are
+        # disturbs nothing, and guarding it would mock every harmless call.
+        guard.check('host.ctl dispatch', 'host.ctl')
     result = subprocess.run(['hyprctl', *args], capture_output=True, text=True, timeout=timeout)
     if result.returncode or (args[0] == 'dispatch' and result.stdout.strip() != 'ok'):
         raise RuntimeError('Hyprland: ' + (result.stderr or result.stdout).strip())
