@@ -7,10 +7,11 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from ai_mirror import api, control, host, index, input, mcp, wait
+from ai_mirror import a11y, api, control, host, index, input, mcp, wait
 
 LAYOUT = [{'name': 'DP-2', 'x': 0, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
           {'name': 'DP-1', 'x': 2560, 'y': 0, 'w': 2560, 'h': 1440, 'scale': 1, 'focused': False},
@@ -42,6 +43,10 @@ class FakeHelper(control.Helper):
         return ack
 
 
+def bus_result(returncode=0, stdout='', stderr=''):
+    return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+
+
 def grant(by='agent'):
     """Ask for control and answer yes, as the human does from the bar dialog."""
     return control.confirm_request(control.set_owner('agent', by)['request']['id'])
@@ -54,6 +59,25 @@ class Base(unittest.TestCase):
         env = patch.dict(os.environ, {'XDG_RUNTIME_DIR': temp.name})
         env.start()
         self.addCleanup(env.stop)
+        # set_owner('agent') enables accessibility, so every test that takes
+        # control would otherwise write org.a11y.Status on the real session
+        # bus. 584d8ee fixed the same shape of bug for the desktop.
+        self.bus = {'IsEnabled': False, 'ScreenReaderEnabled': False}
+        self.bus_writes = []
+        stub = patch.object(a11y, '_busctl', self.fake_busctl)
+        stub.start()
+        self.addCleanup(stub.stop)
+        a11y._enabled = False
+        a11y._restore.clear()
+        self.addCleanup(a11y._restore.clear)
+        self.addCleanup(setattr, a11y, '_enabled', False)
+
+    def fake_busctl(self, verb, prop, *value):
+        if verb == 'get-property':
+            return bus_result(stdout=f"b {'true' if self.bus.get(prop) else 'false'}")
+        self.bus_writes.append((prop, value[-1]))
+        self.bus[prop] = value[-1] == 'true'
+        return bus_result()
 
 
 class ControlTests(Base):
@@ -653,6 +677,122 @@ class Wait(Base):
                              'confirmed')
 
 
+
+class A11yEnablement(Base):
+    """#12: the bus is switched on with both properties, and only for the agent."""
+
+    def test_sets_both_properties_not_just_is_enabled(self):
+        before = a11y.enable_bus()
+        self.assertEqual([prop for prop, _ in self.bus_writes], list(a11y.A11Y_PROPS))
+        self.assertEqual(before, {'IsEnabled': False, 'ScreenReaderEnabled': False})
+
+    def test_busctl_failure_is_reported_not_swallowed(self):
+        with patch.object(a11y, '_busctl', lambda *a: bus_result(1, stderr='no bus')):
+            with self.assertRaises(control.MirrorError) as err:
+                a11y.enable_bus()
+        self.assertEqual(err.exception.code, 'unavailable')
+
+    def test_control_off_leaves_a_humans_screen_reader_alone(self):
+        self.bus.update(IsEnabled=True, ScreenReaderEnabled=True)
+        grant('human')
+        self.bus_writes.clear()
+        control.set_owner('off', 'human')
+        self.assertEqual(self.bus_writes, [])
+
+    def test_control_off_restores_only_what_it_switched_on(self):
+        self.bus.update(IsEnabled=True, ScreenReaderEnabled=False)
+        grant('human')
+        self.bus_writes.clear()
+        control.set_owner('off', 'human')
+        self.assertEqual(self.bus_writes, [('ScreenReaderEnabled', 'false')])
+
+    def test_regrant_keeps_the_first_grants_record(self):
+        grant('human')
+        first = control.read_state()['a11y_before']
+        grant('agent')  # asking again from a live grant must not lose the record
+        self.assertEqual(control.read_state()['a11y_before'], first)
+
+    def test_taking_control_survives_a_broken_bus(self):
+        with patch.object(a11y, '_busctl', lambda *a: bus_result(1, stderr='no bus')):
+            state = grant('human')
+        self.assertEqual(state['owner'], 'agent')
+
+    def test_asking_does_not_switch_the_bus_on(self):
+        control.set_owner('agent', 'agent')  # #11: asking is not being granted
+        self.assertEqual(control.read_state()['owner'], 'pending')
+        self.assertEqual(self.bus_writes, [])
+
+    def test_a_denied_request_puts_back_a_live_grant(self):
+        grant('human')
+        self.bus_writes.clear()
+        pending = control.set_owner('agent', 'agent')
+        control.deny_request(pending['request']['id'])
+        self.assertEqual(self.bus_writes, [(p, 'false') for p in a11y.A11Y_PROPS])
+
+
+class A11yCoverage(Base):
+    """#12: an empty result must not read as an empty screen."""
+
+    @staticmethod
+    def accessible(role='frame', name=''):
+        return SimpleNamespace(get_role_name=lambda: role, get_name=lambda: name)
+
+    def walk(self, *levels):
+        def _walk(app, depth, enable=True):
+            if enable:
+                a11y.ensure_enabled()  # the real seam, not a re-implementation
+            for index_, level in enumerate(levels):
+                yield str(index_), self.accessible(), level, None
+        return patch.multiple(a11y, _walk=_walk,
+                              _node=lambda acc, node_id, Atspi: {'id': node_id, 'role': 'frame', 'name': ''})
+
+    def test_frames_only_tree_says_the_tree_is_unavailable(self):
+        with self.walk(0, 1, 0, 1):
+            result = a11y.tree()
+        self.assertFalse(result['content'])
+        self.assertEqual(result['visited'], 4)
+        self.assertIn('the tree is unavailable', result['note'])
+
+    def test_a_tree_with_depth_carries_no_note(self):
+        with self.walk(0, 1, 2):
+            result = a11y.tree()
+        self.assertTrue(result['content'])
+        self.assertNotIn('note', result)
+
+    def test_empty_find_on_a_frames_only_desktop_is_explained(self):
+        with self.walk(0, 1):
+            result = a11y.find(role='push button')
+        self.assertEqual(result['nodes'], [])
+        self.assertIn('the tree is unavailable', result['note'])
+
+    def test_enable_is_paid_once_per_process(self):
+        with self.walk(0, 1):
+            a11y.tree()
+            a11y.tree()
+        self.assertEqual([prop for prop, _ in self.bus_writes], list(a11y.A11Y_PROPS))
+
+    def test_a_bare_read_puts_the_bus_back_on_teardown(self):
+        with self.walk(0, 1):
+            a11y.tree()
+        self.assertEqual(self.bus_writes, [(p, 'true') for p in a11y.A11Y_PROPS])
+        self.bus_writes.clear()
+        a11y.release_bus()
+        self.assertEqual(self.bus_writes, [(p, 'false') for p in a11y.A11Y_PROPS])
+        a11y.release_bus()  # idempotent
+        self.assertEqual(self.bus_writes, [(p, 'false') for p in a11y.A11Y_PROPS])
+
+    def test_release_leaves_an_agents_grant_alone(self):
+        grant('human')
+        with self.walk(0, 1):
+            a11y.tree()
+        self.bus_writes.clear()
+        a11y.release_bus()
+        self.assertEqual(self.bus_writes, [])
+
+    def test_declining_to_enable_writes_nothing(self):
+        with self.walk(0, 1):
+            a11y.tree(enable=False)
+        self.assertEqual(self.bus_writes, [])
 
 if __name__ == '__main__':
     unittest.main()

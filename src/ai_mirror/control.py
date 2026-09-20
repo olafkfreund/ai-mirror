@@ -122,6 +122,31 @@ def _load() -> dict:
     return {'owner': 'off', 'generation': 0}
 
 
+def _a11y_enable() -> dict:
+    """Expose accessibility for the agent's tenure, recording what was already on.
+
+    Never blocks taking control: input is the point of control and a11y is a
+    bonus, so a missing busctl must not cost the agent its hands. The failure
+    surfaces where it matters, when a11y is actually read.
+    """
+    from . import a11y  # late: a11y imports MirrorError from this module
+    try:
+        return a11y.enable_bus()
+    except MirrorError:
+        return {}
+
+
+def _a11y_restore(before: dict) -> None:
+    """Put back only what we switched on, so a human's screen reader stays on."""
+    from . import a11y
+    for prop, was in (before or {}).items():
+        if was is False:
+            try:
+                a11y.set_bus_property(prop, False)
+            except MirrorError:
+                pass
+
+
 def _write(state: dict) -> dict:
     atomic_write_json(root() / 'state.json', state)
     return state
@@ -141,6 +166,7 @@ def read_state() -> dict:
         if not _lapsed(state):
             return state
         audit('expired', request=state['request'].get('id'), by=state['request'].get('by'))
+        _a11y_restore(state.get('a11y_before') or {})
         return _write({'owner': 'off', 'generation': int(state.get('generation', 0)) + 1,
                        'since': stamp(), 'enabled_by': None, 'why': LAPSED})
 
@@ -155,9 +181,17 @@ def set_owner(mode: str, by: str) -> dict:
         if mode == 'agent':
             request = {'id': secrets.token_hex(8), 'by': by, 'since': stamp(), 'expires': now() + REQUEST_TTL}
             audit('requested', request=request['id'], by=by)
-            state = _write({'owner': 'pending', 'generation': generation, 'since': stamp(),
-                            'enabled_by': None, 'request': request})
+            pending = {'owner': 'pending', 'generation': generation, 'since': stamp(),
+                       'enabled_by': None, 'request': request}
+            # Carry the record across a re-request from a live grant. The
+            # properties are already on, so recapturing after the confirm would
+            # record what we set ourselves and `off` would restore the wrong
+            # thing. Asking again must not lose what asking the first time found.
+            if state.get('a11y_before'):
+                pending['a11y_before'] = state['a11y_before']
+            state = _write(pending)
         else:
+            _a11y_restore(state.get('a11y_before') or {})
             audit('off', by=by, was=state.get('owner'))
             state = _write({'owner': 'off', 'generation': generation, 'since': stamp(), 'enabled_by': None})
     if mode == 'off':
@@ -174,10 +208,18 @@ def _answer(request_id: str, granted: bool) -> dict:
         generation = int(state.get('generation', 0)) + 1
         audit('confirmed' if granted else 'denied', request=request_id, by=request.get('by'))
         if not granted:
+            _a11y_restore(state.get('a11y_before') or {})
             return _write({'owner': 'off', 'generation': generation, 'since': stamp(), 'enabled_by': None})
-        return _write({'owner': 'agent', 'generation': generation, 'since': stamp(),
-                       'enabled_by': 'human-confirmed', 'request_by': request.get('by'),
-                       'last_input': now()})
+        # Accessibility is switched on here rather than in set_owner: under #11
+        # an agent that merely asks has not been granted anything, and must not
+        # turn the bus on before the human has answered.
+        granted_state = {'owner': 'agent', 'generation': generation, 'since': stamp(),
+                         'enabled_by': 'human-confirmed', 'request_by': request.get('by'),
+                         'last_input': now()}
+        a11y_before = state.get('a11y_before') or _a11y_enable()
+        if a11y_before:
+            granted_state['a11y_before'] = a11y_before
+        return _write(granted_state)
 
 
 def confirm_request(request_id: str) -> dict:

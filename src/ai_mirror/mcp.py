@@ -247,8 +247,10 @@ def main():
             if response is not None:
                 print(json.dumps(response, ensure_ascii=False), flush=True)
     finally:
+        from . import a11y  # local, like api.py: keeps gi off the import path
         control.unregister_server()
         control.HELPER.stop()
+        a11y.release_bus()
         state = control.read_state()
         asked_by = state.get('request', {}).get('by') if state.get('owner') == 'pending' else state.get('request_by')
         if state.get('owner') in ('agent', 'pending') and asked_by == 'agent':

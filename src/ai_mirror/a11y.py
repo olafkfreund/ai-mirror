@@ -14,6 +14,10 @@ STATES = ('enabled', 'focused', 'focusable', 'editable', 'checked', 'selected',
           'expanded', 'collapsed', 'pressed', 'sensitive', 'multi-line')
 QUIET_ROLES = ('filler', 'panel', 'section', 'redundant object', 'unknown')
 VISIT_CAP = 20000
+A11Y_STATUS = ('org.a11y.Bus', '/org/a11y/bus', 'org.a11y.Status')
+A11Y_PROPS = ('IsEnabled', 'ScreenReaderEnabled')
+_enabled = False  # enable_bus is worth doing once, not once per walk
+_restore: dict[str, bool] = {}  # what a bare read switched on, for teardown
 
 
 def _atspi():
@@ -26,10 +30,74 @@ def _atspi():
     return Atspi
 
 
-def enable_bus() -> None:
-    """Ask toolkits to expose accessibility (apps started earlier may need a restart)."""
-    subprocess.run(['busctl', '--user', 'set-property', 'org.a11y.Bus', '/org/a11y/bus',
-                    'org.a11y.Status', 'IsEnabled', 'b', 'true'], capture_output=True, timeout=5)
+def _busctl(verb: str, prop: str, *value: str) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(['busctl', '--user', verb, *A11Y_STATUS, prop, *value],
+                              capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise MirrorError('unavailable', f'accessibility bus unreachable ({exc})') from None
+
+
+def bus_property(prop: str) -> bool | None:
+    """What an org.a11y.Status property is set to now, or None if unreadable."""
+    result = _busctl('get-property', prop)
+    words = result.stdout.split()  # busctl prints `b true`
+    return words[-1] == 'true' if result.returncode == 0 and words else None
+
+
+def set_bus_property(prop: str, value: bool) -> None:
+    result = _busctl('set-property', prop, 'b', 'true' if value else 'false')
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip()[:120]
+        raise MirrorError('unavailable', f'could not set {prop}: {detail}')
+
+
+def enable_bus() -> dict[str, bool | None]:
+    """Ask toolkits to expose accessibility; report what each property was before.
+
+    Toolkits watch ScreenReaderEnabled, not IsEnabled. Setting only the latter
+    leaves a tree of application and frame nodes with nothing underneath them,
+    which is what #12 was. Apps started before this may still need a restart,
+    and Chromium wants --force-renderer-accessibility whatever the bus says.
+    """
+    before = {}
+    for prop in A11Y_PROPS:
+        before[prop] = bus_property(prop)
+        set_bus_property(prop, True)
+    return before
+
+
+def ensure_enabled() -> None:
+    """Enable the bus once per process, remembering what we switched on.
+
+    Control puts back what control switched on. A bare read has no such
+    lifecycle, so without the record an `a11y-find` would enable the bus for
+    good and quietly defeat the gating. On failure the flag stays down, so the
+    next walk retries.
+    """
+    global _enabled
+    if _enabled:
+        return
+    before = enable_bus()
+    _enabled = True
+    _restore.update({prop: was for prop, was in before.items() if was is False})
+
+
+def release_bus() -> None:
+    """Put back what a bare read switched on. Idempotent; never raises.
+
+    Skipped while an agent holds control: the grant switched the bus on for its
+    own tenure and `control off` is what ends that.
+    """
+    from .control import read_state
+    if not _restore or read_state().get('owner') == 'agent':
+        return
+    for prop in list(_restore):
+        try:
+            set_bus_property(prop, False)
+        except MirrorError:
+            pass
+        _restore.pop(prop, None)
 
 
 def _call(fn, default=None):
@@ -71,8 +139,11 @@ def _walk(app: str | None, depth: int, enable: bool = True):
     Atspi = _atspi()
     # enable_bus writes org.a11y.Status over busctl. A caller that promises
     # to only observe -- the index -- must be able to decline that.
+    # Control already enables this when the agent takes over; this is the
+    # fallback for a bare CLI read, and it is worth one subprocess per process
+    # rather than one per walk.
     if enable:
-        enable_bus()
+        ensure_enabled()
     desktop = Atspi.get_desktop(0)
     visited = 0
     for index in range(_call(desktop.get_child_count, 0)):
@@ -95,10 +166,33 @@ def _walk(app: str | None, depth: int, enable: bool = True):
                 stack.extend(reversed(children))
 
 
+CONTENT_DEPTH = 2  # an app holds a frame holds content; depth 2 is the first real node
+NO_CONTENT = ('this desktop exposed no accessibility content: every node was an '
+              'application or a window frame, with no controls under them. An empty '
+              'result here means the tree is unavailable, NOT that the screen is '
+              'empty -- use screenshot instead. Chromium and Electron only expose '
+              'content when launched with --force-renderer-accessibility.')
+
+
+def _coverage(visited: int, deep: bool, truncated: bool) -> dict:
+    """What the walk saw, so an empty result is not read as an empty screen.
+
+    Both counts come from the traversal that already runs -- no second walk and
+    no extra AT-SPI calls. `deep` uses the walk's own level rather than asking
+    each node its role, which would be a round trip per node.
+    """
+    coverage = {'visited': visited, 'content': deep}
+    if not deep and not truncated:
+        coverage['note'] = NO_CONTENT
+    return coverage
+
+
 def tree(app: str | None = None, depth: int = 12, max_nodes: int = 400,
          enable: bool = True) -> dict:
-    nodes, truncated = [], False
+    nodes, truncated, visited, deep = [], False, 0, False
     for node_id, acc, level, Atspi in _walk(app, depth, enable):
+        visited += 1
+        deep = deep or level >= CONTENT_DEPTH
         row = _node(acc, node_id, Atspi)
         if level and not row['name'] and row['role'] in QUIET_ROLES and 'text' not in row:
             continue
@@ -107,14 +201,16 @@ def tree(app: str | None = None, depth: int = 12, max_nodes: int = 400,
             break
         row['depth'] = level
         nodes.append(row)
-    return {'nodes': nodes, 'truncated': truncated}
+    return {'nodes': nodes, 'truncated': truncated, **_coverage(visited, deep, truncated)}
 
 
 def find(name: str | None = None, role: str | None = None, app: str | None = None, limit: int = 20) -> dict:
     if not name and not role:
         raise ValueError('give name and/or role')
-    matches = []
-    for node_id, acc, _level, Atspi in _walk(app, 64):
+    matches, visited, deep = [], 0, False
+    for node_id, acc, level, Atspi in _walk(app, 64):
+        visited += 1
+        deep = deep or level >= CONTENT_DEPTH
         if name and name.lower() not in (_call(acc.get_name, '') or '').lower():
             continue
         if role and role.lower() != (_call(acc.get_role_name, '') or '').lower():
@@ -122,7 +218,7 @@ def find(name: str | None = None, role: str | None = None, app: str | None = Non
         matches.append(_node(acc, node_id, Atspi))
         if len(matches) >= limit:
             break
-    return {'nodes': matches}
+    return {'nodes': matches, **_coverage(visited, deep, False)}
 
 
 def resolve(node_id: str):

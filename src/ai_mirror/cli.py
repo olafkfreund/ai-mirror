@@ -4,7 +4,7 @@ import json
 import subprocess
 import sys
 
-from . import api, control
+from . import a11y, api, control
 from .control import MirrorError
 
 
@@ -100,6 +100,7 @@ def main(argv=None):
         return 130
     finally:
         control.HELPER.stop()  # a CLI batch never leaves keys held
+        a11y.release_bus()  # nor accessibility switched on just to read it
 
 
 if __name__ == '__main__':
