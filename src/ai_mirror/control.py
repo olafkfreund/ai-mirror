@@ -83,14 +83,50 @@ def read_state() -> dict:
     return {'owner': 'off', 'generation': 0}
 
 
+def _a11y_enable() -> dict:
+    """Expose accessibility for the agent's tenure, recording what was already on.
+
+    Never blocks taking control: input is the point of control and a11y is a
+    bonus, so a missing busctl must not cost the agent its hands. The failure
+    surfaces where it matters, when a11y is actually read.
+    """
+    from . import a11y  # late: a11y imports MirrorError from this module
+    try:
+        return a11y.enable_bus()
+    except MirrorError:
+        return {}
+
+
+def _a11y_restore(before: dict) -> None:
+    """Put back only what we switched on, so a human's screen reader stays on."""
+    from . import a11y
+    for prop, was in (before or {}).items():
+        if was is False:
+            try:
+                a11y.set_bus_property(prop, False)
+            except MirrorError:
+                pass
+
+
 def set_owner(mode: str, by: str) -> dict:
     if mode not in ('agent', 'off') or by not in ('agent', 'human'):
         raise ValueError('mode must be agent or off')
     with locked('control'):
         state = read_state()
+        if mode == 'agent':
+            # A re-grant keeps the first grant's record. Recapturing here would
+            # store the values we set ourselves, and `off` would restore those.
+            a11y_before = state.get('a11y_before') if state.get('owner') == 'agent' else None
+            if a11y_before is None:
+                a11y_before = _a11y_enable()
+        else:
+            _a11y_restore(state.get('a11y_before') or {})
+            a11y_before = None
         state = {'owner': mode, 'generation': int(state.get('generation', 0)) + 1,
                  'since': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
                  'enabled_by': by if mode == 'agent' else None}
+        if a11y_before:
+            state['a11y_before'] = a11y_before
         atomic_write_json(root() / 'state.json', state)
     if mode == 'off':
         signal_servers()

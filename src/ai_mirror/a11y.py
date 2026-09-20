@@ -14,6 +14,8 @@ STATES = ('enabled', 'focused', 'focusable', 'editable', 'checked', 'selected',
           'expanded', 'collapsed', 'pressed', 'sensitive', 'multi-line')
 QUIET_ROLES = ('filler', 'panel', 'section', 'redundant object', 'unknown')
 VISIT_CAP = 20000
+A11Y_STATUS = ('org.a11y.Bus', '/org/a11y/bus', 'org.a11y.Status')
+A11Y_PROPS = ('IsEnabled', 'ScreenReaderEnabled')
 
 
 def _atspi():
@@ -26,10 +28,41 @@ def _atspi():
     return Atspi
 
 
-def enable_bus() -> None:
-    """Ask toolkits to expose accessibility (apps started earlier may need a restart)."""
-    subprocess.run(['busctl', '--user', 'set-property', 'org.a11y.Bus', '/org/a11y/bus',
-                    'org.a11y.Status', 'IsEnabled', 'b', 'true'], capture_output=True, timeout=5)
+def _busctl(verb: str, prop: str, *value: str) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(['busctl', '--user', verb, *A11Y_STATUS, prop, *value],
+                              capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise MirrorError('unavailable', f'accessibility bus unreachable ({exc})') from None
+
+
+def bus_property(prop: str) -> bool | None:
+    """What an org.a11y.Status property is set to now, or None if unreadable."""
+    result = _busctl('get-property', prop)
+    words = result.stdout.split()  # busctl prints `b true`
+    return words[-1] == 'true' if result.returncode == 0 and words else None
+
+
+def set_bus_property(prop: str, value: bool) -> None:
+    result = _busctl('set-property', prop, 'b', 'true' if value else 'false')
+    if result.returncode:
+        detail = (result.stderr or result.stdout).strip()[:120]
+        raise MirrorError('unavailable', f'could not set {prop}: {detail}')
+
+
+def enable_bus() -> dict[str, bool | None]:
+    """Ask toolkits to expose accessibility; report what each property was before.
+
+    Toolkits watch ScreenReaderEnabled, not IsEnabled. Setting only the latter
+    leaves a tree of application and frame nodes with nothing underneath them,
+    which is what #12 was. Apps started before this may still need a restart,
+    and Chromium wants --force-renderer-accessibility whatever the bus says.
+    """
+    before = {}
+    for prop in A11Y_PROPS:
+        before[prop] = bus_property(prop)
+        set_bus_property(prop, True)
+    return before
 
 
 def _call(fn, default=None):
