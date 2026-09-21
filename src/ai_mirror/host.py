@@ -67,6 +67,19 @@ def monitor(name=None) -> dict:
     return rows[0]
 
 
+def focused_address() -> str | None:
+    """The focused window's address, or None when nothing holds focus.
+
+    A failed query is NOT None. `ctl` raises, and that is left to propagate:
+    "no window is focused" and "we could not find out" are different facts, and
+    collapsing them is how a guard built on this would start failing open. The
+    caller refuses on either, but it does not say the same thing about them.
+    """
+    window = json.loads(ctl('activewindow', '-j'))
+    address = window.get('address')
+    return address if isinstance(address, str) and ADDRESS_RE.fullmatch(address) else None
+
+
 def windows() -> list[dict]:
     keys = ('address', 'class', 'title', 'at', 'size', 'monitor', 'floating', 'fullscreen', 'focusHistoryID')
     rows = []

@@ -95,6 +95,32 @@ window I meant still in front", and keyboard actions carry no coordinates so
 8. `nix flake check`.
    → verify by `all checks passed!`.
 
+## Deviations, recorded with the code
+
+**Step 3's signature.** `window` goes *after* `helper`, not before it.
+`tests/test_invariants.py:110` and others call
+`run_batch(lines, generation, helper)` with the helper positional, so inserting
+`window` ahead of it would have silently passed a `FakeHelper` as a window
+address. Caught by reading the existing call sites before running anything.
+
+**Step 7, two test bugs of my own**, both worth recording because each looked
+like an implementation failure:
+
+- `helper.sent` includes `'C'`, which is `cancel()`'s own line rather than
+  input. Four assertions compared against it and failed. The tests now filter it
+  through a `typed()` helper, which also makes the intent explicit: the claim is
+  about *input* lines, and the `C` is evidence the cancel fired.
+- `run_batch` binds `helper: Helper = HELPER` as a **default at definition
+  time**, so `patch.object(control, 'HELPER', ...)` never reaches it. The api
+  test records the `run_batch` call instead.
+
+**The sandbox was checking a tree without these tests.** Local ran 102 and
+`nix flake check` ran **87** — exactly the 15 new ones missing. `${./.}` in a
+flake includes only git-tracked files, and `tests/test_verified_input.py` was
+still untracked. Staging it changed the derivation hash
+(`jxi2bb…` -> `8acwjm…`) and the sandbox then ran 102. A green flake check on an
+unstaged new test file is green about nothing.
+
 ## Tests
 
 ```

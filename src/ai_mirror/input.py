@@ -62,6 +62,22 @@ def _button(action):
     return button
 
 
+KEYBOARD_KINDS = frozenset({'type', 'key', 'key_down', 'key_up'})
+
+
+def needs_window(actions) -> bool:
+    """Whether this batch types, and so must name the window it types into.
+
+    Read from the ACTIONS, never from the lines `encode` produces. A modifier
+    on a pointer action emits `K <mod> 1` (see below), so a ctrl+click looks
+    like keyboard input on the wire and is not. Sniffing prefixes would demand
+    a window for every modified click.
+    """
+    if not isinstance(actions, list):
+        return False
+    return any(isinstance(a, dict) and a.get('type') in KEYBOARD_KINDS for a in actions)
+
+
 def encode(actions) -> list[str]:
     if not isinstance(actions, list) or not 1 <= len(actions) <= 16:
         raise ValueError('Provide 1–16 actions per input call')
