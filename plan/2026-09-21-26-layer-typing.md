@@ -106,6 +106,23 @@ spec: spec/2026-09-21-26-layer-typing.md
 
 8. **PR** linking intent, spec and plan; `Closes #26`.
 
+## Found while implementing
+
+- **Step 3: dispatch on layers only, and let `_require_focus` decide the
+  rest.** The planned "read client addresses and layers, refuse neither"
+  broke #24's tests, which stub only `focused_address`, so the extra
+  `host.windows()` hit a real hyprctl. Now a mapped layer goes to the layer
+  guard and anything else to `_require_focus`, exactly as before. That is
+  one call fewer, and still positive: an unmapped address can't be the
+  focused window. A layer query that fails also falls to `_require_focus`,
+  which refuses a surface target (focus is no window ≠ its address), so
+  failing to ask never becomes permission. The separate "not a mapped window
+  or surface" message is lost; #24's "focus is X, not W" says it instead.
+- **Step 7: the keystroke itself is unverified.** Control was requested on
+  razer at 16:09 and expired unanswered. Verified live: the dev build's
+  `windows` lists `nixarchy-pkg-menu` under `layers`, alone at level 3, and
+  `input --window` exists. The 14 unit tests cover the guard.
+
 ## Tests
 
     python3 -m unittest discover -s tests -v     # on razer

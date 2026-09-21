@@ -31,6 +31,9 @@ def build_parser():
     p.add_argument('--max-size', dest='max_size', type=int)
     p = commands.add_parser('input')
     p.add_argument('--generation', type=int, required=True)
+    # Typing must name its target (#24), so without this the CLI could only
+    # click (#26). A window's address, or a layer surface's, from `windows`.
+    p.add_argument('--window', help='address of the window, or surface under layers, to type into (from windows)')
     p.add_argument('actions', type=json.loads, help='JSON action array; see docs/usage.md')
     p = commands.add_parser('window')
     p.add_argument('action', choices=['focus', 'close', 'float', 'center', 'fullscreen', 'workspace', 'resize'])

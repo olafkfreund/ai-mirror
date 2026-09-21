@@ -52,7 +52,9 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
         dest = Path(args.get('out') or control.root() / 'shot.png').absolute()
         return control.screenshot(dest, args.get('output'), args.get('region'), args.get('max_size'))
     if op == 'windows':
-        return {'windows': host.windows()}
+        # Layer surfaces too: a menu or panel is not a window, and it is what
+        # an agent types into once it has opened one (#26).
+        return {'windows': host.windows(), 'layers': host.layers()}
     if op == 'clipboard':
         if args.get('action') == 'read':
             result = subprocess.run(['wl-paste', '--no-newline'], capture_output=True, timeout=10)
@@ -99,7 +101,8 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
                 # A model told only "no" retries; this one says what to do.
                 raise MirrorError('invalid', 'typing must name the window it types into: '
                                              'call windows, pick the address of the window you '
-                                             'mean, and pass it as window. Pointer actions do '
+                                             'mean -- or, for a menu, panel or launcher, of the '
+                                             'surface under layers -- and pass it as window. Pointer actions do '
                                              'not need it.')
             return control.run_batch(encode(actions), generation, window=window)
         if op == 'window':
