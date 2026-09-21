@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 24
 spec: spec/2026-09-21-24-verified-input.md
 ---
