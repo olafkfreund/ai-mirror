@@ -59,6 +59,38 @@ an observation. Adding a focus check to clicks would refuse the ordinary case of
 **clicking an unfocused window in order to focus it**, which is how a person uses
 a desktop and how the agent reaches a window in the first place.
 
+### The check is a positive assertion, not a difference
+
+Written the obvious way this guard fails open:
+
+```python
+if focused != pinned:
+    refuse()          # "no difference detected" when focused is unknown
+```
+
+Written the other way round it cannot:
+
+```python
+if focused == pinned:
+    proceed()         # everything else -- refuse
+```
+
+`{}` from an empty workspace, `None`, a raised `RuntimeError`, a malformed reply
+and a genuinely different address all land in the same branch, so the guard needs
+no knowledge of which of those Hyprland produces. **It requires proof to proceed
+rather than proof to refuse.**
+
+This is #51's bug in nixarchy-voice, stated as a shape so it cannot recur here:
+there `_query_json` returned `[]` on failure, the guard asked "are there
+sensitive windows?", read "none found", and proceeded — absence of evidence taken
+as evidence of absence. `host.ctl` (`host.py:20`) already raises rather than
+returning empty, so ai-mirror does not have that defect today; writing the
+comparison positively means a future change to `ctl` cannot introduce it either.
+
+The refusal still distinguishes *why* for the model's benefit — "focus is a
+different window" and "focus could not be determined" are different remedies —
+but both refuse, and that decision is taken before the message is chosen.
+
 ### Cost
 
 `hyprctl activewindow -j` measured at **0.01 s** on this host, against
@@ -104,8 +136,10 @@ completion*.
   case the check is for, and it produces a refusal rather than a stray keystroke.
 - **10 ms per keyboard line** on a long batch. Paid only by keyboard batches, and
   small beside the helper's own round trip.
-- **`activewindow` on an empty workspace** returns no address. Must be treated as
-  "cannot verify" and refuse, not as "no mismatch".
+- **`activewindow` on an empty workspace** returns no address. Handled by the
+  positive comparison above rather than by a special case, so it needs no
+  behaviour of Hyprland's to be known in advance. A test still covers it, for the
+  quality of the message rather than the safety of the decision.
 
 ## Verification
 
