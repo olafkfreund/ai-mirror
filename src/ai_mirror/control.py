@@ -375,8 +375,34 @@ class Helper:
 HELPER = Helper()
 
 
-def run_batch(lines: list[str], generation: int, helper: Helper = HELPER) -> dict:
-    """Run encoded input; recheck ownership before every line, release on any failure."""
+def _require_focus(window: str) -> None:
+    """Refuse unless the focused window is exactly the one the caller named.
+
+    Positive by construction: one value proceeds. An empty workspace, a window
+    that closed, a different window and a query that could not be answered all
+    arrive here as "not that address", so nothing depends on knowing which of
+    them Hyprland produces. The reason is chosen AFTER the refusal, never as
+    part of deciding it -- that ordering is what keeps "we could not tell" from
+    quietly becoming "nothing is wrong".
+    """
+    try:
+        focused = host.focused_address()
+    except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
+        raise MirrorError('unavailable', f'could not read which window has focus: {exc}') from None
+    if focused == window:
+        return
+    raise MirrorError('stale_generation',
+                      f'focus is {focused or "no window"}, not {window}; input was NOT sent. '
+                      'Observe again and target the window you mean.')
+
+
+def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
+              window: str | None = None) -> dict:
+    """Run encoded input; recheck ownership and focus before every line, release on any failure.
+
+    `window` follows `helper` rather than preceding it because callers already
+    pass the helper positionally.
+    """
     require_agent(generation)
     helper.start()
     ox, oy = helper.origin
@@ -385,6 +411,14 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER) -> dic
         if state.get('owner') != 'agent' or state.get('generation') != generation:
             helper.cancel()
             raise MirrorError('stale_generation', 'control changed during the batch')
+        if window is not None:
+            # Per line, for the same reason ownership is: a batch is not atomic
+            # and the desktop moves underneath one.
+            try:
+                _require_focus(window)
+            except MirrorError:
+                helper.cancel()
+                raise
         if line.startswith('M ') and (ox or oy):
             x, y = map(int, line[2:].split())
             line = f'M {x - ox} {y - oy}'
@@ -397,7 +431,16 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER) -> dic
         if ack != 'OK':
             helper.cancel()
             raise MirrorError('unavailable', f'helper {ack[:80]!r}')
-    return {'ok': True, 'acked': len(lines), 'generation': generation}
+    result = {'ok': True, 'acked': len(lines), 'generation': generation}
+    if window is not None:
+        result['window'] = window
+        # Delivered is not accepted, and accepted is not done. The helper acked
+        # the keystrokes; whether the application took them, and whether the
+        # task happened, are things only a fresh observation can say.
+        result['note'] = (f'delivered to {window}, which still had focus. Application '
+                          'acceptance and task completion are NOT verified -- observe '
+                          'before reporting the outcome.')
+    return result
 
 
 # -- capture -----------------------------------------------------------------

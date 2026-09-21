@@ -7,7 +7,7 @@ from pathlib import Path
 
 from . import control, host
 from .control import MirrorError
-from .input import encode
+from .input import encode, needs_window
 
 MUTATING = {'input', 'window', 'launch', 'a11y_act'}
 # Ungated reads. An agent doing any of these lights the watching mark in the bar.
@@ -93,7 +93,15 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
         generation = args.get('generation', control.read_state().get('generation')) if op != 'input' else _generation(args)
         control.require_agent(generation)
         if op == 'input':
-            return control.run_batch(encode(args.get('actions')), generation)
+            actions = args.get('actions')
+            window = args.get('window')
+            if needs_window(actions) and not window:
+                # A model told only "no" retries; this one says what to do.
+                raise MirrorError('invalid', 'typing must name the window it types into: '
+                                             'call windows, pick the address of the window you '
+                                             'mean, and pass it as window. Pointer actions do '
+                                             'not need it.')
+            return control.run_batch(encode(actions), generation, window=window)
         if op == 'window':
             dispatcher = host.window_dispatch(args.get('action'), args.get('address'), args.get('workspace'),
                                               args.get('w'), args.get('h'), args.get('mode'))
