@@ -165,3 +165,14 @@ can kill its own shell. This wasted two runs before it was spotted.
 **Do:** the bracket trick, `pkill -f "[f]oo"`, or match something unique such as
 a scratch profile path, and never put the kill and the thing being killed in one
 command line.
+
+## Typing into a menu, panel or launcher
+
+These are layer surfaces, not windows: while one holds the keyboard, no window
+has focus, so a window's address will be refused. It used to be impossible to
+type into them at all (#26).
+
+**Do:** open it, call `windows`, and pass the surface's address from `layers` as
+`window`. It is refused while another surface is open at the same level or
+above (a notification over a menu, say): the message names it. Wait for it to
+go, observe again, and retry.

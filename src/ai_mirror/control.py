@@ -396,6 +396,66 @@ def _require_focus(window: str) -> None:
                       'Observe again and target the window you mean.')
 
 
+def _require_layer(layer: dict, layers: list[dict]) -> None:
+    """Refuse unless the named layer surface is the one that must have the keyboard.
+
+    Hyprland does not say which layer holds the keyboard (measured on 0.56:
+    `layers -j` carries no such field), so this asserts the one arrangement
+    where the answer is not in doubt and refuses every other (#26):
+
+    - no window has focus, so no keystroke can land in an application window
+      -- #24's guarantee, unchanged; and
+    - no other layer is mapped at the same level or above, on any monitor: a
+      surface takes the keyboard from the top, and with nothing beside or
+      above it, the named one is the only candidate.
+
+    Positive by construction, like _require_focus: a query that fails raises
+    `unavailable` before either condition is judged. What it cannot rule out
+    is a layer BELOW the named one holding the keyboard while the named one
+    does not; the result's note says delivered, not accepted.
+    """
+    try:
+        focused = host.focused_address()
+    except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
+        raise MirrorError('unavailable', f'could not read which window has focus: {exc}') from None
+    if focused is not None:
+        raise MirrorError('stale_generation',
+                          f'window {focused} has focus, not surface {layer["namespace"]} '
+                          f'({layer["address"]}); input was NOT sent. Observe again.')
+    rivals = [other for other in layers
+              if other['address'] != layer['address'] and other['level'] >= layer['level']]
+    if rivals:
+        names = ', '.join(f'{r["namespace"] or "?"} ({r["address"]})' for r in rivals)
+        raise MirrorError('stale_generation',
+                          f'another surface is open at the same level or above: {names}; '
+                          f'cannot tell which has the keyboard, so input was NOT sent. '
+                          'Close it, or wait for it to go, and observe again.')
+
+
+def _require_target(window: str) -> dict | None:
+    """Refuse unless `window` -- a window's address or a layer surface's -- has the keyboard.
+
+    A mapped layer surface goes through _require_layer. Everything else goes
+    through #24's _require_focus exactly as before, which is already positive:
+    an address that is not a mapped window cannot be the focused one.
+
+    A layer query that fails falls through to _require_focus too, and that is
+    not failing open: if the target really was a surface, focus is "no
+    window", which is not its address, and the keystroke is refused. Returns
+    the layer, when it is one, so the result can name it.
+    """
+    try:
+        layers = host.layers()
+    except (RuntimeError, ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError):
+        layers = []
+    for layer in layers:
+        if layer['address'] == window:
+            _require_layer(layer, layers)
+            return layer
+    _require_focus(window)
+    return None
+
+
 def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
               window: str | None = None) -> dict:
     """Run encoded input; recheck ownership and focus before every line, release on any failure.
@@ -406,6 +466,7 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
     require_agent(generation)
     helper.start()
     ox, oy = helper.origin
+    surface = None
     for line in lines:
         state = read_state()
         if state.get('owner') != 'agent' or state.get('generation') != generation:
@@ -415,7 +476,7 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
             # Per line, for the same reason ownership is: a batch is not atomic
             # and the desktop moves underneath one.
             try:
-                _require_focus(window)
+                surface = _require_target(window)
             except MirrorError:
                 helper.cancel()
                 raise
@@ -437,9 +498,10 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
         # Delivered is not accepted, and accepted is not done. The helper acked
         # the keystrokes; whether the application took them, and whether the
         # task happened, are things only a fresh observation can say.
-        result['note'] = (f'delivered to {window}, which still had focus. Application '
-                          'acceptance and task completion are NOT verified -- observe '
-                          'before reporting the outcome.')
+        where = (f'surface {surface["namespace"]} ({window}), which still had the keyboard '
+                 'to itself' if surface else f'{window}, which still had focus')
+        result['note'] = (f'delivered to {where}. Application acceptance and task '
+                          'completion are NOT verified -- observe before reporting the outcome.')
     return result
 
 

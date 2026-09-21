@@ -92,6 +92,30 @@ def windows() -> list[dict]:
     return rows
 
 
+def layers() -> list[dict]:
+    """Every mapped layer surface: the bar, the wallpaper, and the menus,
+    panels and launchers that take the keyboard (#26).
+
+    `hyprctl layers -j` is {monitor: {levels: {"0".."3": [layer, ...]}}}, with
+    levels background, bottom, top, overlay. It says nothing about which layer
+    holds the keyboard -- measured on Hyprland 0.56 -- so the level is kept:
+    it is what the input guard reasons from. A failed query raises, as in
+    focused_address: "no layers" and "could not ask" are different facts.
+    """
+    rows = []
+    for monitor, data in json.loads(ctl('layers', '-j')).items():
+        for level, entries in ((data or {}).get('levels') or {}).items():
+            for layer in entries or []:
+                address = layer.get('address')
+                if not (isinstance(address, str) and ADDRESS_RE.fullmatch(address)):
+                    continue
+                rows.append({'address': address,
+                             'namespace': str(layer.get('namespace', ''))[:240],
+                             'monitor': monitor, 'level': int(level),
+                             'pid': layer.get('pid')})
+    return rows
+
+
 def _int(value, name, low, high):
     if type(value) is not int or not low <= value <= high:
         raise ValueError(f'{name} must be an integer {low}..{high}')
