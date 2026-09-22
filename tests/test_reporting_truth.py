@@ -22,3 +22,30 @@ class Details(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Surfaces(unittest.TestCase):
+    """Both surfaces hand the details on; neither hides them in the sentence."""
+
+    def test_cli_renders_details(self):
+        import io, json, contextlib
+        from unittest.mock import patch
+        from ai_mirror import cli
+        boom = MirrorError('wrong_target', 'partial: 9 of 14', {'delivered': 9, 'of': 14})
+        out = io.StringIO()
+        with patch.object(cli.api, 'run', side_effect=boom), contextlib.redirect_stdout(out):
+            cli.main(['status'])
+        error = json.loads(out.getvalue())['error']
+        self.assertEqual(error['code'], 'wrong_target')
+        self.assertEqual((error['delivered'], error['of']), (9, 14))
+
+    def test_mcp_renders_details(self):
+        import json
+        from unittest.mock import patch
+        from ai_mirror import mcp
+        boom = MirrorError('wrong_target', 'partial: 9 of 14', {'delivered': 9, 'of': 14})
+        with patch.object(mcp.api, 'run', side_effect=boom):
+            result = mcp.call_tool('status', {})
+        self.assertTrue(result['isError'])
+        payload = json.loads(result['content'][0]['text'])
+        self.assertEqual((payload['delivered'], payload['of']), (9, 14))

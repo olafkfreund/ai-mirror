@@ -196,7 +196,9 @@ def call_tool(name, args):
                 content.append(text({'observation_error': str(exc), 'note': 'Input completed; do not repeat it.'}))
         return {'content': content, 'isError': False}
     except Exception as exc:  # every tool failure is a result the agent can read, never a dead server
-        return {'content': [text({'code': getattr(exc, 'code', type(exc).__name__), 'message': str(exc)})], 'isError': True}
+        failure = {'code': getattr(exc, 'code', type(exc).__name__), 'message': str(exc)}
+        failure.update(getattr(exc, 'details', None) or {})
+        return {'content': [text(failure)], 'isError': True}
 
 
 def dispatch(method, params):

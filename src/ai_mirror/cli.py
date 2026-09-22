@@ -97,7 +97,9 @@ def main(argv=None):
         print(json.dumps(result, ensure_ascii=False))
         return 1 if result.get('ok') is False else 0
     except (MirrorError, OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
-        print(json.dumps({'error': {'code': getattr(exc, 'code', 'unavailable'), 'message': str(exc)}}))
+        error = {'code': getattr(exc, 'code', 'unavailable'), 'message': str(exc)}
+        error.update(getattr(exc, 'details', None) or {})
+        print(json.dumps({'error': error}))
         return 1
     except KeyboardInterrupt:
         return 130
