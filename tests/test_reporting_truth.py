@@ -173,3 +173,29 @@ class Baseline(Base):
         wallpaper = {'address': '0xwall', 'namespace': 'new-wallpaper', 'level': 0, 'monitor': 'eDP-1'}
         helper, _ = self._type_with([bar], [bar, wallpaper])
         self.assertEqual(helper.sent, ['T hi'])
+
+
+class Doctor(Base):
+    """#32: the check that exists for "nothing works" must not pass when nothing works."""
+
+    def test_an_unreachable_compositor_fails(self):
+        import os
+        from unittest.mock import patch
+        from ai_mirror import api
+        with patch.object(api.host, 'focused_address',
+                          side_effect=RuntimeError('Hyprland: HYPRLAND_INSTANCE_SIGNATURE not set!')), \
+             patch.dict(os.environ, {'HYPRLAND_INSTANCE_SIGNATURE': '', 'WAYLAND_DISPLAY': ''}):
+            report = api.doctor()
+        self.assertFalse(report['ok'])
+        self.assertIn('HYPRLAND_INSTANCE_SIGNATURE', ' '.join(report['unset']))
+        self.assertIn('no desktop session', report['hint'])
+
+    def test_a_reachable_compositor_passes(self):
+        from unittest.mock import patch
+        from ai_mirror import api
+        with patch.object(api.host, 'focused_address', return_value=None), \
+             patch.object(api.shutil, 'which', return_value='/bin/true'), \
+             patch.object(api.control, 'helper_binary', return_value='/bin/true'):
+            report = api.doctor()
+        self.assertTrue(report['ok'])
+        self.assertEqual(report['compositor'], 'reachable')
