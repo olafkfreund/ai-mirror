@@ -138,3 +138,38 @@ class Codes(Base):
         with self.assertRaises(control.MirrorError) as caught:
             control.require_agent(granted['generation'] + 1)
         self.assertEqual(caught.exception.code, 'stale_generation')
+
+
+class Baseline(Base):
+    """#29: surfaces mapped since the grant are in the way; the furniture is not."""
+
+    def _type_with(self, at_grant, now_mapped):
+        from unittest.mock import patch
+        from ai_mirror import control
+        with patch.object(control.host, 'layers', return_value=at_grant):
+            generation = grant()['generation']
+        helper = FakeHelper()
+        with patch.object(control.host, 'layers', return_value=now_mapped), \
+             patch.object(control.host, 'focused_address', return_value='WINDOW'):
+            return helper, control.run_batch(['T hi'], generation, helper, window='WINDOW')
+
+    def test_an_unreadable_baseline_does_not_refuse_everything(self):
+        # "We could not look" must not become "everything is suspicious", which
+        # would refuse all typing for the life of the grant.
+        from unittest.mock import patch
+        from ai_mirror import control
+        with patch.object(control.host, 'layers', side_effect=RuntimeError('no compositor')):
+            generation = grant()['generation']
+        self.assertNotIn('baseline_layers', control.read_state())
+        helper = FakeHelper()
+        with patch.object(control.host, 'layers', return_value=[{'address': '0x1', 'namespace': 'panel',
+                                                                'level': 3, 'monitor': 'eDP-1'}]), \
+             patch.object(control.host, 'focused_address', return_value='WINDOW'):
+            control.run_batch(['T hi'], generation, helper, window='WINDOW')
+        self.assertEqual(helper.sent, ['T hi'])
+
+    def test_a_surface_below_the_keyboard_levels_is_not_in_the_way(self):
+        bar = {'address': '0xbar', 'namespace': 'omarchy-bar', 'level': 2, 'monitor': 'eDP-1'}
+        wallpaper = {'address': '0xwall', 'namespace': 'new-wallpaper', 'level': 0, 'monitor': 'eDP-1'}
+        helper, _ = self._type_with([bar], [bar, wallpaper])
+        self.assertEqual(helper.sent, ['T hi'])

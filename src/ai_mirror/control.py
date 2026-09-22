@@ -205,6 +205,27 @@ def set_owner(mode: str, by: str) -> dict:
     return state
 
 
+def _baseline_layers() -> list[str] | None:
+    """Namespaces of the surfaces already on screen when control was granted.
+
+    Hyprland cannot say which surface holds the keyboard (#29), so this is the
+    next best fact: anything mapped at the moment the human said yes is part of
+    the desktop's furniture -- the bar, the background -- and anything that
+    appears afterwards is a panel, a launcher or a notification that may have
+    taken the keyboard. A snapshot rather than a namespace allowlist, which
+    would have to be updated for every plugin ever installed.
+
+    A query that fails returns None and the key is left out, so the check is
+    skipped rather than treating every surface as new: "we could not look"
+    must not become "everything is suspicious", which would refuse all typing
+    for the life of the grant.
+    """
+    try:
+        return sorted({str(one.get('namespace') or '') for one in host.layers()})
+    except (RuntimeError, ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError):
+        return None
+
+
 def _answer(request_id: str, granted: bool) -> dict:
     with locked('control'):
         state = read_state()
@@ -222,6 +243,9 @@ def _answer(request_id: str, granted: bool) -> dict:
         granted_state = {'owner': 'agent', 'generation': generation, 'since': stamp(),
                          'enabled_by': 'human-confirmed', 'request_by': request.get('by'),
                          'last_input': now()}
+        baseline = _baseline_layers()
+        if baseline is not None:
+            granted_state['baseline_layers'] = baseline
         a11y_before = state.get('a11y_before') or _a11y_enable()
         if a11y_before:
             granted_state['a11y_before'] = a11y_before
@@ -400,11 +424,45 @@ def _require_focus(window: str) -> None:
         focused = host.focused_address()
     except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
         raise MirrorError('unavailable', f'could not read which window has focus: {exc}') from None
-    if focused == window:
-        return
-    raise MirrorError('wrong_target',
-                      f'focus is {focused or "no window"}, not {window}; input was NOT sent. '
-                      'Observe again and target the window you mean.')
+    if focused != window:
+        raise MirrorError('wrong_target',
+                          f'focus is {focused or "no window"}, not {window}; input was NOT sent. '
+                          'Observe again and target the window you mean.')
+    _refuse_new_surfaces(window)
+
+
+KEYBOARD_LEVEL = 2  # top and overlay; a surface below cannot take the keyboard from a window
+
+
+def _refuse_new_surfaces(window: str) -> None:
+    """Refuse a window-addressed keystroke while a surface mapped since the grant is up.
+
+    The focused window is not the whole answer to "where will this land": an
+    overlay above it can hold the keyboard while Hyprland still reports the
+    window as focused, and then the keystroke goes somewhere the result names
+    wrongly (#29). Nothing can be queried to settle it, so the honest move is
+    to refuse and say which surface is in the way -- the caller can wait for it
+    to go, or address it directly.
+
+    Surfaces present when control was granted are not in the way: they are the
+    shell the desktop always has up.
+    """
+    state = read_state()
+    baseline = state.get('baseline_layers')
+    if baseline is None:
+        return  # granted before this check existed; nothing to compare against
+    try:
+        mapped = host.layers()
+    except (RuntimeError, ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError):
+        return  # a failed query is not evidence of a surface; _require_focus already passed
+    new = [one for one in mapped
+           if one.get('level', 0) >= KEYBOARD_LEVEL and str(one.get('namespace') or '') not in baseline]
+    if new:
+        names = ', '.join(f'{one["namespace"] or "?"} ({one["address"]})' for one in new)
+        raise MirrorError('wrong_target',
+                          f'{names} opened since control was granted and may hold the keyboard, '
+                          f'so input for window {window} was NOT sent. Wait for it to go, or '
+                          'pass its address as the window to type into it.')
 
 
 def _require_layer(layer: dict, layers: list[dict]) -> str | None:
