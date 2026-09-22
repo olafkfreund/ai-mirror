@@ -252,3 +252,20 @@ class Attribution(Base):
              contextlib.redirect_stdout(io.StringIO()):
             cli.main(['control', 'off'])
         self.assertEqual(seen['by'], 'human')
+
+
+class RegionForms(unittest.TestCase):
+    """#35: the CLI accepts the form the MCP tool description hands an agent."""
+
+    def test_both_forms_parse_the_same(self):
+        from ai_mirror.cli import region
+        self.assertEqual(region('967,38,922,700'), [967, 38, 922, 700])
+        self.assertEqual(region('[967,38,922,700]'), [967, 38, 922, 700])
+        self.assertEqual(region('[967, 38, 922, 700]'), [967, 38, 922, 700])
+
+    def test_the_error_names_the_expected_form(self):
+        import argparse
+        from ai_mirror.cli import region
+        with self.assertRaises(argparse.ArgumentTypeError) as caught:
+            region('967,38,922')
+        self.assertIn('x,y,width,height', str(caught.exception))

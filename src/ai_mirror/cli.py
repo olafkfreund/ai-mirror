@@ -9,9 +9,19 @@ from .control import MirrorError
 
 
 def region(value):
-    parts = [int(p) for p in value.split(',')]
+    """x,y,width,height -- or [x, y, width, height], which is what the MCP tool takes.
+
+    An agent that has just read the tool description has the JSON form in hand
+    and used to get "invalid region value" with no hint of the other one (#35).
+    """
+    try:
+        parts = [int(p) for p in value.strip().strip('[]').replace(' ', '').split(',')]
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f'region is x,y,width,height in layout pixels (or [x, y, width, height]); got {value!r}') from None
     if len(parts) != 4:
-        raise argparse.ArgumentTypeError('region is x,y,width,height')
+        raise argparse.ArgumentTypeError(
+            f'region is x,y,width,height in layout pixels (or [x, y, width, height]); got {value!r}')
     return parts
 
 
