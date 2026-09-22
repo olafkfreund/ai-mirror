@@ -384,6 +384,11 @@ HELPER = Helper()
 def _require_focus(window: str) -> None:
     """Refuse unless the focused window is exactly the one the caller named.
 
+    Refuses with `wrong_target`, not `stale_generation` (#31): nothing has been
+    revoked and no generation has moved. The caller should observe and aim at
+    the window it meant, which is a different response from "you no longer have
+    control", and an agent told the latter stops instead.
+
     Positive by construction: one value proceeds. An empty workspace, a window
     that closed, a different window and a query that could not be answered all
     arrive here as "not that address", so nothing depends on knowing which of
@@ -397,7 +402,7 @@ def _require_focus(window: str) -> None:
         raise MirrorError('unavailable', f'could not read which window has focus: {exc}') from None
     if focused == window:
         return
-    raise MirrorError('stale_generation',
+    raise MirrorError('wrong_target',
                       f'focus is {focused or "no window"}, not {window}; input was NOT sent. '
                       'Observe again and target the window you mean.')
 
@@ -425,14 +430,14 @@ def _require_layer(layer: dict, layers: list[dict]) -> None:
     except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
         raise MirrorError('unavailable', f'could not read which window has focus: {exc}') from None
     if focused is not None:
-        raise MirrorError('stale_generation',
+        raise MirrorError('wrong_target',
                           f'window {focused} has focus, not surface {layer["namespace"]} '
                           f'({layer["address"]}); input was NOT sent. Observe again.')
     rivals = [other for other in layers
               if other['address'] != layer['address'] and other['level'] >= layer['level']]
     if rivals:
         names = ', '.join(f'{r["namespace"] or "?"} ({r["address"]})' for r in rivals)
-        raise MirrorError('stale_generation',
+        raise MirrorError('wrong_target',
                           f'another surface is open at the same level or above: {names}; '
                           f'cannot tell which has the keyboard, so input was NOT sent. '
                           'Close it, or wait for it to go, and observe again.')

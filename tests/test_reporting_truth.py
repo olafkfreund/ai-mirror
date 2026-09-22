@@ -6,6 +6,8 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from ai_mirror.control import MirrorError
 
+from test_invariants import Base, FakeHelper, grant
+
 
 class Details(unittest.TestCase):
     """MirrorError carries the facts its message states in prose."""
@@ -71,19 +73,12 @@ class LineOwners(unittest.TestCase):
         self.assertIsInstance(encode([{'type': 'click', 'x': 1, 'y': 2}]), list)
 
 
-class PartialDelivery(unittest.TestCase):
+class PartialDelivery(Base):
     """#30: a refusal partway through a batch must not claim nothing was sent."""
-
-    def setUp(self):
-        from test_invariants import Base
-        self._base = Base('run')
-        self._base.setUp()
-        self.addCleanup(lambda: None)
 
     def _run(self, fail_before_line):
         """Deliver a batch whose focus check starts refusing before line N."""
         from unittest.mock import patch
-        from test_invariants import FakeHelper, grant
         from ai_mirror import control
         from ai_mirror.input import encode
         generation = grant()['generation']
@@ -123,3 +118,23 @@ class PartialDelivery(unittest.TestCase):
         self.assertEqual(error.details['actions_total'], 3)
         self.assertLessEqual(error.details['actions_completed'], 3)
         self.assertIn('actions', str(error))
+
+
+class Codes(Base):
+    """#31: "you aimed at the wrong thing" and "you lost control" are different answers."""
+
+    def test_a_focus_mismatch_is_wrong_target(self):
+        from unittest.mock import patch
+        from ai_mirror import control
+        with patch.object(control.host, 'focused_address', return_value='OTHER'), \
+             patch.object(control.host, 'layers', return_value=[]):
+            with self.assertRaises(control.MirrorError) as caught:
+                control._require_target('WINDOW')
+        self.assertEqual(caught.exception.code, 'wrong_target')
+
+    def test_a_moved_generation_is_still_stale_generation(self):
+        from ai_mirror import control
+        granted = grant()
+        with self.assertRaises(control.MirrorError) as caught:
+            control.require_agent(granted['generation'] + 1)
+        self.assertEqual(caught.exception.code, 'stale_generation')
