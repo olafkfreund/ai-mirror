@@ -110,14 +110,26 @@ so, and `a11y_act` refuses an id within one. A tree is machine-readable text, so
 as best-effort: it matches on window class and title, so it misses things and it misfires.
 It does not make a screen safe to photograph.
 
+## `doctor` and a shell with no desktop session
+
+Every subcommand goes through Hyprland, so a non-login shell — ssh, a systemd
+unit, a cron job — fails at all of them with `HYPRLAND_INSTANCE_SIGNATURE not
+set`. `doctor` now says so instead of reporting `ok` (#32); it names the unset
+variables, and `demo/rz` in this repository is a worked example of exporting
+them from the running session.
+
 ## Accessibility trees are per-application, and mostly absent
 
 quickshell exposes none, so bar and plugin panels are keyboard-only. Native GTK
 apps do expose trees; Chromium and Electron give only an application and a
 frame unless launched with `--force-renderer-accessibility` (#13).
 
-**Do:** read `content` in any a11y result -- false means the tree is
-unavailable, not that the screen is empty, so screenshot instead. Keybindings
+**Do:** read `content` in any a11y result -- false means there is nothing
+there a caller can match by name or act on, not that the screen is empty, so
+screenshot instead. GTK4 applications often expose only anonymous groupings,
+which used to count as content and do not now (#33). `set_text` needs the
+AT-SPI EditableText interface, which Chromium does not implement even where
+it reports the `editable` state: focus the node, then send keystrokes. Keybindings
 for anything the shell draws. Never assume a11y covers the desktop itself.
 
 ## Panels render on the focused monitor
@@ -168,11 +180,56 @@ command line.
 
 ## Typing into a menu, panel or launcher
 
-These are layer surfaces, not windows: while one holds the keyboard, no window
-has focus, so a window's address will be refused. It used to be impossible to
-type into them at all (#26).
+These are layer surfaces, not windows. Hyprland cannot say which surface holds
+the keyboard — measured on 0.56.0, `layers -j` carries only `address, alpha,
+h, namespace, pid, w, x, y` — and `activewindow` keeps naming the window
+*underneath* an overlay that has taken the keys. So nothing can be asked; it
+can only be inferred from what is mapped (#29).
 
-**Do:** open it, call `windows`, and pass the surface's address from `layers` as
-`window`. It is refused while another surface is open at the same level or
-above (a notification over a menu, say): the message names it. Wait for it to
-go, observe again, and retry.
+**Do:** open it, call `windows`, and pass the surface's address from `layers`
+as `window`. It is accepted when that surface is the topmost thing mapped, on
+any monitor. A window that still holds focus no longer refuses the call: it is
+named in the result note instead, because if the surface does not take the
+keyboard, that window is where the keys went.
+
+It is refused while another surface is open at the same level or above (a
+notification over a menu, say): the message names it. Wait for it to go,
+observe again, and retry.
+
+**And the other way round:** typing at a *window* is refused while a surface
+that was not mapped when control was granted is up at level 2 or above. That
+surface may hold the keyboard, and reporting the window as the destination
+when the keys went elsewhere is the failure this guard exists to prevent.
+Wait for it to go, or address the surface directly.
+
+## A refusal can mean part of the batch already landed
+
+`input` delivers a batch line by line and rechecks focus before every line, so
+a refusal partway through arrives *after* the earlier lines were delivered.
+The error says so: `partial: 9 of 14 lines delivered (actions 1-2 of 3
+completed), then ...`, with `delivered`, `of`, `actions_completed` and
+`actions_total` alongside the message (#30).
+
+**Do:** observe before retrying. Retrying a partial batch types the delivered
+prefix a second time. Only when the message says `input was NOT sent`, with no
+counts, did nothing land.
+
+## `wrong_target` is not `stale_generation`
+
+`wrong_target` means the thing you aimed at is not the one that can be typed
+into — a different window has focus, or a surface is in the way. You still
+have control: observe and aim again (#31).
+
+`stale_generation` means control itself moved: the human took it back, or a
+new grant was made. Stop and ask again.
+
+## The middle mouse button does nothing
+
+Measured on razer: `left`, `right`, `back` and `forward` all work; `middle` is
+acked and has no effect in Chrome (closing a tab, opening a link in a new tab)
+or in GTK (primary-selection paste). Every button goes through one identical
+`zwlr_virtual_pointer_v1_button` call, so the loss is below this codebase and
+nothing can observe it — `input` will report `ok` (#37).
+
+**Do:** use a keyboard equivalent — `CTRL+W` for a tab, `CTRL+click` or the
+context menu for a link.
