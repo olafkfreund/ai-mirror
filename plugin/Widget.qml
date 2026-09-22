@@ -19,8 +19,9 @@ BarWidget {
   property var state: null
   readonly property bool on: state !== null && state.owner === "agent"
   readonly property bool pending: state !== null && state.owner === "pending"
-  // Looking is not driving, so it gets a steady neutral mark rather than the red
-  // pulse. Stale after ten seconds: the file records when an agent last looked.
+  // Looking is not driving, so it is steady rather than the red pulse -- but it
+  // is the theme's accent at full strength, not the dimmed foreground, so it can
+  // be seen without hovering. Stale ten seconds after the last look.
   property double lastLook: 0
   property double now: Date.now() / 1000
   readonly property bool watching: !root.on && root.now - root.lastLook < 10
@@ -91,9 +92,11 @@ BarWidget {
           iconSize: Style.bar.iconCanvas * 0.92
           color: root.on
                  ? (root.bar ? root.bar.urgent : Color.urgent)
-                 : (root.bar ? root.bar.barForeground : Color.foreground)
+                 : root.watching
+                   ? Color.accent
+                   : (root.bar ? root.bar.barForeground : Color.foreground)
           active: root.on
-          opacity: root.on ? 1.0 : (root.watching || root.pending ? 0.8 : 0.45)
+          opacity: root.on || root.watching ? 1.0 : (root.pending ? 0.8 : 0.45)
           Behavior on opacity { NumberAnimation { duration: 160 } }
         }
       }
