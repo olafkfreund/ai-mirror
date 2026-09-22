@@ -34,3 +34,15 @@ control generation from `status`), so the same script can drive an installed
 ai-mirror or a working copy:
 
     RZ_BIN=./rzdev GEN=19 ./demo.sh
+
+`rzdev` is the same idea as `rz` but runs a working copy from `/tmp/aim` inside
+the installed package's environment, so `a11y_*` still has its AT-SPI
+bindings. Deploy the copy first:
+
+    rsync -a src/ai_mirror/ <host>:/tmp/aim/ai_mirror/
+    RZ_BIN=./rzdev GEN=<generation> ./demo.sh
+
+The calculator is floated to a fixed 500x700 before it is clicked: it is GTK4
+and exposes no buttons to accessibility, and its keypad is a centred column of
+fixed width, so coordinates measured against one window size miss against
+another.

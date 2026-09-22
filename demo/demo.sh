@@ -26,6 +26,13 @@ timeout 10 ssh -o BatchMode=yes razer "rm -f $DOC; : > $DOC" >/dev/null 2>&1
 $RZ launch gnome-text-editor "$DOC" >/dev/null
 $RZ wait --window-class org.gnome.TextEditor --timeout 15 >/dev/null
 A=$(addr); w 1
+# The editor reopens whatever was open last, so a re-record starts with the
+# previous take's file in a second tab. Close the others through the frame's
+# own action; harmless when there is only one.
+FRAME=$($RZ a11y-find --role frame --name "Text Editor" --limit 1 \
+        | python3 -c 'import sys,json;ns=json.load(sys.stdin).get("nodes") or [];print(ns[0]["id"] if ns else "")')
+[ -n "$FRAME" ] && $RZ a11y-act "$FRAME" win.close-other-pages >/dev/null 2>&1
+w 1
 $RZ input --generation $G --window "$A" '[{"type":"type","text":"ai-mirror"}]' >/dev/null; w 1
 $RZ input --generation $G --window "$A" '[{"type":"type","text":" — an agent driving a real desktop"},{"type":"key","keys":["Return"]},{"type":"key","keys":["Return"]}]' >/dev/null; w 1
 $RZ input --generation $G --window "$A" '[{"type":"type","text":"keystrokes are real: æøå ÆØÅ üñé 🦊 €£¥ →"},{"type":"key","keys":["Return"]}]' >/dev/null; w 2
@@ -36,11 +43,26 @@ cleanup; w 1
 # --- 2. calculator: mouse clicks -------------------------------------------
 PID_CA=$($RZ launch gnome-calculator | python3 -c 'import sys,json;print(json.load(sys.stdin)["pid"])')
 $RZ wait --window-class org.gnome.Calculator --timeout 15 >/dev/null; w 2
-# buttons on a maximized calculator (global px)
-for xy in "1154 889" "1562 985" "1426 937"; do
+# gnome-calculator is GTK4 and exposes no buttons to accessibility, so the
+# keypad can only be clicked by pixel -- and its keypad is a centred column of
+# fixed width, so a fraction of a full-width window misses. Give the window a
+# geometry of our own first; then the offsets below hold.
+CA=$($RZ windows | python3 -c 'import sys,json;print([w["address"] for w in json.load(sys.stdin)["windows"] if w["class"]=="org.gnome.Calculator"][0])')
+$RZ window float "$CA" >/dev/null; w 1
+$RZ window resize "$CA" --w 500 --h 700 >/dev/null; w 1
+$RZ window center "$CA" >/dev/null; w 1
+eval "$($RZ windows | python3 -c '
+import sys, json
+win = [w for w in json.load(sys.stdin)["windows"] if w["class"] == "org.gnome.Calculator"][0]
+(x, y), (w, h) = win["at"], win["size"]
+for name, fx, fy in (("SEVEN", 0.112, 0.746), ("PLUS", 0.692, 0.881),
+                     ("SIX", 0.498, 0.814), ("EQUALS", 0.882, 0.916)):
+    print(f"{name}=\"{x + round(w * fx)} {y + round(h * fy)}\"")
+')"
+for xy in "$SEVEN" "$PLUS" "$SIX" "$EQUALS"; do
   set -- $xy; $RZ input --generation $G "[{\"type\":\"click\",\"x\":$1,\"y\":$2,\"button\":\"left\"}]" >/dev/null; w 1
 done
-$RZ input --generation $G '[{"type":"click","x":1699,"y":1009,"button":"left"}]' >/dev/null; w 3
+w 3
 cleanup; w 1
 
 # --- 3. browser: driving a web app -----------------------------------------
