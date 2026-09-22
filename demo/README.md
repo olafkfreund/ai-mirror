@@ -28,3 +28,9 @@ a non-login ssh shell does not have; without it every call fails with
 
 `demo.sh` opens the editor on an explicit fresh file: the unnamed draft buffer
 is restored on every launch, so a second take appends under the first.
+
+`demo.sh` takes `RZ_BIN` (the driver to use, default `./rz`) and `GEN` (the
+control generation from `status`), so the same script can drive an installed
+ai-mirror or a working copy:
+
+    RZ_BIN=./rzdev GEN=19 ./demo.sh

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ai-mirror screencast: an agent driving razer's desktop. Run while wl-screenrec records.
 set -u
-S="$(dirname "$0")"; RZ="$S/rz"; G=12
+S="$(dirname "$0")"; RZ="${RZ_BIN:-$S/rz}"; G="${GEN:-12}"
 w(){ sleep "$1"; }
 addr(){ $RZ windows | python3 -c 'import sys,json;ws=json.load(sys.stdin)["windows"];print(ws[0]["address"] if ws else "")'; }
 
