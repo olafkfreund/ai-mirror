@@ -188,6 +188,23 @@ def _walk(app: str | None, depth: int, enable: bool = True):
 
 
 CONTENT_DEPTH = 2  # an app holds a frame holds content; depth 2 is the first real node
+
+
+def _actionable(row: dict, level: int) -> bool:
+    """Whether this node is something a caller could find or act on.
+
+    Depth alone used to answer this (#33), which made a tree of anonymous
+    `grouping` nodes -- what GTK4 exposes for gnome-text-editor: 24 nodes, not
+    one of them named -- report `content: true`. A caller then trusts the tree
+    and finds nothing to target. A node counts when it carries a name to match
+    on, an action to invoke, or text to read.
+    """
+    return level >= CONTENT_DEPTH and bool(row.get('name') or row.get('actions') or row.get('text'))
+
+
+NOTHING_ACTIONABLE = ('this desktop exposed a tree with no named or actionable nodes under any '
+                      'window: nothing here can be matched by name or acted on, so use screenshot. '
+                      'GTK4 applications often expose only anonymous groupings this way.')
 NO_CONTENT = ('this desktop exposed no accessibility content: every node was an '
               'application or a window frame, with no controls under them. An empty '
               'result here means the tree is unavailable, NOT that the screen is '
@@ -195,22 +212,26 @@ NO_CONTENT = ('this desktop exposed no accessibility content: every node was an 
               'content when launched with --force-renderer-accessibility.')
 
 
-def _coverage(visited: int, deep: bool, truncated: bool) -> dict:
+def _coverage(visited: int, deep: bool, truncated: bool, actionable: bool | None = None) -> dict:
     """What the walk saw, so an empty result is not read as an empty screen.
 
-    Both counts come from the traversal that already runs -- no second walk and
-    no extra AT-SPI calls. `deep` uses the walk's own level rather than asking
-    each node its role, which would be a round trip per node.
+    The counts come from the traversal that already runs -- no second walk and
+    no extra AT-SPI calls. `content` reports whether anything actionable was
+    found, not merely whether the walk went deep (#33); `deep` still separates
+    "only applications and frames" from "nodes underneath, but none usable",
+    because those two want different advice.
     """
-    coverage = {'visited': visited, 'content': deep}
-    if not deep and not truncated:
-        coverage['note'] = NO_CONTENT
+    if actionable is None:
+        actionable = deep
+    coverage = {'visited': visited, 'content': actionable}
+    if not actionable and not truncated:
+        coverage['note'] = NOTHING_ACTIONABLE if deep else NO_CONTENT
     return coverage
 
 
 def tree(app: str | None = None, depth: int = 12, max_nodes: int = 400,
          enable: bool = True) -> dict:
-    nodes, truncated, visited, deep = [], False, 0, False
+    nodes, truncated, visited, deep, actionable = [], False, 0, False, False
     for node_id, acc, level, Atspi, withheld in _walk(app, depth, enable):
         visited += 1
         deep = deep or level >= CONTENT_DEPTH
@@ -221,6 +242,7 @@ def tree(app: str | None = None, depth: int = 12, max_nodes: int = 400,
                           'withheld': withheld, 'depth': level})
             continue
         row = _node(acc, node_id, Atspi)
+        actionable = actionable or _actionable(row, level)
         if level and not row['name'] and row['role'] in QUIET_ROLES and 'text' not in row:
             continue
         if len(nodes) >= max_nodes:
@@ -228,7 +250,8 @@ def tree(app: str | None = None, depth: int = 12, max_nodes: int = 400,
             break
         row['depth'] = level
         nodes.append(row)
-    return {'nodes': nodes, 'truncated': truncated, **_coverage(visited, deep, truncated)}
+    return {'nodes': nodes, 'truncated': truncated,
+            **_coverage(visited, deep, truncated, actionable)}
 
 
 def find(name: str | None = None, role: str | None = None, app: str | None = None, limit: int = 20) -> dict:

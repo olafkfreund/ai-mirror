@@ -199,3 +199,33 @@ class Doctor(Base):
             report = api.doctor()
         self.assertTrue(report['ok'])
         self.assertEqual(report['compositor'], 'reachable')
+
+
+class Content(unittest.TestCase):
+    """#33: content: true must mean there is something to find or act on."""
+
+    def test_anonymous_groupings_are_not_content(self):
+        from ai_mirror import a11y
+        row = {'id': '11.0.0.0.0', 'role': 'grouping', 'name': '', 'states': ['sensitive']}
+        self.assertFalse(a11y._actionable(row, 5))
+
+    def test_a_named_node_is_content(self):
+        from ai_mirror import a11y
+        self.assertTrue(a11y._actionable({'role': 'push button', 'name': 'Place order'}, 3))
+
+    def test_an_actionable_unnamed_node_is_content(self):
+        from ai_mirror import a11y
+        self.assertTrue(a11y._actionable({'role': 'entry', 'name': '', 'actions': ['activate']}, 4))
+
+    def test_a_shallow_named_node_is_not_content(self):
+        # An application or its frame is not content, however well named.
+        from ai_mirror import a11y
+        self.assertFalse(a11y._actionable({'role': 'frame', 'name': 'Text Editor'}, 1))
+
+    def test_the_note_distinguishes_empty_from_unusable(self):
+        from ai_mirror import a11y
+        nothing = a11y._coverage(visited=2, deep=False, truncated=False, actionable=False)
+        hollow = a11y._coverage(visited=24, deep=True, truncated=False, actionable=False)
+        self.assertIn('no controls under them', nothing['note'])
+        self.assertIn('no named or actionable nodes', hollow['note'])
+        self.assertFalse(hollow['content'])
