@@ -49,3 +49,23 @@ class Surfaces(unittest.TestCase):
         self.assertTrue(result['isError'])
         payload = json.loads(result['content'][0]['text'])
         self.assertEqual((payload['delivered'], payload['of']), (9, 14))
+
+
+class LineOwners(unittest.TestCase):
+    """encode can say which action emitted each line, so a partial delivery counts in actions."""
+
+    def test_every_line_has_an_owner_in_order(self):
+        from ai_mirror.input import encode
+        actions = [{'type': 'type', 'text': 'hi'},
+                   {'type': 'key', 'keys': ['CTRL', 'A']},
+                   {'type': 'click', 'x': 1, 'y': 2, 'modifiers': ['SHIFT']}]
+        lines, owners = encode(actions, with_owners=True)
+        self.assertEqual(len(lines), len(owners))
+        self.assertEqual(owners, sorted(owners))
+        self.assertEqual(set(owners), {0, 1, 2})
+        # the modifier's press and release both belong to the action that asked for it
+        self.assertEqual(owners[-1], 2)
+
+    def test_default_call_is_unchanged(self):
+        from ai_mirror.input import encode
+        self.assertIsInstance(encode([{'type': 'click', 'x': 1, 'y': 2}]), list)

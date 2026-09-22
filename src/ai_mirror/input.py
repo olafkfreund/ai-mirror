@@ -78,11 +78,18 @@ def needs_window(actions) -> bool:
     return any(isinstance(a, dict) and a.get('type') in KEYBOARD_KINDS for a in actions)
 
 
-def encode(actions) -> list[str]:
+def encode(actions, with_owners: bool = False):
+    """Encode actions as helper lines.
+
+    `with_owners` also returns, per line, the index of the action that emitted
+    it. A batch is delivered line by line, so a refusal partway through has to
+    report how far it got in the caller's own terms rather than in ours (#30).
+    """
     if not isinstance(actions, list) or not 1 <= len(actions) <= 16:
         raise ValueError('Provide 1–16 actions per input call')
-    lines = []
-    for action in actions:
+    lines: list[str] = []
+    owners: list[int] = []
+    for index, action in enumerate(actions):
         if not isinstance(action, dict):
             raise ValueError('Each action must be an object')
         kind = action.get('type')
@@ -140,6 +147,7 @@ def encode(actions) -> list[str]:
         else:
             raise ValueError(f'Unknown action type: {kind}')
         lines += [f'K {m} 0' for m in reversed(mods)]
+        owners += [index] * (len(lines) - len(owners))
     if len(lines) > MAX_LINES:
         raise ValueError('Input batch too large; split into smaller calls')
-    return lines
+    return (lines, owners) if with_owners else lines

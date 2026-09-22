@@ -31,10 +31,14 @@ spec: spec/2026-09-22-30-live-test-findings.md
 2. `src/ai_mirror/cli.py:99` and `src/ai_mirror/mcp.py:195`: merge
    `getattr(exc, 'details', None)` into the `{"error": {...}}` object →
    verify by calling a failing op through both surfaces and seeing the keys.
-3. `src/ai_mirror/input.py:81` `encode()`: return `(lines, owners)` where
-   `owners[i]` is the index of the action that emitted line `i`; update its
-   callers → verify by unit test on a 3-action batch with a modifier, asserting
-   the mapping covers every line.
+3. `src/ai_mirror/input.py:81` `encode()`: gains `with_owners=False`; when
+   set it returns `(lines, owners)` where `owners[i]` is the index of the
+   action that emitted line `i` → verify by unit test on a 3-action batch with
+   a modifier, asserting the mapping covers every line.
+   *(Deviation from the approved wording, which changed the return type
+   outright: four call sites and several tests compare the returned list, and
+   a flag keeps that diff at two lines instead of rewriting assertions that
+   are themselves the regression cover for #24.)*
 4. `src/ai_mirror/control.py:458` `run_batch`: count acked lines; on a
    `_require_target` refusal raise `wrong_target` with details
    `{delivered, of, actions_completed, actions_total}` and the message
