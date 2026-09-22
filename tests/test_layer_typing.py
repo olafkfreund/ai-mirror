@@ -32,8 +32,8 @@ def layer(address, namespace, level, monitor='eDP-1'):
     return {'address': address, 'namespace': namespace, 'monitor': monitor, 'level': level, 'pid': 1}
 
 
-OPEN = [layer('0x5efa8e8b6a50', 'omarchy-background', 0), layer(BAR, 'omarchy-bar', 2),
-        layer(PANEL, 'nixarchy-pkg-menu', 3)]
+FURNITURE = [layer('0x5efa8e8b6a50', 'omarchy-background', 0), layer(BAR, 'omarchy-bar', 2)]
+OPEN = FURNITURE + [layer(PANEL, 'nixarchy-pkg-menu', 3)]
 
 
 def typed(helper):
@@ -63,7 +63,10 @@ class Layers(Base):
 class TypingIntoASurface(Base):
     def setUp(self):
         super().setUp()
-        self.granted = grant()
+        # Control is granted with the desktop's usual furniture already mapped,
+        # which is what the baseline snapshot records (#29).
+        with patch.object(host, 'layers', return_value=FURNITURE):
+            self.granted = grant()
 
     def run_on(self, layers, focused, lines=('T hi',), target=PANEL):
         helper = FakeHelper()
@@ -78,10 +81,15 @@ class TypingIntoASurface(Base):
         self.assertIn('nixarchy-pkg-menu', result['note'])
         self.assertIn('NOT verified', result['note'])
 
-    def test_a_focused_window_refuses_and_sends_nothing(self):
-        with self.assertRaises(MirrorError) as caught:
-            self.run_on(OPEN, WINDOW)
-        self.assertIn('NOT sent', str(caught.exception))
+    def test_a_focused_window_no_longer_refuses_but_is_named(self):
+        # #29: Hyprland keeps naming the window under an overlay that has taken
+        # the keyboard, so demanding "no window focused" made the supported path
+        # unreachable. The window is reported instead of refused.
+        helper, result = self.run_on(OPEN, WINDOW)
+        self.assertEqual(helper.sent, ['T hi'])
+        self.assertIn('nixarchy-pkg-menu', result['note'])
+        self.assertIn(WINDOW, result['note'])
+        self.assertIn('still holds focus', result['note'])
 
     def test_another_surface_at_the_same_level_refuses_and_names_it(self):
         toast = layer(TOAST, 'notification', 3)
@@ -137,20 +145,35 @@ class TypingIntoASurface(Base):
                 control.run_batch(['T a', 'T b', 'T c'], self.granted['generation'], helper, window=PANEL)
         self.assertEqual(typed(helper), ['T a', 'T b'])
 
-    def test_a_window_target_keeps_24s_path(self):
+    def test_a_window_target_keeps_24s_path_under_the_usual_furniture(self):
+        # The bar and background were mapped when control was granted, so they
+        # are not in the way: #24's path is unchanged.
         helper = FakeHelper()
-        with patch.object(host, 'layers', return_value=OPEN), \
+        with patch.object(host, 'layers', return_value=FURNITURE), \
              patch.object(host, 'focused_address', return_value=WINDOW):
             result = control.run_batch(['T hi'], self.granted['generation'], helper, window=WINDOW)
         self.assertEqual(helper.sent, ['T hi'])
         self.assertIn(WINDOW, result['note'])
+
+    def test_a_window_target_refuses_while_a_new_surface_is_up(self):
+        # #29: the panel opened after the grant and may hold the keyboard, and
+        # Hyprland cannot be asked. Refuse and name it rather than report the
+        # window as the destination.
+        helper = FakeHelper()
+        with patch.object(host, 'layers', return_value=OPEN), \
+             patch.object(host, 'focused_address', return_value=WINDOW):
+            with self.assertRaises(MirrorError) as caught:
+                control.run_batch(['T hi'], self.granted['generation'], helper, window=WINDOW)
+        self.assertEqual(caught.exception.code, 'wrong_target')
+        self.assertIn('nixarchy-pkg-menu', str(caught.exception))
+        self.assertEqual([line for line in helper.sent if line != 'C'], [])
 
 
 class CliCanType(Base):
     def test_window_reaches_the_api(self):
         seen = {}
 
-        def run(op, args):
+        def run(op, args, by='human'):
             seen.update(op=op, args=args)
             return {'ok': True}
 

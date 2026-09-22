@@ -9,9 +9,19 @@ from .control import MirrorError
 
 
 def region(value):
-    parts = [int(p) for p in value.split(',')]
+    """x,y,width,height -- or [x, y, width, height], which is what the MCP tool takes.
+
+    An agent that has just read the tool description has the JSON form in hand
+    and used to get "invalid region value" with no hint of the other one (#35).
+    """
+    try:
+        parts = [int(p) for p in value.strip().strip('[]').replace(' ', '').split(',')]
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f'region is x,y,width,height in layout pixels (or [x, y, width, height]); got {value!r}') from None
     if len(parts) != 4:
-        raise argparse.ArgumentTypeError('region is x,y,width,height')
+        raise argparse.ArgumentTypeError(
+            f'region is x,y,width,height in layout pixels (or [x, y, width, height]); got {value!r}')
     return parts
 
 
@@ -89,7 +99,12 @@ def main(argv=None):
     # it prints Markdown unless a program asks for JSON.
     as_markdown = op == 'index' and not args.pop('json', False)
     try:
-        result = api.run(op, {k: v for k, v in args.items() if v is not None})
+        # `control agent` is an agent asking, whatever the transport: the person
+        # at the keyboard answers it with confirm/deny, and the dialog tells them
+        # who is asking (#34). `control off`, which the Super+Shift+Escape binding
+        # runs, really is the human.
+        by = 'agent' if op == 'control' and args.get('mode') == 'agent' else 'human'
+        result = api.run(op, {k: v for k, v in args.items() if v is not None}, by=by)
         if as_markdown:
             from . import index
             sys.stdout.write(index.render(result))
@@ -97,7 +112,9 @@ def main(argv=None):
         print(json.dumps(result, ensure_ascii=False))
         return 1 if result.get('ok') is False else 0
     except (MirrorError, OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
-        print(json.dumps({'error': {'code': getattr(exc, 'code', 'unavailable'), 'message': str(exc)}}))
+        error = {'code': getattr(exc, 'code', 'unavailable'), 'message': str(exc)}
+        error.update(getattr(exc, 'details', None) or {})
+        print(json.dumps({'error': error}))
         return 1
     except KeyboardInterrupt:
         return 130

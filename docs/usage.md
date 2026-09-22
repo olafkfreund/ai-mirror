@@ -22,6 +22,10 @@
 - Input, `window`, `launch`, `a11y_act` and clipboard writes need `owner: agent` (`not_owner` otherwise).
   Observation (`status`, `screenshot`, `windows`, `a11y_tree`, `a11y_find`, clipboard read) always works.
 - Ownership is re-checked before every single low-level input event, so a stop lands mid-batch.
+  A batch that stops that way reports how much of it was delivered first: `partial: 9 of 14 lines
+  delivered (actions 1-2 of 3 completed), ...`, with `delivered`, `of`, `actions_completed` and
+  `actions_total` beside the message. Only a plain `input was NOT sent`, with no counts, means
+  nothing landed (#30).
 - **Stop** = `ai-mirror control off`, bound to Super+Shift+Escape and to clicking the bar indicator.
   It writes the state and signals every running `ai-mirror mcp`, whose input helper then releases
   all held keys and buttons and exits.
@@ -103,7 +107,13 @@ and `toolkit-accessibility`; ai-mirror also sets the AT-SPI `IsEnabled` flag on 
 
 - `not_owner` — ask for control (`control agent`) and wait for the human to allow it; after ten
   idle minutes a grant ends and has to be asked for again. `stale_generation` — control changed;
-  take a new screenshot.
+  take a new screenshot. `wrong_target` — control is still yours, but the thing you aimed at is not
+  the one that can be typed into: another window has focus, or a surface opened since the grant and
+  may hold the keyboard. Observe and aim again, or wait for the surface to go (#31, #29).
+- `doctor` says `ok: false` with `compositor` and `unset` when the shell has no desktop session —
+  the usual cause of every command failing at once over ssh (#32). `demo/rz` shows what to export.
+- The middle mouse button is delivered and has no effect, in Chrome or GTK; `left`, `right`, `back`
+  and `forward` work. Use a keyboard equivalent (#37).
 - No dialog appears — the bar widget draws it, so enable the plugin
   (`omarchy plugin enable olafkfreund.ai-mirror --section right`). With it disabled, nobody can
   answer and every request lapses after 30 seconds; `ai-mirror control confirm` from a terminal

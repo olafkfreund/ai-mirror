@@ -28,10 +28,16 @@ REPO_HELPER = Path(__file__).resolve().parents[2] / 'build/ai-mirror-input'
 
 
 class MirrorError(Exception):
-    """Structured error with a stable machine-readable code."""
+    """Structured error with a stable machine-readable code.
 
-    def __init__(self, code: str, detail: str = ''):
+    `details` carries machine-readable facts the message states in prose --
+    how much of a batch was delivered, say (#30). A caller that acts on the
+    numbers must not have to parse the sentence.
+    """
+
+    def __init__(self, code: str, detail: str = '', details: dict | None = None):
         self.code = code
+        self.details = details or {}
         super().__init__(code if not detail else f'{code}: {detail}')
 
 
@@ -199,6 +205,27 @@ def set_owner(mode: str, by: str) -> dict:
     return state
 
 
+def _baseline_layers() -> list[str] | None:
+    """Namespaces of the surfaces already on screen when control was granted.
+
+    Hyprland cannot say which surface holds the keyboard (#29), so this is the
+    next best fact: anything mapped at the moment the human said yes is part of
+    the desktop's furniture -- the bar, the background -- and anything that
+    appears afterwards is a panel, a launcher or a notification that may have
+    taken the keyboard. A snapshot rather than a namespace allowlist, which
+    would have to be updated for every plugin ever installed.
+
+    A query that fails returns None and the key is left out, so the check is
+    skipped rather than treating every surface as new: "we could not look"
+    must not become "everything is suspicious", which would refuse all typing
+    for the life of the grant.
+    """
+    try:
+        return sorted({str(one.get('namespace') or '') for one in host.layers()})
+    except (RuntimeError, ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError):
+        return None
+
+
 def _answer(request_id: str, granted: bool) -> dict:
     with locked('control'):
         state = read_state()
@@ -216,6 +243,9 @@ def _answer(request_id: str, granted: bool) -> dict:
         granted_state = {'owner': 'agent', 'generation': generation, 'since': stamp(),
                          'enabled_by': 'human-confirmed', 'request_by': request.get('by'),
                          'last_input': now()}
+        baseline = _baseline_layers()
+        if baseline is not None:
+            granted_state['baseline_layers'] = baseline
         a11y_before = state.get('a11y_before') or _a11y_enable()
         if a11y_before:
             granted_state['a11y_before'] = a11y_before
@@ -378,6 +408,11 @@ HELPER = Helper()
 def _require_focus(window: str) -> None:
     """Refuse unless the focused window is exactly the one the caller named.
 
+    Refuses with `wrong_target`, not `stale_generation` (#31): nothing has been
+    revoked and no generation has moved. The caller should observe and aim at
+    the window it meant, which is a different response from "you no longer have
+    control", and an agent told the latter stops instead.
+
     Positive by construction: one value proceeds. An empty workspace, a window
     that closed, a different window and a query that could not be answered all
     arrive here as "not that address", so nothing depends on knowing which of
@@ -389,47 +424,78 @@ def _require_focus(window: str) -> None:
         focused = host.focused_address()
     except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
         raise MirrorError('unavailable', f'could not read which window has focus: {exc}') from None
-    if focused == window:
-        return
-    raise MirrorError('stale_generation',
-                      f'focus is {focused or "no window"}, not {window}; input was NOT sent. '
-                      'Observe again and target the window you mean.')
+    if focused != window:
+        raise MirrorError('wrong_target',
+                          f'focus is {focused or "no window"}, not {window}; input was NOT sent. '
+                          'Observe again and target the window you mean.')
+    _refuse_new_surfaces(window)
 
 
-def _require_layer(layer: dict, layers: list[dict]) -> None:
-    """Refuse unless the named layer surface is the one that must have the keyboard.
+KEYBOARD_LEVEL = 2  # top and overlay; a surface below cannot take the keyboard from a window
 
-    Hyprland does not say which layer holds the keyboard (measured on 0.56:
-    `layers -j` carries no such field), so this asserts the one arrangement
-    where the answer is not in doubt and refuses every other (#26):
 
-    - no window has focus, so no keystroke can land in an application window
-      -- #24's guarantee, unchanged; and
-    - no other layer is mapped at the same level or above, on any monitor: a
-      surface takes the keyboard from the top, and with nothing beside or
-      above it, the named one is the only candidate.
+def _refuse_new_surfaces(window: str) -> None:
+    """Refuse a window-addressed keystroke while a surface mapped since the grant is up.
 
-    Positive by construction, like _require_focus: a query that fails raises
-    `unavailable` before either condition is judged. What it cannot rule out
-    is a layer BELOW the named one holding the keyboard while the named one
-    does not; the result's note says delivered, not accepted.
+    The focused window is not the whole answer to "where will this land": an
+    overlay above it can hold the keyboard while Hyprland still reports the
+    window as focused, and then the keystroke goes somewhere the result names
+    wrongly (#29). Nothing can be queried to settle it, so the honest move is
+    to refuse and say which surface is in the way -- the caller can wait for it
+    to go, or address it directly.
+
+    Surfaces present when control was granted are not in the way: they are the
+    shell the desktop always has up.
+    """
+    state = read_state()
+    baseline = state.get('baseline_layers')
+    if baseline is None:
+        return  # granted before this check existed; nothing to compare against
+    try:
+        mapped = host.layers()
+    except (RuntimeError, ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError):
+        return  # a failed query is not evidence of a surface; _require_focus already passed
+    new = [one for one in mapped
+           if one.get('level', 0) >= KEYBOARD_LEVEL and str(one.get('namespace') or '') not in baseline]
+    if new:
+        names = ', '.join(f'{one["namespace"] or "?"} ({one["address"]})' for one in new)
+        raise MirrorError('wrong_target',
+                          f'{names} opened since control was granted and may hold the keyboard, '
+                          f'so input for window {window} was NOT sent. Wait for it to go, or '
+                          'pass its address as the window to type into it.')
+
+
+def _require_layer(layer: dict, layers: list[dict]) -> str | None:
+    """Refuse unless the named layer surface is the topmost thing on screen.
+
+    Hyprland does not say which layer holds the keyboard (measured again on
+    0.56.0: `layers -j` carries `address, alpha, h, namespace, pid, w, x, y`
+    and nothing else), and `activewindow` keeps naming the window underneath
+    an overlay that has taken the keyboard. #26 therefore also demanded that
+    no window have focus -- and that never holds for a quickshell overlay, so
+    the supported way to type into a panel could not succeed while the
+    unsupported one (addressing the window) worked by accident (#29).
+
+    What is left is the condition Hyprland can actually answer: no other
+    surface is mapped at this one's level or above, on any monitor, so a
+    surface that takes the keyboard from the top can only be this one. A
+    window that still holds focus is no longer a refusal -- it is returned,
+    so the result can name it as where these keys land if the surface does
+    not take them. Delivered is still not accepted.
     """
     try:
         focused = host.focused_address()
     except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
         raise MirrorError('unavailable', f'could not read which window has focus: {exc}') from None
-    if focused is not None:
-        raise MirrorError('stale_generation',
-                          f'window {focused} has focus, not surface {layer["namespace"]} '
-                          f'({layer["address"]}); input was NOT sent. Observe again.')
     rivals = [other for other in layers
               if other['address'] != layer['address'] and other['level'] >= layer['level']]
     if rivals:
         names = ', '.join(f'{r["namespace"] or "?"} ({r["address"]})' for r in rivals)
-        raise MirrorError('stale_generation',
+        raise MirrorError('wrong_target',
                           f'another surface is open at the same level or above: {names}; '
                           f'cannot tell which has the keyboard, so input was NOT sent. '
                           'Close it, or wait for it to go, and observe again.')
+    return focused
 
 
 def _require_target(window: str) -> dict | None:
@@ -450,36 +516,65 @@ def _require_target(window: str) -> dict | None:
         layers = []
     for layer in layers:
         if layer['address'] == window:
-            _require_layer(layer, layers)
-            return layer
+            focused = _require_layer(layer, layers)
+            return dict(layer, focused_window=focused)
     _require_focus(window)
     return None
 
 
+def _partial(exc: MirrorError, delivered: int, lines: list[str],
+             owners: list[int] | None) -> MirrorError:
+    """Restate a mid-batch refusal in terms of what already landed (#30).
+
+    The recheck runs before every line, so a refusal on line N arrives after
+    N-1 lines have been delivered. Saying "input was NOT sent" of the call is
+    then false, and false in the direction that makes a caller retry -- and
+    type a second time into a desktop that already has the first copy.
+
+    Nothing is delivered on a refusal at line 0, so the original wording (and
+    its code) is kept for that case, which is the common one.
+    """
+    if delivered == 0:
+        return exc
+    details = {'delivered': delivered, 'of': len(lines)}
+    prefix = f'partial: {delivered} of {len(lines)} lines delivered'
+    if owners:
+        done = owners[delivered - 1] + (1 if delivered >= len(owners) or owners[delivered] != owners[delivered - 1] else 0)
+        total = owners[-1] + 1
+        details |= {'actions_completed': done, 'actions_total': total}
+        prefix += f' (actions 1-{done} of {total} completed)' if done else f' (no action completed of {total})'
+    reason = str(exc).split(': ', 1)[-1].split('; input was NOT sent')[0].rstrip('. ')
+    return MirrorError(exc.code, f'{prefix}, then {reason}. The rest was not sent '
+                       'and held keys were released.', details | exc.details)
+
+
 def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
-              window: str | None = None) -> dict:
+              window: str | None = None, owners: list[int] | None = None) -> dict:
     """Run encoded input; recheck ownership and focus before every line, release on any failure.
 
     `window` follows `helper` rather than preceding it because callers already
-    pass the helper positionally.
+    pass the helper positionally. `owners` (from `encode(..., with_owners=True)`)
+    lets a refusal say how far the batch got in actions, not just in lines.
     """
     require_agent(generation)
     helper.start()
     ox, oy = helper.origin
     surface = None
+    delivered = 0
     for line in lines:
         state = read_state()
         if state.get('owner') != 'agent' or state.get('generation') != generation:
             helper.cancel()
-            raise MirrorError('stale_generation', 'control changed during the batch')
+            raise _partial(MirrorError('stale_generation', 'control changed during the batch'),
+                           delivered, lines, owners)
         if window is not None:
             # Per line, for the same reason ownership is: a batch is not atomic
             # and the desktop moves underneath one.
             try:
                 surface = _require_target(window)
-            except MirrorError:
+            except MirrorError as exc:
                 helper.cancel()
-                raise
+                raise _partial(exc, delivered, lines, owners) from None
         if line.startswith('M ') and (ox or oy):
             x, y = map(int, line[2:].split())
             line = f'M {x - ox} {y - oy}'
@@ -488,18 +583,25 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
         except RuntimeError as exc:
             helper.cancel()
             code = 'stale_generation' if read_state().get('generation') != generation else 'unavailable'
-            raise MirrorError(code, str(exc)) from None
+            raise _partial(MirrorError(code, str(exc)), delivered, lines, owners) from None
         if ack != 'OK':
             helper.cancel()
-            raise MirrorError('unavailable', f'helper {ack[:80]!r}')
+            raise _partial(MirrorError('unavailable', f'helper {ack[:80]!r}'),
+                           delivered, lines, owners)
+        delivered += 1
     result = {'ok': True, 'acked': len(lines), 'generation': generation}
     if window is not None:
         result['window'] = window
         # Delivered is not accepted, and accepted is not done. The helper acked
         # the keystrokes; whether the application took them, and whether the
         # task happened, are things only a fresh observation can say.
-        where = (f'surface {surface["namespace"]} ({window}), which still had the keyboard '
-                 'to itself' if surface else f'{window}, which still had focus')
+        if surface:
+            where = f'surface {surface["namespace"]} ({window}), the topmost surface on screen'
+            if surface.get('focused_window'):
+                where += (f'; window {surface["focused_window"]} still holds focus, so if that '
+                          'surface does not take the keyboard these keys landed in that window')
+        else:
+            where = f'{window}, which still had focus'
         result['note'] = (f'delivered to {where}. Application acceptance and task '
                           'completion are NOT verified -- observe before reporting the outcome.')
     return result

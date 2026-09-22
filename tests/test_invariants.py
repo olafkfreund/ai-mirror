@@ -741,14 +741,14 @@ class A11yCoverage(Base):
     def accessible(role='frame', name=''):
         return SimpleNamespace(get_role_name=lambda: role, get_name=lambda: name)
 
-    def walk(self, *levels):
+    def walk(self, *levels, row=None):
         def _walk(app, depth, enable=True):
             if enable:
                 a11y.ensure_enabled()  # the real seam, not a re-implementation
             for index_, level in enumerate(levels):
                 yield str(index_), self.accessible(), level, None, None
         return patch.multiple(a11y, _walk=_walk,
-                              _node=lambda acc, node_id, Atspi: {'id': node_id, 'role': 'frame', 'name': ''})
+                              _node=lambda acc, node_id, Atspi: {'id': node_id, **(row or {'role': 'frame', 'name': ''})})
 
     def test_frames_only_tree_says_the_tree_is_unavailable(self):
         with self.walk(0, 1, 0, 1):
@@ -758,7 +758,9 @@ class A11yCoverage(Base):
         self.assertIn('the tree is unavailable', result['note'])
 
     def test_a_tree_with_depth_carries_no_note(self):
-        with self.walk(0, 1, 2):
+        # #33: depth is not enough -- the deep node must be something a caller
+        # could match or act on, which an unnamed grouping is not.
+        with self.walk(0, 1, 2, row={'role': 'push button', 'name': 'Place order'}):
             result = a11y.tree()
         self.assertTrue(result['content'])
         self.assertNotIn('note', result)

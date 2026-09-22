@@ -1,6 +1,7 @@
 """One operation dispatcher shared by the CLI, the bar widget and MCP."""
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -14,13 +15,35 @@ MUTATING = {'input', 'window', 'launch', 'a11y_act'}
 OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'wait', 'index'}
 
 
+SESSION_VARS = ('HYPRLAND_INSTANCE_SIGNATURE', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR')
+
+
 def doctor() -> dict:
+    """Binaries, the helper, and whether the compositor can actually be reached.
+
+    The binaries were always the easy half. Every subcommand goes through
+    Hyprland, so a session that cannot reach it fails at everything -- and
+    until #32 this reported ok in exactly that case, which is the one case a
+    self-check exists for. A non-login shell (ssh, a systemd unit, a cron job)
+    is the usual way to arrive here without a session.
+    """
     missing = [c for c in ('hyprctl', 'grim', 'wl-copy', 'wl-paste', 'busctl') if not shutil.which(c)]
     try:
         control.helper_binary()
     except MirrorError:
         missing.append('ai-mirror-input')
-    return {'ok': not missing, 'missing': missing}
+    report = {'missing': missing}
+    try:
+        host.focused_address()
+        report['compositor'] = 'reachable'
+    except (MirrorError, RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
+        unset = [name for name in SESSION_VARS if not os.environ.get(name)]
+        report['compositor'] = str(exc)
+        if unset:
+            report['unset'] = unset
+            report['hint'] = ('this shell has no desktop session; export ' + ', '.join(unset) +
+                              ' from the running one (see demo/rz for a worked example)')
+    return {'ok': not missing and report['compositor'] == 'reachable', **report}
 
 
 def _generation(args) -> int:
@@ -104,7 +127,8 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
                                              'mean -- or, for a menu, panel or launcher, of the '
                                              'surface under layers -- and pass it as window. Pointer actions do '
                                              'not need it.')
-            return control.run_batch(encode(actions), generation, window=window)
+            lines, owners = encode(actions, with_owners=True)
+            return control.run_batch(lines, generation, window=window, owners=owners)
         if op == 'window':
             dispatcher = host.window_dispatch(args.get('action'), args.get('address'), args.get('workspace'),
                                               args.get('w'), args.get('h'), args.get('mode'))
