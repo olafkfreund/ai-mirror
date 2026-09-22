@@ -130,7 +130,7 @@ class ApiRequiresWindowForTyping(Base):
         # control.HELPER would not reach it. Record the call instead.
         seen = {}
 
-        def record(lines, generation, helper=None, window=None):
+        def record(lines, generation, helper=None, window=None, owners=None):
             seen.update(lines=lines, window=window)
             return {'ok': True}
 

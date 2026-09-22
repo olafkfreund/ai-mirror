@@ -462,30 +462,59 @@ def _require_target(window: str) -> dict | None:
     return None
 
 
+def _partial(exc: MirrorError, delivered: int, lines: list[str],
+             owners: list[int] | None) -> MirrorError:
+    """Restate a mid-batch refusal in terms of what already landed (#30).
+
+    The recheck runs before every line, so a refusal on line N arrives after
+    N-1 lines have been delivered. Saying "input was NOT sent" of the call is
+    then false, and false in the direction that makes a caller retry -- and
+    type a second time into a desktop that already has the first copy.
+
+    Nothing is delivered on a refusal at line 0, so the original wording (and
+    its code) is kept for that case, which is the common one.
+    """
+    if delivered == 0:
+        return exc
+    details = {'delivered': delivered, 'of': len(lines)}
+    prefix = f'partial: {delivered} of {len(lines)} lines delivered'
+    if owners:
+        done = owners[delivered - 1] + (1 if delivered >= len(owners) or owners[delivered] != owners[delivered - 1] else 0)
+        total = owners[-1] + 1
+        details |= {'actions_completed': done, 'actions_total': total}
+        prefix += f' (actions 1-{done} of {total} completed)' if done else f' (no action completed of {total})'
+    reason = str(exc).split(': ', 1)[-1].split('; input was NOT sent')[0].rstrip('. ')
+    return MirrorError(exc.code, f'{prefix}, then {reason}. The rest was not sent '
+                       'and held keys were released.', details | exc.details)
+
+
 def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
-              window: str | None = None) -> dict:
+              window: str | None = None, owners: list[int] | None = None) -> dict:
     """Run encoded input; recheck ownership and focus before every line, release on any failure.
 
     `window` follows `helper` rather than preceding it because callers already
-    pass the helper positionally.
+    pass the helper positionally. `owners` (from `encode(..., with_owners=True)`)
+    lets a refusal say how far the batch got in actions, not just in lines.
     """
     require_agent(generation)
     helper.start()
     ox, oy = helper.origin
     surface = None
+    delivered = 0
     for line in lines:
         state = read_state()
         if state.get('owner') != 'agent' or state.get('generation') != generation:
             helper.cancel()
-            raise MirrorError('stale_generation', 'control changed during the batch')
+            raise _partial(MirrorError('stale_generation', 'control changed during the batch'),
+                           delivered, lines, owners)
         if window is not None:
             # Per line, for the same reason ownership is: a batch is not atomic
             # and the desktop moves underneath one.
             try:
                 surface = _require_target(window)
-            except MirrorError:
+            except MirrorError as exc:
                 helper.cancel()
-                raise
+                raise _partial(exc, delivered, lines, owners) from None
         if line.startswith('M ') and (ox or oy):
             x, y = map(int, line[2:].split())
             line = f'M {x - ox} {y - oy}'
@@ -494,10 +523,12 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
         except RuntimeError as exc:
             helper.cancel()
             code = 'stale_generation' if read_state().get('generation') != generation else 'unavailable'
-            raise MirrorError(code, str(exc)) from None
+            raise _partial(MirrorError(code, str(exc)), delivered, lines, owners) from None
         if ack != 'OK':
             helper.cancel()
-            raise MirrorError('unavailable', f'helper {ack[:80]!r}')
+            raise _partial(MirrorError('unavailable', f'helper {ack[:80]!r}'),
+                           delivered, lines, owners)
+        delivered += 1
     result = {'ok': True, 'acked': len(lines), 'generation': generation}
     if window is not None:
         result['window'] = window

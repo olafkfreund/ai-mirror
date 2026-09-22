@@ -69,3 +69,57 @@ class LineOwners(unittest.TestCase):
     def test_default_call_is_unchanged(self):
         from ai_mirror.input import encode
         self.assertIsInstance(encode([{'type': 'click', 'x': 1, 'y': 2}]), list)
+
+
+class PartialDelivery(unittest.TestCase):
+    """#30: a refusal partway through a batch must not claim nothing was sent."""
+
+    def setUp(self):
+        from test_invariants import Base
+        self._base = Base('run')
+        self._base.setUp()
+        self.addCleanup(lambda: None)
+
+    def _run(self, fail_before_line):
+        """Deliver a batch whose focus check starts refusing before line N."""
+        from unittest.mock import patch
+        from test_invariants import FakeHelper, grant
+        from ai_mirror import control
+        from ai_mirror.input import encode
+        generation = grant()['generation']
+        lines, owners = encode([{'type': 'type', 'text': 'AB'},
+                                {'type': 'key', 'keys': ['Return']},
+                                {'type': 'key', 'keys': ['CTRL', 'd']}], with_owners=True)
+        helper = FakeHelper()
+        calls = {'n': 0}
+
+        def focus():
+            calls['n'] += 1
+            return 'WINDOW' if calls['n'] <= fail_before_line else 'OTHER'
+
+        with patch.object(control.host, 'focused_address', side_effect=focus), \
+             patch.object(control.host, 'layers', return_value=[]):
+            with self.assertRaises(control.MirrorError) as caught:
+                control.run_batch(lines, generation, helper, window='WINDOW', owners=owners)
+        return caught.exception, lines, helper
+
+    def test_nothing_delivered_keeps_the_old_wording(self):
+        error, lines, helper = self._run(fail_before_line=0)
+        self.assertIn('input was NOT sent', str(error))
+        self.assertEqual(error.details, {})
+        self.assertEqual([line for line in helper.sent if line != 'C'], [])
+
+    def test_a_delivered_prefix_is_reported(self):
+        error, lines, helper = self._run(fail_before_line=3)
+        sent = [line for line in helper.sent if line != 'C']
+        self.assertEqual(len(sent), 3)
+        self.assertNotIn('input was NOT sent', str(error))
+        self.assertIn('partial: 3 of %d lines delivered' % len(lines), str(error))
+        self.assertEqual(error.details['delivered'], 3)
+        self.assertEqual(error.details['of'], len(lines))
+
+    def test_the_count_is_in_actions_too(self):
+        error, lines, _ = self._run(fail_before_line=3)
+        self.assertEqual(error.details['actions_total'], 3)
+        self.assertLessEqual(error.details['actions_completed'], 3)
+        self.assertIn('actions', str(error))

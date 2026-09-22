@@ -104,7 +104,8 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
                                              'mean -- or, for a menu, panel or launcher, of the '
                                              'surface under layers -- and pass it as window. Pointer actions do '
                                              'not need it.')
-            return control.run_batch(encode(actions), generation, window=window)
+            lines, owners = encode(actions, with_owners=True)
+            return control.run_batch(lines, generation, window=window, owners=owners)
         if op == 'window':
             dispatcher = host.window_dispatch(args.get('action'), args.get('address'), args.get('workspace'),
                                               args.get('w'), args.get('h'), args.get('mode'))
