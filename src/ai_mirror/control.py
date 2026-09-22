@@ -28,10 +28,16 @@ REPO_HELPER = Path(__file__).resolve().parents[2] / 'build/ai-mirror-input'
 
 
 class MirrorError(Exception):
-    """Structured error with a stable machine-readable code."""
+    """Structured error with a stable machine-readable code.
 
-    def __init__(self, code: str, detail: str = ''):
+    `details` carries machine-readable facts the message states in prose --
+    how much of a batch was delivered, say (#30). A caller that acts on the
+    numbers must not have to parse the sentence.
+    """
+
+    def __init__(self, code: str, detail: str = '', details: dict | None = None):
         self.code = code
+        self.details = details or {}
         super().__init__(code if not detail else f'{code}: {detail}')
 
 
