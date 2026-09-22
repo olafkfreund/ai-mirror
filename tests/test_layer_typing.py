@@ -78,10 +78,15 @@ class TypingIntoASurface(Base):
         self.assertIn('nixarchy-pkg-menu', result['note'])
         self.assertIn('NOT verified', result['note'])
 
-    def test_a_focused_window_refuses_and_sends_nothing(self):
-        with self.assertRaises(MirrorError) as caught:
-            self.run_on(OPEN, WINDOW)
-        self.assertIn('NOT sent', str(caught.exception))
+    def test_a_focused_window_no_longer_refuses_but_is_named(self):
+        # #29: Hyprland keeps naming the window under an overlay that has taken
+        # the keyboard, so demanding "no window focused" made the supported path
+        # unreachable. The window is reported instead of refused.
+        helper, result = self.run_on(OPEN, WINDOW)
+        self.assertEqual(helper.sent, ['T hi'])
+        self.assertIn('nixarchy-pkg-menu', result['note'])
+        self.assertIn(WINDOW, result['note'])
+        self.assertIn('still holds focus', result['note'])
 
     def test_another_surface_at_the_same_level_refuses_and_names_it(self):
         toast = layer(TOAST, 'notification', 3)

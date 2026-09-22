@@ -407,32 +407,28 @@ def _require_focus(window: str) -> None:
                       'Observe again and target the window you mean.')
 
 
-def _require_layer(layer: dict, layers: list[dict]) -> None:
-    """Refuse unless the named layer surface is the one that must have the keyboard.
+def _require_layer(layer: dict, layers: list[dict]) -> str | None:
+    """Refuse unless the named layer surface is the topmost thing on screen.
 
-    Hyprland does not say which layer holds the keyboard (measured on 0.56:
-    `layers -j` carries no such field), so this asserts the one arrangement
-    where the answer is not in doubt and refuses every other (#26):
+    Hyprland does not say which layer holds the keyboard (measured again on
+    0.56.0: `layers -j` carries `address, alpha, h, namespace, pid, w, x, y`
+    and nothing else), and `activewindow` keeps naming the window underneath
+    an overlay that has taken the keyboard. #26 therefore also demanded that
+    no window have focus -- and that never holds for a quickshell overlay, so
+    the supported way to type into a panel could not succeed while the
+    unsupported one (addressing the window) worked by accident (#29).
 
-    - no window has focus, so no keystroke can land in an application window
-      -- #24's guarantee, unchanged; and
-    - no other layer is mapped at the same level or above, on any monitor: a
-      surface takes the keyboard from the top, and with nothing beside or
-      above it, the named one is the only candidate.
-
-    Positive by construction, like _require_focus: a query that fails raises
-    `unavailable` before either condition is judged. What it cannot rule out
-    is a layer BELOW the named one holding the keyboard while the named one
-    does not; the result's note says delivered, not accepted.
+    What is left is the condition Hyprland can actually answer: no other
+    surface is mapped at this one's level or above, on any monitor, so a
+    surface that takes the keyboard from the top can only be this one. A
+    window that still holds focus is no longer a refusal -- it is returned,
+    so the result can name it as where these keys land if the surface does
+    not take them. Delivered is still not accepted.
     """
     try:
         focused = host.focused_address()
     except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
         raise MirrorError('unavailable', f'could not read which window has focus: {exc}') from None
-    if focused is not None:
-        raise MirrorError('wrong_target',
-                          f'window {focused} has focus, not surface {layer["namespace"]} '
-                          f'({layer["address"]}); input was NOT sent. Observe again.')
     rivals = [other for other in layers
               if other['address'] != layer['address'] and other['level'] >= layer['level']]
     if rivals:
@@ -441,6 +437,7 @@ def _require_layer(layer: dict, layers: list[dict]) -> None:
                           f'another surface is open at the same level or above: {names}; '
                           f'cannot tell which has the keyboard, so input was NOT sent. '
                           'Close it, or wait for it to go, and observe again.')
+    return focused
 
 
 def _require_target(window: str) -> dict | None:
@@ -461,8 +458,8 @@ def _require_target(window: str) -> dict | None:
         layers = []
     for layer in layers:
         if layer['address'] == window:
-            _require_layer(layer, layers)
-            return layer
+            focused = _require_layer(layer, layers)
+            return dict(layer, focused_window=focused)
     _require_focus(window)
     return None
 
@@ -540,8 +537,13 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
         # Delivered is not accepted, and accepted is not done. The helper acked
         # the keystrokes; whether the application took them, and whether the
         # task happened, are things only a fresh observation can say.
-        where = (f'surface {surface["namespace"]} ({window}), which still had the keyboard '
-                 'to itself' if surface else f'{window}, which still had focus')
+        if surface:
+            where = f'surface {surface["namespace"]} ({window}), the topmost surface on screen'
+            if surface.get('focused_window'):
+                where += (f'; window {surface["focused_window"]} still holds focus, so if that '
+                          'surface does not take the keyboard these keys landed in that window')
+        else:
+            where = f'{window}, which still had focus'
         result['note'] = (f'delivered to {where}. Application acceptance and task '
                           'completion are NOT verified -- observe before reporting the outcome.')
     return result
