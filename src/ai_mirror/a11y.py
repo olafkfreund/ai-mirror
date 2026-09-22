@@ -364,9 +364,18 @@ def act(node_id: str, action: str, text: str | None = None, expect: dict | None 
             if comp is None or not comp.grab_focus():
                 raise MirrorError('unsupported', 'element cannot take focus')
         elif action == 'set_text':
+            if not isinstance(text, str):
+                raise MirrorError('unsupported', 'set_text needs text')
             editable = acc.get_editable_text_iface()
-            if not isinstance(text, str) or editable is None:
-                raise MirrorError('unsupported', 'set_text needs text and an editable element')
+            if editable is None:
+                # Chromium reports the `editable` state without implementing the
+                # interface, so the old message blamed the caller's arguments for
+                # something they could not fix by passing them again (#36).
+                raise MirrorError('unsupported',
+                                  'this element does not expose AT-SPI EditableText, so its text '
+                                  'cannot be set directly (Chromium reports the editable state '
+                                  'without the interface). Use a11y_act focus on it, then send '
+                                  'keystrokes with input.')
             if not editable.set_text_contents(text):
                 raise MirrorError('unavailable', 'the application refused the text')
         else:

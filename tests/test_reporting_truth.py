@@ -269,3 +269,39 @@ class RegionForms(unittest.TestCase):
         with self.assertRaises(argparse.ArgumentTypeError) as caught:
             region('967,38,922')
         self.assertIn('x,y,width,height', str(caught.exception))
+
+
+class SetText(unittest.TestCase):
+    """#36: two causes, two messages -- one of them tells the caller what does work."""
+
+    class FakeAccessible:
+        def __init__(self, editable):
+            self._editable = editable
+
+        def get_editable_text_iface(self):
+            return self._editable
+
+        def get_role_name(self):
+            return 'entry'
+
+        def get_name(self):
+            return 'Customer'
+
+    def _act(self, accessible, text):
+        from unittest.mock import patch
+        from ai_mirror import a11y
+        from ai_mirror.control import MirrorError
+        with patch.object(a11y, 'resolve', return_value=(accessible, None)):
+            with self.assertRaises(MirrorError) as caught:
+                a11y.act('11.0.0', 'set_text', text)
+        return caught.exception
+
+    def test_missing_text_says_so(self):
+        error = self._act(self.FakeAccessible(editable=object()), None)
+        self.assertEqual(str(error), 'unsupported: set_text needs text')
+
+    def test_a_missing_interface_names_the_path_that_works(self):
+        error = self._act(self.FakeAccessible(editable=None), 'Ada Lovelace')
+        self.assertIn('EditableText', str(error))
+        self.assertIn('focus', str(error))
+        self.assertIn('input', str(error))
