@@ -37,7 +37,8 @@ ai-mirror or a working copy:
 
 `rzdev` is the same idea as `rz` but runs a working copy from `/tmp/aim` inside
 the installed package's environment, so `a11y_*` still has its AT-SPI
-bindings. Deploy the copy first:
+bindings. Both resolve the host's store paths at call time and take
+`AI_MIRROR_HOST` (default `razer`). Deploy the copy first:
 
     rsync -a src/ai_mirror/ <host>:/tmp/aim/ai_mirror/
     RZ_BIN=./rzdev GEN=<generation> ./demo.sh

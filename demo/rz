@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# drive ai-mirror on razer with the desktop session's environment
+# Drive the installed ai-mirror on a desktop host, with that session's
+# environment: a non-login ssh shell has none of it, and every call then fails
+# with "HYPRLAND_INSTANCE_SIGNATURE not set".
+HOST="${AI_MIRROR_HOST:-razer}"
 args=$(printf ' %q' "$@")
-exec ssh -o BatchMode=yes -o ConnectTimeout=8 razer \
+exec ssh -o BatchMode=yes -o ConnectTimeout=8 "$HOST" \
   "export XDG_RUNTIME_DIR=/run/user/1000;
    export HYPRLAND_INSTANCE_SIGNATURE=\$(ls -t /run/user/1000/hypr | head -1);
    export WAYLAND_DISPLAY=\$(ls /run/user/1000 | grep -m1 '^wayland-[0-9]');
