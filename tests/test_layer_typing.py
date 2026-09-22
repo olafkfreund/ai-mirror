@@ -173,7 +173,7 @@ class CliCanType(Base):
     def test_window_reaches_the_api(self):
         seen = {}
 
-        def run(op, args):
+        def run(op, args, by='human'):
             seen.update(op=op, args=args)
             return {'ok': True}
 

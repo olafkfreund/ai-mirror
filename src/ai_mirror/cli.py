@@ -89,7 +89,12 @@ def main(argv=None):
     # it prints Markdown unless a program asks for JSON.
     as_markdown = op == 'index' and not args.pop('json', False)
     try:
-        result = api.run(op, {k: v for k, v in args.items() if v is not None})
+        # `control agent` is an agent asking, whatever the transport: the person
+        # at the keyboard answers it with confirm/deny, and the dialog tells them
+        # who is asking (#34). `control off`, which the Super+Shift+Escape binding
+        # runs, really is the human.
+        by = 'agent' if op == 'control' and args.get('mode') == 'agent' else 'human'
+        result = api.run(op, {k: v for k, v in args.items() if v is not None}, by=by)
         if as_markdown:
             from . import index
             sys.stdout.write(index.render(result))

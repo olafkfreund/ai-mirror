@@ -229,3 +229,26 @@ class Content(unittest.TestCase):
         self.assertIn('no controls under them', nothing['note'])
         self.assertIn('no named or actionable nodes', hollow['note'])
         self.assertFalse(hollow['content'])
+
+
+class Attribution(Base):
+    """#34: the person deciding is told who wants their desktop."""
+
+    def test_the_cli_asks_as_an_agent(self):
+        import io, json, contextlib
+        from ai_mirror import cli
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.main(['control', 'agent'])
+        self.assertEqual(json.loads(out.getvalue())['request']['by'], 'agent')
+
+    def test_turning_control_off_is_still_the_human(self):
+        # Super+Shift+Escape runs this, and it is the person pressing it.
+        import io, contextlib
+        from unittest.mock import patch
+        from ai_mirror import cli
+        seen = {}
+        with patch.object(cli.api, 'run', side_effect=lambda op, args, by='human': seen.update(by=by) or {}), \
+             contextlib.redirect_stdout(io.StringIO()):
+            cli.main(['control', 'off'])
+        self.assertEqual(seen['by'], 'human')
