@@ -19,6 +19,10 @@
   `$XDG_RUNTIME_DIR/ai-mirror/audit.jsonl`.
 - Every change bumps `generation`. Screenshots and input carry the generation they were made
   under; input from an older generation is refused with `stale_generation`.
+- A grant records its holder (`held_by`: a server's pid and birth time, or `null` for a CLI
+  caller). An agent may end only its own grant, or one whose holder is no longer running;
+  otherwise `not_owner` names the holder. A server exiting ends only its own grant. The person at
+  the keyboard is never checked (#40).
 - Input, `window`, `launch`, `a11y_act` and clipboard writes need `owner: agent` (`not_owner` otherwise).
   Observation (`status`, `screenshot`, `windows`, `a11y_tree`, `a11y_find`, clipboard read) always works.
 - Ownership is re-checked before every single low-level input event, so a stop lands mid-batch.
