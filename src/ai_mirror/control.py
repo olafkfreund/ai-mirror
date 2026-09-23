@@ -185,7 +185,10 @@ def set_owner(mode: str, by: str) -> dict:
         state = read_state()
         generation = int(state.get('generation', 0)) + 1
         if mode == 'agent':
-            request = {'id': secrets.token_hex(8), 'by': by, 'since': stamp(), 'expires': now() + REQUEST_TTL}
+            # Who is asking, so the grant can be told from anyone else's (#40).
+            # None means a CLI caller: nobody's server speaks for that grant.
+            request = {'id': secrets.token_hex(8), 'by': by, 'since': stamp(),
+                       'expires': now() + REQUEST_TTL, 'server': SERVER}
             audit('requested', request=request['id'], by=by)
             pending = {'owner': 'pending', 'generation': generation, 'since': stamp(),
                        'enabled_by': None, 'request': request}
@@ -242,7 +245,7 @@ def _answer(request_id: str, granted: bool) -> dict:
         # turn the bus on before the human has answered.
         granted_state = {'owner': 'agent', 'generation': generation, 'since': stamp(),
                          'enabled_by': 'human-confirmed', 'request_by': request.get('by'),
-                         'last_input': now()}
+                         'last_input': now(), 'held_by': request.get('server')}
         baseline = _baseline_layers()
         if baseline is not None:
             granted_state['baseline_layers'] = baseline
@@ -294,12 +297,19 @@ def servers_dir() -> Path:
     return path
 
 
+SERVER: dict | None = None  # this process's identity while it serves, for #40
+
+
 def register_server() -> None:
+    global SERVER
     pid = os.getpid()
-    atomic_write_json(servers_dir() / f'{pid}.json', {'pid': pid, 'start': proc_start(pid)})
+    SERVER = {'pid': pid, 'start': proc_start(pid)}
+    atomic_write_json(servers_dir() / f'{pid}.json', dict(SERVER))
 
 
 def unregister_server() -> None:
+    global SERVER
+    SERVER = None
     (servers_dir() / f'{os.getpid()}.json').unlink(missing_ok=True)
 
 
