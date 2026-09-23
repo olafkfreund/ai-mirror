@@ -112,8 +112,11 @@ and `toolkit-accessibility`; ai-mirror also sets the AT-SPI `IsEnabled` flag on 
   may hold the keyboard. Observe and aim again, or wait for the surface to go (#31, #29).
 - `doctor` says `ok: false` with `compositor` and `unset` when the shell has no desktop session —
   the usual cause of every command failing at once over ssh (#32). `demo/rz` shows what to export.
-- The middle mouse button is delivered and has no effect, in Chrome or GTK; `left`, `right`, `back`
-  and `forward` work. Use a keyboard equivalent (#37).
+- The middle mouse button works — `wev` sees `274 (middle)` and alacritty pastes the primary
+  selection from it — but **Chrome ignores it** (a tab does not close, a link does not open in a
+  background tab) while `left` and `right` work in the same window. GNOME applications do not paste
+  on middle click either, because GNOME sets `gtk-enable-primary-paste = false`; that is the
+  desktop, not the event. Use `CTRL+W` and `CTRL+click` in Chrome (#37).
 - No dialog appears — the bar widget draws it, so enable the plugin
   (`omarchy plugin enable olafkfreund.ai-mirror --section right`). With it disabled, nobody can
   answer and every request lapses after 30 seconds; `ai-mirror control confirm` from a terminal

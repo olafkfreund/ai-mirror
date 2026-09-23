@@ -223,13 +223,23 @@ have control: observe and aim again (#31).
 `stale_generation` means control itself moved: the human took it back, or a
 new grant was made. Stop and ask again.
 
-## The middle mouse button does nothing
+## Chrome ignores the middle mouse button
 
-Measured on razer: `left`, `right`, `back` and `forward` all work; `middle` is
-acked and has no effect in Chrome (closing a tab, opening a link in a new tab)
-or in GTK (primary-selection paste). Every button goes through one identical
-`zwlr_virtual_pointer_v1_button` call, so the loss is below this codebase and
-nothing can observe it — `input` will report `ok` (#37).
+The button itself works. Measured with `wev`, a middle click arrives exactly as
+the others do — `button: 274 (middle)`, press and release 5 ms apart, framed —
+and a middle click pastes the primary selection into alacritty. What does not
+respond is **Chrome**: middle-clicking a tab does not close it and
+middle-clicking a link does not open a background tab, while `left` and `right`
+at the same coordinates work in the same window (#37).
 
-**Do:** use a keyboard equivalent — `CTRL+W` for a tab, `CTRL+click` or the
-context menu for a link.
+Two things that look like this bug and are not:
+
+- **GNOME applications never paste on middle click**, because GNOME ships
+  `gtk-enable-primary-paste = false`. That is the desktop's setting, not a
+  missing event.
+- **`input` reports `ok` either way.** It says the button was delivered, which
+  is true; whether the application acted on it is a separate question, and one
+  only an observation answers.
+
+**Do:** in Chrome, use the keyboard — `CTRL+W` for a tab, `CTRL+click` for a
+link in a background tab. Elsewhere, middle click normally.
