@@ -432,6 +432,19 @@ def _require_focus(window: str) -> None:
 
 
 KEYBOARD_LEVEL = 2  # top and overlay; a surface below cannot take the keyboard from a window
+DEPARTED_CAP = 32   # a message aid, not a ledger
+
+
+def _forget_departed(departed: list, gone) -> list:
+    """The namespaces that were part of the desktop when control was granted and are not now.
+
+    Kept so a refusal can tell a caller which shape it is looking at: a surface
+    that appeared out of nowhere, or one that was furniture, went, and came
+    back (#39). The second is the more suspicious of the two and reads
+    differently. Capped, oldest first, because it exists to word a sentence.
+    """
+    kept = [name for name in departed if name not in gone]
+    return (kept + sorted(gone))[-DEPARTED_CAP:]
 
 
 def _refuse_new_surfaces(window: str) -> None:

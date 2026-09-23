@@ -305,3 +305,23 @@ class SetText(unittest.TestCase):
         self.assertIn('EditableText', str(error))
         self.assertIn('focus', str(error))
         self.assertIn('input', str(error))
+
+
+class Departed(unittest.TestCase):
+    """#39: what left the baseline, so a returning surface reads differently from a new one."""
+
+    def test_names_are_added_once(self):
+        from ai_mirror.control import _forget_departed
+        first = _forget_departed([], {'notification'})
+        self.assertEqual(first, ['notification'])
+        self.assertEqual(_forget_departed(first, {'notification'}), ['notification'])
+
+    def test_the_list_is_capped(self):
+        from ai_mirror.control import _forget_departed, DEPARTED_CAP
+        departed = []
+        for i in range(DEPARTED_CAP + 10):
+            departed = _forget_departed(departed, {f'surface-{i:03d}'})
+        self.assertEqual(len(departed), DEPARTED_CAP)
+        # the oldest go first, so the most recent are what a message can name
+        self.assertIn(f'surface-{DEPARTED_CAP + 9:03d}', departed)
+        self.assertNotIn('surface-000', departed)
