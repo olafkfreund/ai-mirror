@@ -172,5 +172,36 @@ class ServerShutdown(Base):
         self.assertEqual(control.read_state()['owner'], 'off')
 
 
+class Audit(Base):
+    """#40: the log names which agent, which is what took an hour to work out by hand."""
+
+    def tearDown(self):
+        control.SERVER = None
+        super().tearDown()
+
+    def _lines(self):
+        import json
+        path = control.root() / 'audit.jsonl'
+        return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+    def test_a_server_grant_names_the_holder(self):
+        control.SERVER = {'pid': os.getpid(), 'start': control.proc_start(os.getpid())}
+        grant()
+        confirmed = [line for line in self._lines() if line['event'] == 'confirmed'][-1]
+        self.assertEqual(confirmed['holder'], os.getpid())
+
+    def test_a_cli_grant_names_nobody(self):
+        grant()
+        confirmed = [line for line in self._lines() if line['event'] == 'confirmed'][-1]
+        self.assertIsNone(confirmed['holder'])
+
+    def test_the_release_names_who_held_it(self):
+        control.SERVER = {'pid': os.getpid(), 'start': control.proc_start(os.getpid())}
+        grant()
+        control.set_owner('off', 'human')
+        off = [line for line in self._lines() if line['event'] == 'off'][-1]
+        self.assertEqual(off['holder'], os.getpid())
+
+
 if __name__ == '__main__':
     unittest.main()

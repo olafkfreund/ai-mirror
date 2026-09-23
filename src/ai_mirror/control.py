@@ -171,10 +171,16 @@ def read_state() -> dict:
         state = _load()
         if not _lapsed(state):
             return state
-        audit('expired', request=state['request'].get('id'), by=state['request'].get('by'))
+        audit('expired', request=state['request'].get('id'), by=state['request'].get('by'),
+              holder=_holder_pid((state.get('request') or {}).get('server')))
         _a11y_restore(state.get('a11y_before') or {})
         return _write({'owner': 'off', 'generation': int(state.get('generation', 0)) + 1,
                        'since': stamp(), 'enabled_by': None, 'why': LAPSED})
+
+
+def _holder_pid(held_by):
+    """The pid in a holder record, for the audit line. None when nobody's server holds it."""
+    return held_by.get('pid') if isinstance(held_by, dict) else None
 
 
 def _holder_running(held_by) -> bool:
@@ -250,7 +256,7 @@ def set_owner(mode: str, by: str) -> dict:
             # None means a CLI caller: nobody's server speaks for that grant.
             request = {'id': secrets.token_hex(8), 'by': by, 'since': stamp(),
                        'expires': now() + REQUEST_TTL, 'server': SERVER}
-            audit('requested', request=request['id'], by=by)
+            audit('requested', request=request['id'], by=by, holder=_holder_pid(SERVER))
             pending = {'owner': 'pending', 'generation': generation, 'since': stamp(),
                        'enabled_by': None, 'request': request}
             # Carry the record across a re-request from a live grant. The
@@ -268,7 +274,7 @@ def set_owner(mode: str, by: str) -> dict:
                                   f'control is held by {whose}, so it was not released. Ask the '
                                   'person at the keyboard to stop it, or wait for it to end.')
             _a11y_restore(state.get('a11y_before') or {})
-            audit('off', by=by, was=state.get('owner'))
+            audit('off', by=by, was=state.get('owner'), holder=_holder_pid(state.get('held_by')))
             state = _write({'owner': 'off', 'generation': generation, 'since': stamp(), 'enabled_by': None})
     if mode == 'off':
         signal_servers()
@@ -303,7 +309,8 @@ def _answer(request_id: str, granted: bool) -> dict:
         if state.get('owner') != 'pending' or not request_id or request_id != request.get('id'):
             raise MirrorError('bad_request', 'no request with that id is waiting; ask again')
         generation = int(state.get('generation', 0)) + 1
-        audit('confirmed' if granted else 'denied', request=request_id, by=request.get('by'))
+        audit('confirmed' if granted else 'denied', request=request_id, by=request.get('by'),
+              holder=_holder_pid(request.get('server')))
         if not granted:
             _a11y_restore(state.get('a11y_before') or {})
             return _write({'owner': 'off', 'generation': generation, 'since': stamp(), 'enabled_by': None})
@@ -339,7 +346,7 @@ def require_agent(generation: int) -> dict:
                           or 'agent control is off; call control with mode agent to ask the human')
     if now() - state.get('last_input', 0) > IDLE_LIMIT:
         with locked('control'):
-            audit('idle', by=state.get('request_by'))
+            audit('idle', by=state.get('request_by'), holder=_holder_pid(state.get('held_by')))
             _write({'owner': 'off', 'generation': int(state.get('generation', 0)) + 1,
                     'since': stamp(), 'enabled_by': None})
         raise MirrorError('not_owner', f'the grant went unused for {IDLE_LIMIT} seconds; ask again')
