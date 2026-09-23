@@ -131,5 +131,46 @@ class Releasing(Base):
             self.assertEqual(control.set_owner('off', 'human')['owner'], 'off')
 
 
+class ServerShutdown(Base):
+    """#40: a server ending takes its own grant with it, and nobody else's."""
+
+    def tearDown(self):
+        control.SERVER = None
+        super().tearDown()
+
+    def test_it_ends_its_own_grant(self):
+        control.SERVER = {'pid': os.getpid(), 'start': control.proc_start(os.getpid())}
+        mine = control.SERVER
+        grant()
+        self.assertTrue(control.release_if_held(mine))
+        self.assertEqual(control.read_state()['owner'], 'off')
+
+    def test_it_leaves_another_agents_grant_alone(self):
+        # The grant this session lost twice on razer: held by someone else's
+        # server, ended by ours exiting.
+        control.SERVER = {'pid': os.getppid(), 'start': control.proc_start(os.getppid())}
+        grant()
+        control.SERVER = None
+        self.assertFalse(control.release_if_held({'pid': os.getpid(), 'start': 'whatever'}))
+        self.assertEqual(control.read_state()['owner'], 'agent')
+
+    def test_it_leaves_a_cli_grant_alone(self):
+        grant()  # no SERVER: a CLI caller holds it
+        self.assertFalse(control.release_if_held({'pid': os.getpid(), 'start': 'whatever'}))
+        self.assertEqual(control.read_state()['owner'], 'agent')
+
+    def test_a_server_that_never_registered_releases_nothing(self):
+        grant()
+        self.assertFalse(control.release_if_held(None))
+        self.assertEqual(control.read_state()['owner'], 'agent')
+
+    def test_it_lapses_its_own_unanswered_request(self):
+        control.SERVER = {'pid': os.getpid(), 'start': control.proc_start(os.getpid())}
+        mine = control.SERVER
+        control.set_owner('agent', 'agent')  # asked, nobody answered yet
+        self.assertTrue(control.release_if_held(mine))
+        self.assertEqual(control.read_state()['owner'], 'off')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -212,6 +212,32 @@ def _may_release(state: dict) -> bool:
     return not _holder_running(held_by)  # a holder that is gone holds nothing
 
 
+def release_if_held(server: dict | None, generation: int | None = None) -> bool:
+    """End a grant, or an unanswered request, that belongs to `server`.
+
+    Called when a server stops. `server` is passed rather than read from the
+    module global because `unregister_server` has already cleared it by then --
+    and because a server that never registered holds nothing, which is exactly
+    what `None` should mean here.
+
+    Silent when the grant is someone else's: a server ending is not a reason to
+    take a desktop from another agent (#40).
+    """
+    state = read_state()
+    if state.get('owner') == 'pending':
+        mine = (state.get('request') or {}).get('server')
+    elif state.get('owner') == 'agent':
+        mine = state.get('held_by')
+    else:
+        return False
+    if server is None or mine != server:
+        return False
+    if generation is not None and state.get('generation') != generation:
+        return False
+    set_owner('off', 'human')  # ours to end; the ownership check has just been made
+    return True
+
+
 def set_owner(mode: str, by: str) -> dict:
     """mode=agent asks the human; only confirm_request grants control."""
     if mode not in ('agent', 'off') or by not in ('agent', 'human'):
