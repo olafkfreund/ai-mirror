@@ -26,6 +26,16 @@ Actions, the herdr session menu, nixi, and a full re-theme. The narration is
 [nixarchy-voice](https://github.com/olafkfreund/nixarchy-voice) speaking through its own
 text-to-speech — the system describing itself, not a voiceover.</sub>
 
+[![Eighty-four seconds: typing, clicking, and a web form driven end to end](assets/demo-desktop-poster.jpg)](assets/demo-desktop.mp4)
+
+<sub>**[▶ Watch the eighty-second version](assets/demo-desktop.mp4)** — the short one, and every
+frame of it is a check. An agent types Unicode into an editor, clicks `7 + 6 =` on a calculator,
+then fills and submits a web form in Chrome: each field found through the accessibility tree by
+role and name, filled with real keystrokes, and the result read back from the page rather than
+assumed. It ends by walking browser history with the mouse's side buttons. Recorded with
+`demo/demo.sh`, which is in this repository — re-run it after a change and the screencast is the
+regression test.</sub>
+
 ---
 
 ## Why
