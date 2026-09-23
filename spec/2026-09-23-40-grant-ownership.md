@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 40
 intent: intent/2026-09-23-40-grant-ownership.md
 ---
