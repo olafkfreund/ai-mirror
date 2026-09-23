@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 39
 spec: spec/2026-09-23-39-transient-baseline.md
 ---
