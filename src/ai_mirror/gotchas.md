@@ -197,10 +197,27 @@ notification over a menu, say): the message names it. Wait for it to go,
 observe again, and retry.
 
 **And the other way round:** typing at a *window* is refused while a surface
-that was not mapped when control was granted is up at level 2 or above. That
-surface may hold the keyboard, and reporting the window as the destination
-when the keys went elsewhere is the failure this guard exists to prevent.
-Wait for it to go, or address the surface directly.
+at level 2 or above is up that has **not been mapped continuously since
+control was granted**. That surface may hold the keyboard, and reporting the
+window as the destination when the keys went elsewhere is the failure this
+guard exists to prevent. Wait for it to go, or address the surface directly.
+
+Continuously, not merely at the moment of the grant: the dialog the person
+clicks to confirm is itself a surface, and so is any notification that happens
+to be up, and treating either as furniture for the life of the grant exempts
+exactly what the guard is for (#39). So the exempt set shrinks as surfaces go,
+and the refusal tells you which shape you have:
+
+- *"nixi (0x…) opened since control was granted"* — new since the grant.
+- *"notification (0x…) went away and came back since control was granted"* —
+  it was part of the desktop, left, and returned, so it no longer counts as
+  furniture.
+
+**A restarted shell reads as the second case.** After `omarchy-restart-shell`
+the bar leaves the exempt set while it is gone and comes back as a returning
+surface, so window-addressed input is refused until control is re-taken. That
+is deliberate: admitting anything that returns would reopen the hole for
+anything that can be made to flicker.
 
 ## A refusal can mean part of the batch already landed
 
