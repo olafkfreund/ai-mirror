@@ -72,6 +72,25 @@ spec: spec/2026-09-23-39-transient-baseline.md
     demo/rz input --generation <g> --window <addr> '[{"type":"type","text":"x"}]'
     # expected: wrong_target, "nixi (0x…) opened since control was granted"
 
+## Deviation found while verifying step 5
+
+The approved wording says a surface is exempt while "mapped continuously since
+the grant". The implementation cannot see continuity: the intersection runs
+only on a window-addressed call, so a surface that leaves and returns between
+two calls is never observed leaving. The real rule is **exempt until a check
+finds it gone**.
+
+Measured on razer: after `omarchy-restart-shell`, window-addressed input was
+accepted, because no check landed while the bar was down — the opposite of
+what step 4's documentation claimed. The docs and the gotchas now state the
+rule as implemented, and the restarted-bar case as "usually unnoticed, refused
+if a check lands in the gap".
+
+This does not weaken what #39 asked for: the confirm dialog and any
+notification present at the grant are observed absent by the first check that
+runs after they go, which is what closes the hole. Continuous observation
+would need polling, which the spec rejected as a daemon's worth of machinery.
+
 ## Rollback
 
 One commit per step, so any can be reverted alone; steps 2 and 3 are the

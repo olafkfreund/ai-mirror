@@ -108,11 +108,11 @@ and `toolkit-accessibility`; ai-mirror also sets the AT-SPI `IsEnabled` flag on 
 - `not_owner` — ask for control (`control agent`) and wait for the human to allow it; after ten
   idle minutes a grant ends and has to be asked for again. `stale_generation` — control changed;
   take a new screenshot. `wrong_target` — control is still yours, but the thing you aimed at is not
-  the one that can be typed into: another window has focus, or a surface is up that has not been
-  mapped continuously since the grant and may hold the keyboard (#31, #29). Observe and aim again,
-  or wait for the surface to go. The refusal says which shape it is — one that opened since the
-  grant, or one that was there, went and came back. The bar after `omarchy-restart-shell` is the
-  second, and is refused until control is re-taken (#39).
+  the one that can be typed into: another window has focus, or a surface is up that is not part of
+  the desktop as far as this grant is concerned, and may hold the keyboard (#31, #29). Observe and
+  aim again, or wait for the surface to go. The exempt set is whatever was mapped at the grant,
+  minus anything a later check found gone — so the confirm dialog drops out on the first call, and
+  the refusal says whether a surface opened since the grant or was there, went and came back (#39).
 - `doctor` says `ok: false` with `compositor` and `unset` when the shell has no desktop session —
   the usual cause of every command failing at once over ssh (#32). `demo/rz` shows what to export.
 - The middle mouse button works — `wev` sees `274 (middle)` and alacritty pastes the primary
