@@ -383,3 +383,12 @@ class ContinuousPresence(Base):
         self.assertIsNotNone(error)
         self.assertEqual(error.code, 'wrong_target')
         self.assertIn('notification', str(error))
+
+    def test_the_two_shapes_read_differently(self):
+        generation = self._grant_with(['omarchy-background', 'omarchy-bar', 'notification'])
+        self._check_with(['omarchy-background', 'omarchy-bar'], generation)
+        came_back = self._check_with(['omarchy-background', 'omarchy-bar', 'notification'], generation)
+        self.assertIn('went away and came back', str(came_back))
+        brand_new = self._check_with(['omarchy-background', 'omarchy-bar', 'nixi'], generation)
+        self.assertIn('opened since control was granted', str(brand_new))
+        self.assertNotIn('went away and came back', str(brand_new))

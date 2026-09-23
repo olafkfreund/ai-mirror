@@ -490,11 +490,23 @@ def _refuse_new_surfaces(window: str) -> None:
     new = [one for one in mapped
            if one.get('level', 0) >= KEYBOARD_LEVEL and str(one.get('namespace') or '') not in still]
     if new:
-        names = ', '.join(f'{one["namespace"] or "?"} ({one["address"]})' for one in new)
+        # Two shapes, and the second is the more suspicious: something that was
+        # part of the desktop when control was granted, went, and is back (#39).
+        returned = [one for one in new if str(one.get('namespace') or '') in departed]
+        appeared = [one for one in new if one not in returned]
+        def _names(surfaces):
+            return ', '.join(f'{one["namespace"] or "?"} ({one["address"]})' for one in surfaces)
+        parts = []
+        if appeared:
+            parts.append(f'{_names(appeared)} opened since control was granted')
+        if returned:
+            parts.append(f'{_names(returned)} went away and came back since control was granted, '
+                         'so it no longer counts as part of the desktop')
+        may = 'It may hold the keyboard' if len(new) == 1 else 'Any of them may hold the keyboard'
+        go = 'Wait for it to go' if len(new) == 1 else 'Wait for them to go'
         raise MirrorError('wrong_target',
-                          f'{names} opened since control was granted and may hold the keyboard, '
-                          f'so input for window {window} was NOT sent. Wait for it to go, or '
-                          'pass its address as the window to type into it.')
+                          f'{"; ".join(parts)}. {may}, so input for window {window} was NOT sent. '
+                          f'{go}, or pass an address above as the window to type into it.')
 
 
 def _require_layer(layer: dict, layers: list[dict]) -> str | None:
