@@ -177,6 +177,41 @@ def read_state() -> dict:
                        'since': stamp(), 'enabled_by': None, 'why': LAPSED})
 
 
+def _holder_running(held_by) -> bool:
+    """Whether the process recorded as holding control is still that process.
+
+    A pid on its own is not an identity -- pids are reused -- so the birth time
+    recorded with it has to match too. Anything that is not a well-formed
+    record of a live process reads as "not running", which errs toward letting
+    control be released rather than toward a desktop nobody can take back.
+    """
+    if not isinstance(held_by, dict):
+        return False
+    pid = held_by.get('pid')
+    if not isinstance(pid, int):
+        return False
+    return proc_start(pid) == held_by.get('start') and held_by.get('start') is not None
+
+
+def _may_release(state: dict) -> bool:
+    """Whether an agent may end this grant (#40).
+
+    The person at the keyboard is never asked this question -- their stop is
+    unconditional, and `set_owner` only consults this for `by == 'agent'`.
+    """
+    if 'held_by' not in state:
+        return True  # granted before #40; behaves as it always did
+    held_by = state['held_by']
+    if SERVER is not None and held_by == SERVER:
+        return True  # our own grant
+    if held_by is None:
+        # A CLI caller holds it. No server speaks for that grant, and there is
+        # no process to outlive: it ends with the idle timeout, the person, or
+        # the same CLI.
+        return False
+    return not _holder_running(held_by)  # a holder that is gone holds nothing
+
+
 def set_owner(mode: str, by: str) -> dict:
     """mode=agent asks the human; only confirm_request grants control."""
     if mode not in ('agent', 'off') or by not in ('agent', 'human'):
@@ -200,6 +235,12 @@ def set_owner(mode: str, by: str) -> dict:
                 pending['a11y_before'] = state['a11y_before']
             state = _write(pending)
         else:
+            if by == 'agent' and state.get('owner') in ('agent', 'pending') and not _may_release(state):
+                holder = state.get('held_by')
+                whose = f"another agent (server pid {holder['pid']})" if holder else 'a caller with no server'
+                raise MirrorError('not_owner',
+                                  f'control is held by {whose}, so it was not released. Ask the '
+                                  'person at the keyboard to stop it, or wait for it to end.')
             _a11y_restore(state.get('a11y_before') or {})
             audit('off', by=by, was=state.get('owner'))
             state = _write({'owner': 'off', 'generation': generation, 'since': stamp(), 'enabled_by': None})

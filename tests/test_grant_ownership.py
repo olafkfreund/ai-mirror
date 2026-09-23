@@ -56,5 +56,80 @@ class Recording(Base):
         self.assertEqual(pending['request']['server'], control.SERVER)
 
 
+
+class Releasing(Base):
+    """Only the holder ends a grant -- and the person at the keyboard, always."""
+
+    def tearDown(self):
+        control.SERVER = None
+        super().tearDown()
+
+    def as_a_server(self):
+        """This process's identity, without registering it.
+
+        register_server also publishes a pid file, and releasing control
+        SIGUSR1s every pid in that directory -- including this one, which ends
+        the test run. The identity is what these tests are about; the signal is
+        not.
+        """
+        control.SERVER = {'pid': os.getpid(), 'start': control.proc_start(os.getpid())}
+        return control.SERVER
+
+    def _grant_held_by(self, held_by):
+        grant()
+        state = control.read_state()
+        if held_by is control.SERVER and held_by is None:
+            state.pop('held_by', None)
+        else:
+            state['held_by'] = held_by
+        control._write(state)
+        return state
+
+    def test_an_agent_may_end_its_own_grant(self):
+        self.as_a_server()
+        grant()
+        self.assertEqual(control.set_owner('off', 'agent')['owner'], 'off')
+
+    def test_an_agent_may_not_end_a_live_foreign_grant(self):
+        self.as_a_server()
+        # another process, demonstrably alive: this test's own parent
+        self._grant_held_by({'pid': os.getppid(), 'start': control.proc_start(os.getppid())})
+        with self.assertRaises(MirrorError) as caught:
+            control.set_owner('off', 'agent')
+        self.assertEqual(caught.exception.code, 'not_owner')
+        self.assertIn('another agent', str(caught.exception))
+        self.assertEqual(control.read_state()['owner'], 'agent')
+
+    def test_an_agent_may_not_end_a_cli_grant(self):
+        self.as_a_server()
+        self._grant_held_by(None)
+        with self.assertRaises(MirrorError):
+            control.set_owner('off', 'agent')
+
+    def test_a_grant_from_before_this_change_is_still_releasable(self):
+        self.as_a_server()
+        grant()
+        state = control.read_state()
+        del state['held_by']
+        control._write(state)
+        self.assertEqual(control.set_owner('off', 'agent')['owner'], 'off')
+
+    def test_a_grant_whose_holder_is_gone_is_releasable(self):
+        self.as_a_server()
+        self._grant_held_by({'pid': 2 ** 22, 'start': '12345'})  # no such process
+        self.assertEqual(control.set_owner('off', 'agent')['owner'], 'off')
+
+    def test_a_reused_pid_does_not_count_as_the_holder(self):
+        self.as_a_server()
+        self._grant_held_by({'pid': os.getppid(), 'start': 'not-the-birth-time'})
+        self.assertEqual(control.set_owner('off', 'agent')['owner'], 'off')
+
+    def test_the_person_at_the_keyboard_is_never_refused(self):
+        self.as_a_server()
+        for held_by in ({'pid': os.getppid(), 'start': control.proc_start(os.getppid())}, None):
+            self._grant_held_by(held_by)
+            self.assertEqual(control.set_owner('off', 'human')['owner'], 'off')
+
+
 if __name__ == '__main__':
     unittest.main()
