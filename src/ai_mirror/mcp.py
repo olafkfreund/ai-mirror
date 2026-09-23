@@ -255,11 +255,12 @@ def main():
                 print(json.dumps(response, ensure_ascii=False), flush=True)
     finally:
         from . import a11y  # local, like api.py: keeps gi off the import path
+        mine = control.SERVER  # before unregister_server clears it
         control.unregister_server()
         control.HELPER.stop()
         a11y.release_bus()
-        state = control.read_state()
-        asked_by = state.get('request', {}).get('by') if state.get('owner') == 'pending' else state.get('request_by')
-        if state.get('owner') in ('agent', 'pending') and asked_by == 'agent':
-            control.set_owner('off', 'agent')  # an agent's grant, and its unanswered request, end with its server
+        # Our grant, and our unanswered request, end with us -- and only ours.
+        # This used to end any agent's grant, because nothing recorded whose it
+        # was, so another agent's session lost its desktop when we exited (#40).
+        control.release_if_held(mine)
     return 0

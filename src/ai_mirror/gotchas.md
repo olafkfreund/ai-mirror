@@ -21,6 +21,17 @@ because the first attempt "failed" is asking a person who already said no.
 between actions can outlive it; expect `not_owner` and ask again rather than
 retrying the input.
 
+## A grant belongs to whoever took it
+
+More than one agent on one desktop is the normal case here, so a grant records
+its holder (#40). Your server ending releases only your own grant; `control
+off` from an agent that does not hold it answers `not_owner` and names the
+holder's pid. A grant taken over the CLI outlives every server. A holder that
+is no longer running holds nothing, so any agent may release it.
+
+None of this applies to the person at the keyboard: the bar widget,
+`Super + Shift + Escape` and `control off` from a terminal always work.
+
 ## The bar expands under a hovering cursor
 
 Resting the pointer on the top bar expands the system tray, which shifts every

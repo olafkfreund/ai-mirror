@@ -171,10 +171,77 @@ def read_state() -> dict:
         state = _load()
         if not _lapsed(state):
             return state
-        audit('expired', request=state['request'].get('id'), by=state['request'].get('by'))
+        audit('expired', request=state['request'].get('id'), by=state['request'].get('by'),
+              holder=_holder_pid((state.get('request') or {}).get('server')))
         _a11y_restore(state.get('a11y_before') or {})
         return _write({'owner': 'off', 'generation': int(state.get('generation', 0)) + 1,
                        'since': stamp(), 'enabled_by': None, 'why': LAPSED})
+
+
+def _holder_pid(held_by):
+    """The pid in a holder record, for the audit line. None when nobody's server holds it."""
+    return held_by.get('pid') if isinstance(held_by, dict) else None
+
+
+def _holder_running(held_by) -> bool:
+    """Whether the process recorded as holding control is still that process.
+
+    A pid on its own is not an identity -- pids are reused -- so the birth time
+    recorded with it has to match too. Anything that is not a well-formed
+    record of a live process reads as "not running", which errs toward letting
+    control be released rather than toward a desktop nobody can take back.
+    """
+    if not isinstance(held_by, dict):
+        return False
+    pid = held_by.get('pid')
+    if not isinstance(pid, int):
+        return False
+    return proc_start(pid) == held_by.get('start') and held_by.get('start') is not None
+
+
+def _may_release(state: dict) -> bool:
+    """Whether an agent may end this grant (#40).
+
+    The person at the keyboard is never asked this question -- their stop is
+    unconditional, and `set_owner` only consults this for `by == 'agent'`.
+    """
+    if 'held_by' not in state:
+        return True  # granted before #40; behaves as it always did
+    held_by = state['held_by']
+    if SERVER is not None and held_by == SERVER:
+        return True  # our own grant
+    if held_by is None:
+        # A CLI caller holds it. No server speaks for that grant, and there is
+        # no process to outlive: it ends with the idle timeout, the person, or
+        # the same CLI.
+        return False
+    return not _holder_running(held_by)  # a holder that is gone holds nothing
+
+
+def release_if_held(server: dict | None, generation: int | None = None) -> bool:
+    """End a grant, or an unanswered request, that belongs to `server`.
+
+    Called when a server stops. `server` is passed rather than read from the
+    module global because `unregister_server` has already cleared it by then --
+    and because a server that never registered holds nothing, which is exactly
+    what `None` should mean here.
+
+    Silent when the grant is someone else's: a server ending is not a reason to
+    take a desktop from another agent (#40).
+    """
+    state = read_state()
+    if state.get('owner') == 'pending':
+        mine = (state.get('request') or {}).get('server')
+    elif state.get('owner') == 'agent':
+        mine = state.get('held_by')
+    else:
+        return False
+    if server is None or mine != server:
+        return False
+    if generation is not None and state.get('generation') != generation:
+        return False
+    set_owner('off', 'human')  # ours to end; the ownership check has just been made
+    return True
 
 
 def set_owner(mode: str, by: str) -> dict:
@@ -185,8 +252,11 @@ def set_owner(mode: str, by: str) -> dict:
         state = read_state()
         generation = int(state.get('generation', 0)) + 1
         if mode == 'agent':
-            request = {'id': secrets.token_hex(8), 'by': by, 'since': stamp(), 'expires': now() + REQUEST_TTL}
-            audit('requested', request=request['id'], by=by)
+            # Who is asking, so the grant can be told from anyone else's (#40).
+            # None means a CLI caller: nobody's server speaks for that grant.
+            request = {'id': secrets.token_hex(8), 'by': by, 'since': stamp(),
+                       'expires': now() + REQUEST_TTL, 'server': SERVER}
+            audit('requested', request=request['id'], by=by, holder=_holder_pid(SERVER))
             pending = {'owner': 'pending', 'generation': generation, 'since': stamp(),
                        'enabled_by': None, 'request': request}
             # Carry the record across a re-request from a live grant. The
@@ -197,8 +267,14 @@ def set_owner(mode: str, by: str) -> dict:
                 pending['a11y_before'] = state['a11y_before']
             state = _write(pending)
         else:
+            if by == 'agent' and state.get('owner') in ('agent', 'pending') and not _may_release(state):
+                holder = state.get('held_by')
+                whose = f"another agent (server pid {holder['pid']})" if holder else 'a caller with no server'
+                raise MirrorError('not_owner',
+                                  f'control is held by {whose}, so it was not released. Ask the '
+                                  'person at the keyboard to stop it, or wait for it to end.')
             _a11y_restore(state.get('a11y_before') or {})
-            audit('off', by=by, was=state.get('owner'))
+            audit('off', by=by, was=state.get('owner'), holder=_holder_pid(state.get('held_by')))
             state = _write({'owner': 'off', 'generation': generation, 'since': stamp(), 'enabled_by': None})
     if mode == 'off':
         signal_servers()
@@ -233,7 +309,8 @@ def _answer(request_id: str, granted: bool) -> dict:
         if state.get('owner') != 'pending' or not request_id or request_id != request.get('id'):
             raise MirrorError('bad_request', 'no request with that id is waiting; ask again')
         generation = int(state.get('generation', 0)) + 1
-        audit('confirmed' if granted else 'denied', request=request_id, by=request.get('by'))
+        audit('confirmed' if granted else 'denied', request=request_id, by=request.get('by'),
+              holder=_holder_pid(request.get('server')))
         if not granted:
             _a11y_restore(state.get('a11y_before') or {})
             return _write({'owner': 'off', 'generation': generation, 'since': stamp(), 'enabled_by': None})
@@ -242,7 +319,7 @@ def _answer(request_id: str, granted: bool) -> dict:
         # turn the bus on before the human has answered.
         granted_state = {'owner': 'agent', 'generation': generation, 'since': stamp(),
                          'enabled_by': 'human-confirmed', 'request_by': request.get('by'),
-                         'last_input': now()}
+                         'last_input': now(), 'held_by': request.get('server')}
         baseline = _baseline_layers()
         if baseline is not None:
             granted_state['baseline_layers'] = baseline
@@ -269,7 +346,7 @@ def require_agent(generation: int) -> dict:
                           or 'agent control is off; call control with mode agent to ask the human')
     if now() - state.get('last_input', 0) > IDLE_LIMIT:
         with locked('control'):
-            audit('idle', by=state.get('request_by'))
+            audit('idle', by=state.get('request_by'), holder=_holder_pid(state.get('held_by')))
             _write({'owner': 'off', 'generation': int(state.get('generation', 0)) + 1,
                     'since': stamp(), 'enabled_by': None})
         raise MirrorError('not_owner', f'the grant went unused for {IDLE_LIMIT} seconds; ask again')
@@ -294,12 +371,19 @@ def servers_dir() -> Path:
     return path
 
 
+SERVER: dict | None = None  # this process's identity while it serves, for #40
+
+
 def register_server() -> None:
+    global SERVER
     pid = os.getpid()
-    atomic_write_json(servers_dir() / f'{pid}.json', {'pid': pid, 'start': proc_start(pid)})
+    SERVER = {'pid': pid, 'start': proc_start(pid)}
+    atomic_write_json(servers_dir() / f'{pid}.json', dict(SERVER))
 
 
 def unregister_server() -> None:
+    global SERVER
+    SERVER = None
     (servers_dir() / f'{os.getpid()}.json').unlink(missing_ok=True)
 
 
