@@ -432,6 +432,19 @@ def _require_focus(window: str) -> None:
 
 
 KEYBOARD_LEVEL = 2  # top and overlay; a surface below cannot take the keyboard from a window
+DEPARTED_CAP = 32   # a message aid, not a ledger
+
+
+def _forget_departed(departed: list, gone) -> list:
+    """The namespaces that were part of the desktop when control was granted and are not now.
+
+    Kept so a refusal can tell a caller which shape it is looking at: a surface
+    that appeared out of nowhere, or one that was furniture, went, and came
+    back (#39). The second is the more suspicious of the two and reads
+    differently. Capped, oldest first, because it exists to word a sentence.
+    """
+    kept = [name for name in departed if name not in gone]
+    return (kept + sorted(gone))[-DEPARTED_CAP:]
 
 
 def _refuse_new_surfaces(window: str) -> None:
@@ -444,8 +457,12 @@ def _refuse_new_surfaces(window: str) -> None:
     to refuse and say which surface is in the way -- the caller can wait for it
     to go, or address it directly.
 
-    Surfaces present when control was granted are not in the way: they are the
-    shell the desktop always has up.
+    Surfaces that have been mapped continuously since control was granted are
+    not in the way: they are the shell the desktop always has up. Presence at
+    the instant of the grant is not enough (#39) -- the dialog the person
+    clicked to confirm is itself a surface, and so is any notification that
+    happened to be up, and treating either as furniture for the life of the
+    grant exempts exactly what this exists to refuse.
     """
     state = read_state()
     baseline = state.get('baseline_layers')
@@ -455,14 +472,41 @@ def _refuse_new_surfaces(window: str) -> None:
         mapped = host.layers()
     except (RuntimeError, ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError):
         return  # a failed query is not evidence of a surface; _require_focus already passed
+    # Every level, not just KEYBOARD_LEVEL and above: omarchy-background sits at
+    # 0, and dropping it for being below the threshold this refusal uses would
+    # make the wallpaper "new" on the first check and refuse everything after.
+    present = {str(one.get('namespace') or '') for one in mapped}
+    still = [name for name in baseline if name in present]
+    departed = state.get('baseline_departed') or []
+    if len(still) != len(baseline):
+        gone = set(baseline) - present
+        departed = _forget_departed(departed, gone)
+        with locked('control'):
+            # Re-read inside the lock: a grant can end between the read above
+            # and here, and writing then would resurrect a dead grant's state.
+            fresh = read_state()
+            if fresh.get('generation') == state.get('generation'):
+                _write({**fresh, 'baseline_layers': still, 'baseline_departed': departed})
     new = [one for one in mapped
-           if one.get('level', 0) >= KEYBOARD_LEVEL and str(one.get('namespace') or '') not in baseline]
+           if one.get('level', 0) >= KEYBOARD_LEVEL and str(one.get('namespace') or '') not in still]
     if new:
-        names = ', '.join(f'{one["namespace"] or "?"} ({one["address"]})' for one in new)
+        # Two shapes, and the second is the more suspicious: something that was
+        # part of the desktop when control was granted, went, and is back (#39).
+        returned = [one for one in new if str(one.get('namespace') or '') in departed]
+        appeared = [one for one in new if one not in returned]
+        def _names(surfaces):
+            return ', '.join(f'{one["namespace"] or "?"} ({one["address"]})' for one in surfaces)
+        parts = []
+        if appeared:
+            parts.append(f'{_names(appeared)} opened since control was granted')
+        if returned:
+            parts.append(f'{_names(returned)} went away and came back since control was granted, '
+                         'so it no longer counts as part of the desktop')
+        may = 'It may hold the keyboard' if len(new) == 1 else 'Any of them may hold the keyboard'
+        go = 'Wait for it to go' if len(new) == 1 else 'Wait for them to go'
         raise MirrorError('wrong_target',
-                          f'{names} opened since control was granted and may hold the keyboard, '
-                          f'so input for window {window} was NOT sent. Wait for it to go, or '
-                          'pass its address as the window to type into it.')
+                          f'{"; ".join(parts)}. {may}, so input for window {window} was NOT sent. '
+                          f'{go}, or pass an address above as the window to type into it.')
 
 
 def _require_layer(layer: dict, layers: list[dict]) -> str | None:

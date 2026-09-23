@@ -197,10 +197,34 @@ notification over a menu, say): the message names it. Wait for it to go,
 observe again, and retry.
 
 **And the other way round:** typing at a *window* is refused while a surface
-that was not mapped when control was granted is up at level 2 or above. That
-surface may hold the keyboard, and reporting the window as the destination
-when the keys went elsewhere is the failure this guard exists to prevent.
-Wait for it to go, or address the surface directly.
+at level 2 or above is up that is **not part of the desktop as far as this
+grant is concerned**. That surface may hold the keyboard, and reporting the
+window as the destination when the keys went elsewhere is the failure this
+guard exists to prevent. Wait for it to go, or address the surface directly.
+
+The exempt set starts as whatever was mapped when control was granted, and
+**shrinks whenever a check finds one of those surfaces gone**. That matters
+because the dialog the person clicks to confirm is itself a surface, and so is
+any notification that happens to be up: without the shrinking, either would be
+treated as furniture for the life of the grant, which exempts exactly what the
+guard is for (#39).
+
+It is "gone when we looked", not "continuously mapped" — the check only runs
+on a window-addressed call, so a surface that leaves and returns between two
+calls is never observed leaving. The refusal tells you which shape you have:
+
+- *"nixi (0x…) opened since control was granted"* — new since the grant.
+- *"notification (0x…) went away and came back since control was granted"* —
+  it was part of the desktop, left, and returned, so it no longer counts as
+  furniture.
+
+**A restarted shell usually passes unnoticed.** Measured on razer: after
+`omarchy-restart-shell`, window-addressed input was accepted, because no check
+ran while the bar was down and its absence was never seen. If a check does
+land in that gap, the bar leaves the exempt set and returns as the second case
+above, and input is refused until control is re-taken. That is the deliberate
+part: admitting anything that returns would reopen the hole for anything that
+can be made to flicker.
 
 ## A refusal can mean part of the batch already landed
 
