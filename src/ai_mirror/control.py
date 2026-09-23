@@ -457,8 +457,12 @@ def _refuse_new_surfaces(window: str) -> None:
     to refuse and say which surface is in the way -- the caller can wait for it
     to go, or address it directly.
 
-    Surfaces present when control was granted are not in the way: they are the
-    shell the desktop always has up.
+    Surfaces that have been mapped continuously since control was granted are
+    not in the way: they are the shell the desktop always has up. Presence at
+    the instant of the grant is not enough (#39) -- the dialog the person
+    clicked to confirm is itself a surface, and so is any notification that
+    happened to be up, and treating either as furniture for the life of the
+    grant exempts exactly what this exists to refuse.
     """
     state = read_state()
     baseline = state.get('baseline_layers')
@@ -468,8 +472,23 @@ def _refuse_new_surfaces(window: str) -> None:
         mapped = host.layers()
     except (RuntimeError, ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError):
         return  # a failed query is not evidence of a surface; _require_focus already passed
+    # Every level, not just KEYBOARD_LEVEL and above: omarchy-background sits at
+    # 0, and dropping it for being below the threshold this refusal uses would
+    # make the wallpaper "new" on the first check and refuse everything after.
+    present = {str(one.get('namespace') or '') for one in mapped}
+    still = [name for name in baseline if name in present]
+    departed = state.get('baseline_departed') or []
+    if len(still) != len(baseline):
+        gone = set(baseline) - present
+        departed = _forget_departed(departed, gone)
+        with locked('control'):
+            # Re-read inside the lock: a grant can end between the read above
+            # and here, and writing then would resurrect a dead grant's state.
+            fresh = read_state()
+            if fresh.get('generation') == state.get('generation'):
+                _write({**fresh, 'baseline_layers': still, 'baseline_departed': departed})
     new = [one for one in mapped
-           if one.get('level', 0) >= KEYBOARD_LEVEL and str(one.get('namespace') or '') not in baseline]
+           if one.get('level', 0) >= KEYBOARD_LEVEL and str(one.get('namespace') or '') not in still]
     if new:
         names = ', '.join(f'{one["namespace"] or "?"} ({one["address"]})' for one in new)
         raise MirrorError('wrong_target',

@@ -325,3 +325,61 @@ class Departed(unittest.TestCase):
         # the oldest go first, so the most recent are what a message can name
         self.assertIn(f'surface-{DEPARTED_CAP + 9:03d}', departed)
         self.assertNotIn('surface-000', departed)
+
+
+class ContinuousPresence(Base):
+    """#39: exempt while mapped continuously since the grant, not merely present at it."""
+
+    def _grant_with(self, namespaces):
+        from unittest.mock import patch
+        from ai_mirror import control
+        layers = [{'address': f'0x{i}', 'namespace': ns, 'level': 2 if ns != 'omarchy-background' else 0,
+                   'monitor': 'eDP-1'} for i, ns in enumerate(namespaces)]
+        with patch.object(control.host, 'layers', return_value=layers):
+            return grant()['generation']
+
+    def _check_with(self, namespaces, generation):
+        """Run the guard as a window-addressed line would, with these layers mapped."""
+        from unittest.mock import patch
+        from ai_mirror import control
+        layers = [{'address': f'0x{i}', 'namespace': ns, 'level': 2 if ns != 'omarchy-background' else 0,
+                   'monitor': 'eDP-1'} for i, ns in enumerate(namespaces)]
+        helper = FakeHelper()
+        with patch.object(control.host, 'layers', return_value=layers), \
+             patch.object(control.host, 'focused_address', return_value='WINDOW'):
+            try:
+                control.run_batch(['T hi'], generation, helper, window='WINDOW')
+                return None
+            except control.MirrorError as error:
+                return error
+
+    def test_a_surface_that_goes_leaves_the_baseline(self):
+        from ai_mirror import control
+        generation = self._grant_with(['omarchy-background', 'omarchy-bar', 'omarchy-ai-mirror-confirm'])
+        self.assertIn('omarchy-ai-mirror-confirm', control.read_state()['baseline_layers'])
+        self.assertIsNone(self._check_with(['omarchy-background', 'omarchy-bar'], generation))
+        state = control.read_state()
+        self.assertEqual(state['baseline_layers'], ['omarchy-background', 'omarchy-bar'])
+        self.assertEqual(state['baseline_departed'], ['omarchy-ai-mirror-confirm'])
+
+    def test_a_level_zero_surface_is_not_dropped(self):
+        from ai_mirror import control
+        generation = self._grant_with(['omarchy-background', 'omarchy-bar'])
+        self.assertIsNone(self._check_with(['omarchy-background', 'omarchy-bar'], generation))
+        self.assertEqual(control.read_state()['baseline_layers'],
+                         ['omarchy-background', 'omarchy-bar'])
+
+    def test_an_unchanged_baseline_is_not_rewritten(self):
+        from unittest.mock import patch
+        from ai_mirror import control
+        generation = self._grant_with(['omarchy-background', 'omarchy-bar'])
+        with patch.object(control, '_write', side_effect=AssertionError('wrote with nothing to change')):
+            self.assertIsNone(self._check_with(['omarchy-background', 'omarchy-bar'], generation))
+
+    def test_a_surface_that_went_and_came_back_is_refused(self):
+        generation = self._grant_with(['omarchy-background', 'omarchy-bar', 'notification'])
+        self.assertIsNone(self._check_with(['omarchy-background', 'omarchy-bar'], generation))
+        error = self._check_with(['omarchy-background', 'omarchy-bar', 'notification'], generation)
+        self.assertIsNotNone(error)
+        self.assertEqual(error.code, 'wrong_target')
+        self.assertIn('notification', str(error))
