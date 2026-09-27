@@ -186,7 +186,15 @@ agent Oma's Omarchy and Hyprland tools.
 - **An agent cannot turn control on.** It asks, and a dialog on your desktop is answered by
   whoever is at the keyboard; an unanswered request lapses after 30 seconds. The gate is
   unforgeable for an agent that reaches ai-mirror through MCP alone — an agent that also has
-  a shell on your account can run the CLI, and no state file can stop that.
+  a shell on your account can run `ai-mirror control confirm` and answer its own request,
+  and no state file can stop that.
+- **Over SSH, that dialog is a notice rather than a gate.** This is a stdio server, so the
+  ordinary way to reach a remote one is `command = "ssh"; args = [ "desk" "ai-mirror" "mcp" ]`
+  — and that *is* a shell on the far account, which is the case above rather than an
+  exception to it. A forced-command key does not fix it either: it restricts that key and
+  does not remove the ordinary key you already have to that machine. Reaching another
+  machine's desktop this way is as strong as your SSH access to it and no stronger, so the
+  thing that actually changes the picture is not giving the agent the key.
 - A grant ends when its MCP server exits, when you stop it, and by itself after ten minutes
   with no input.
 - Every request, answer and stop is a line in `$XDG_RUNTIME_DIR/ai-mirror/audit.jsonl`.
