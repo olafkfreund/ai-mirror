@@ -79,6 +79,13 @@ AI_MIRROR_HELPER=$(nix build .#ai-mirror-input --print-out-paths)/bin/ai-mirror-
 Style: stdlib Python (PyGObject only for a11y), JSON in/out, small functions, no new
 dependencies. New tool = `api.run` branch + `mcp.TOOLS` entry + CLI subcommand + test.
 
+**One deliberate exception: `audit` is CLI-only** — an `api.run` branch and a CLI
+subcommand, and no `mcp.SPECS` entry. It answers "what did an agent do on this
+desktop", so its reader is the person deciding whether to trust that agent, and
+handing a trust artifact to the party being trusted is the machinery this file
+already says not to add. `tests/test_audit.py` asserts the absence, so completing
+the recipe here fails a test rather than passing review (#44).
+
 ## Driving this desktop — measured facts, not guesses
 
 **Confirm before you act on it.** `input` returning means the keystroke was
