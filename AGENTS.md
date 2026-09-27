@@ -49,7 +49,9 @@ Full reference: `docs/usage.md`.
 - **Control is a request a human answers.** `set_owner('agent', …)` only ever writes
   `owner: pending`; `confirm_request(id)` grants. The gate is unforgeable only for an agent
   that reaches ai-mirror through MCP alone — one with a shell on the same account can run the
-  CLI. Do not add machinery claiming more.
+  CLI. **`ssh host ai-mirror mcp` is such a shell**, so every remote configuration is in the
+  weaker case, not the stronger one. Do not add machinery claiming more, and do not describe
+  the dialog as a boundary for remote use.
 - **Generation + owner gate all mutating operations.** `set_owner` bumps generation on every change.
 - **`run_batch` re-reads the state before every helper line** and sends `C` (release all) on
   *every* failure path — state change, helper error, non-`OK` ack.
