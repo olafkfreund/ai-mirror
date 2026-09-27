@@ -25,6 +25,40 @@ def region(value):
     return parts
 
 
+def render_audit(result: dict) -> str:
+    """One line per entry, and an empty answer that says WHICH empty it is.
+
+    $XDG_RUNTIME_DIR does not survive a reboot, so 'nothing recorded' and
+    'this machine rebooted since' are the same file state. Printing "no
+    entries" for both turns "I have not looked since rebooting" into an
+    all-clear, which is the failure this verb exists to avoid.
+    """
+    since = result.get('since')
+    entries = result.get('entries') or []
+    if not entries:
+        where = ('nothing has been recorded'
+                 if result.get('source') == 'absent'
+                 else 'the log exists and holds no entries')
+        out = f'{where}. This machine booted'
+        out += f' at {since}\n' if since else ' at an unknown time\n'
+        out += ('(the log lives under $XDG_RUNTIME_DIR and does not survive a\n'
+                ' reboot, so this is not a record of everything that has ever\n'
+                ' happened on this machine)\n')
+        return out
+
+    lines = []
+    for e in entries:
+        rest = ' '.join(f'{k}={v}' for k, v in sorted(e.items())
+                        if k not in ('at', 'event') and v is not None)
+        lines.append(f"{e.get('at', '?'):<26}{e.get('event', '?'):<11}{rest}".rstrip())
+    tail = ''
+    if result.get('total', 0) > len(entries):
+        tail = f"\n({len(entries)} of {result['total']}; -n 0 for all)\n"
+    if result.get('skipped'):
+        tail += f"({result['skipped']} unreadable line(s) skipped)\n"
+    return '\n'.join(lines) + '\n' + tail
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog='ai-mirror', description='Let an AI agent drive your Hyprland desktop')
     commands = parser.add_subparsers(dest='op', required=True)
@@ -70,6 +104,9 @@ def build_parser():
     p.add_argument('node')
     p.add_argument('action')
     p.add_argument('--text')
+    p = commands.add_parser('audit', help='what was asked, answered and stopped on this desktop')
+    p.add_argument('-n', type=int, default=20, help='how many recent entries (0 for all)')
+    p.add_argument('--json', action='store_true', help='the raw records instead of the reading')
     p = commands.add_parser('wait', help='confirm a prerequisite holds before acting on it')
     p.add_argument('--layer', help='a layer surface with this namespace, e.g. nixarchy-pkg-menu')
     p.add_argument('--window-class', dest='window_class')
@@ -98,6 +135,10 @@ def main(argv=None):
     # The index is the one operation whose usual reader is a language model, so
     # it prints Markdown unless a program asks for JSON.
     as_markdown = op == 'index' and not args.pop('json', False)
+    # `audit` is the one verb whose reader is a person deciding whether to
+    # trust what an agent did, so it reads without jq unless asked. --json
+    # passes the records through unchanged for anything that wants them.
+    as_audit = op == 'audit' and not args.pop('json', False)
     try:
         # `control agent` is an agent asking, whatever the transport: the person
         # at the keyboard answers it with confirm/deny, and the dialog tells them
@@ -108,6 +149,9 @@ def main(argv=None):
         if as_markdown:
             from . import index
             sys.stdout.write(index.render(result))
+            return 0
+        if as_audit:
+            sys.stdout.write(render_audit(result))
             return 0
         print(json.dumps(result, ensure_ascii=False))
         return 1 if result.get('ok') is False else 0

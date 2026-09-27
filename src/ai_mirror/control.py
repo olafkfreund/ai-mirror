@@ -118,6 +118,62 @@ def audit(event: str, **fields) -> None:
         fh.write(line + '\n')
 
 
+def boot_time() -> str | None:
+    """When this boot began, which is when the audit log began.
+
+    Not the file's mtime: that is the time of the LAST write, and the question
+    a reader has is how far back an empty answer reaches. `root()` lives under
+    $XDG_RUNTIME_DIR, which does not survive a reboot, so boot time is the
+    honest bound.
+
+    Returns None rather than raising when /proc/stat has no btime: a missing
+    bound should cost the caller a sentence, never the whole answer.
+    """
+    try:
+        for line in Path('/proc/stat').read_text().splitlines():
+            if line.startswith('btime '):
+                return time.strftime('%Y-%m-%dT%H:%M:%S%z', time.localtime(int(line.split()[1])))
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def read_audit(limit: int = 20) -> dict:
+    """The audit log, read back. Never writes, and there is no verb that does.
+
+    `source` is the load-bearing field. root() creates its directory on every
+    call, so the directory always exists and only the FILE says whether
+    anything was recorded -- and because $XDG_RUNTIME_DIR does not survive a
+    reboot, 'no entries' and 'this machine rebooted since' are otherwise the
+    same picture. A caller that cannot tell them apart reads the first as an
+    all-clear.
+
+    A malformed line is skipped and counted, not fatal. The log is append-only
+    from one writer, so a partial line means a crash mid-write; refusing to
+    show the other four hundred entries because of it is the wrong trade for
+    something reached for when worried.
+    """
+    path = root() / 'audit.jsonl'
+    if not path.exists():
+        return {'entries': [], 'source': 'absent', 'total': 0, 'skipped': 0}
+
+    entries, skipped = [], 0
+    for line in path.read_text(encoding='utf-8', errors='replace').splitlines():
+        if not line.strip():
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            skipped += 1
+            continue
+        entries.append(obj if isinstance(obj, dict) else {'event': 'unreadable'})
+
+    total = len(entries)
+    if limit > 0:
+        entries = entries[-limit:]
+    return {'entries': entries, 'source': 'file', 'total': total, 'skipped': skipped}
+
+
 def _load() -> dict:
     try:
         state = json.loads((root() / 'state.json').read_text())

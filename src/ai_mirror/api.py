@@ -61,7 +61,20 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
         return doctor()
     if op == 'status':
         state = control.read_state()
-        return {**state, 'monitors': host.monitors()}
+        # `audit` names the verb rather than embedding the trail. A reader
+        # asking "what happened" tries status first, and a pointer is the
+        # difference between discoverable and merely present; embedding a
+        # slice would put the trail in every status call including the MCP
+        # one, which is the CLI-only decision in through a side door.
+        return {**state, 'monitors': host.monitors(), 'audit': 'ai-mirror audit'}
+    if op == 'audit':
+        # NOT in OBSERVING: that marks the bar as watched for by='agent'
+        # calls, and there is no agent path here -- `audit` is deliberately
+        # absent from mcp.SPECS. See plan/2026-09-27-44-audit-verb.md, and
+        # the test that asserts the absence so it stays a decision.
+        result = control.read_audit(int(args.get('n', 20)))
+        since = control.boot_time()
+        return {**result, **({'since': since} if since else {})}
     if op == 'control':
         mode = args.get('mode')
         if mode in ('confirm', 'deny'):
