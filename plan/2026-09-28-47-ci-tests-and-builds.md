@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 47
 spec: spec/2026-09-28-47-ci-tests-and-builds.md
 ---
