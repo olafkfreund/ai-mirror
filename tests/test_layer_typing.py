@@ -107,6 +107,20 @@ class TypingIntoASurface(Base):
         helper, _ = self.run_on(OPEN, None)
         self.assertEqual(helper.sent, ['T hi'])
 
+    def test_key_release_is_sent_when_surface_closes_on_keydown(self):
+        helper = FakeHelper()
+        calls = []
+
+        def layers():
+            calls.append(1)
+            return OPEN if len(calls) == 1 else FURNITURE
+
+        with patch.object(host, 'layers', side_effect=layers), \
+             patch.object(host, 'focused_address', return_value=WINDOW):
+            control.run_batch(['K 27 1', 'K 27 0'], self.granted['generation'], helper,
+                              window=PANEL, owners=[0, 0])
+        self.assertEqual(helper.sent, ['K 27 1', 'K 27 0'])
+
     def test_a_closed_surface_is_refused(self):
         without = [l for l in OPEN if l['address'] != PANEL]
         with self.assertRaises(MirrorError):
