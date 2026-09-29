@@ -745,6 +745,9 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
     ox, oy = helper.origin
     surface = None
     delivered = 0
+    target_validated = False
+    target_owner = None
+    target_is_layer = False
     for line in lines:
         state = read_state()
         if state.get('owner') != 'agent' or state.get('generation') != generation:
@@ -754,11 +757,19 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
         if window is not None:
             # Per line, for the same reason ownership is: a batch is not atomic
             # and the desktop moves underneath one.
-            try:
-                surface = _require_target(window)
-            except MirrorError as exc:
-                helper.cancel()
-                raise _partial(exc, delivered, lines, owners) from None
+            owner = owners[delivered] if owners and delivered < len(owners) else None
+            releasing = line.startswith(('K ', 'B ')) and line.endswith(' 0')
+            same_action = (target_is_layer and target_validated
+                           and (owners is None or owner == target_owner))
+            if not (releasing and same_action):
+                try:
+                    surface = _require_target(window)
+                except MirrorError as exc:
+                    helper.cancel()
+                    raise _partial(exc, delivered, lines, owners) from None
+                target_validated = True
+                target_owner = owner
+                target_is_layer = surface is not None
         if line.startswith('M ') and (ox or oy):
             x, y = map(int, line[2:].split())
             line = f'M {x - ox} {y - oy}'
