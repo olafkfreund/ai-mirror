@@ -11,7 +11,7 @@ Branch: `feat/53-verified-window-actions`.
 ## Approved decisions (self-contained)
 
 - `window` = read → act → confirm. The owner + generation gate above it
-  (`api.py:128-131`) is unchanged.
+  (`api.py:128-132`) is unchanged.
 - **Read first**, via `host.windows()`:
   - Unknown address → `MirrorError('no_such_window', ...)`, no dispatch.
   - `resize` or `center` on a row with `floating` false →
