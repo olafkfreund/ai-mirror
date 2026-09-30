@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 53
 intent: intent/2026-09-30-53-verified-window-actions.md
 ---
