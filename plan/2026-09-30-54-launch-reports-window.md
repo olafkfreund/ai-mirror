@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 54
 spec: spec/2026-09-30-54-launch-reports-window.md
 ---
