@@ -15,6 +15,67 @@ MUTATING = {'input', 'window', 'launch', 'a11y_act'}
 OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'wait', 'index'}
 
 
+def _window(args: dict) -> dict:
+    """Read, act, confirm (#53): the dispatch returning says nothing happened."""
+    from . import wait
+    action, address, enabled = args.get('action'), args.get('address'), args.get('enabled')
+    if enabled is not None and not isinstance(enabled, bool):
+        raise ValueError('enabled must be true or false')
+    timeout = wait._timeout(args.get('timeout'), default=1.5)
+    dispatcher = host.window_dispatch(action, address, args.get('workspace'),
+                                      args.get('w'), args.get('h'), args.get('mode'))
+
+    def row_of():
+        return next((r for r in host.windows() if r['address'] == address), None)
+
+    before = row_of()
+    if before is None:
+        raise MirrorError('no_such_window', f'no window {address}: call windows for current addresses')
+    if action in ('resize', 'center') and not before['floating']:
+        raise MirrorError('invalid', 'resize/center applies to floating windows; this one is tiled. '
+                                     'Float it first; do not retry as is.')
+    size = [args.get('w'), args.get('h')]
+    target = enabled if enabled is not None else not before['floating']
+    holds = {  # already true: nothing to dispatch
+        'focus': lambda: host.focused_address() == address,
+        'workspace': lambda: before['workspace'] == args.get('workspace'),
+        'resize': lambda: before['size'] == size,
+        'float': lambda: enabled is not None and before['floating'] == enabled,
+    }
+    done = {  # true once the action has landed
+        'focus': lambda r: host.focused_address() == address,
+        'close': lambda r: r is None,
+        'float': lambda r: r is not None and r['floating'] == target,
+        'workspace': lambda r: r is not None and r['workspace'] == args.get('workspace'),
+        'resize': lambda r: r is not None and r['size'] == size,
+        'fullscreen': lambda r: r is not None and r['fullscreen'] != before['fullscreen'],
+        'center': lambda r: r is not None,  # position not checked; a closed window is not_confirmed
+    }
+    ok = {'ok': True, 'action': action, 'address': address}
+    if action in holds and holds[action]():
+        return {**ok, 'changed': False, 'verified': True, 'before': before, 'after': before, 'waited_ms': 0}
+    host.ctl('dispatch', dispatcher)
+
+    after = None
+
+    def check(budget):
+        nonlocal after
+        after = row_of()
+        return done[action](after)
+
+    result = wait.poll(check, timeout)
+    if result['result'] == 'unavailable':
+        raise MirrorError('unavailable', result['reason'], details={'before': before})
+    if result['result'] == 'not_confirmed':
+        raise MirrorError('not_confirmed', f'did not reach the requested state within {timeout:g}s; '
+                                           'it may still land -- call windows before retrying',
+                          details={'before': before, 'after': after, 'waited_ms': result['waited_ms']})
+    center = action == 'center'
+    return {**ok, 'changed': after['at'] != before['at'] if center else after != before,
+            'verified': None if center else True, 'before': before, 'after': after,
+            'waited_ms': result['waited_ms']}
+
+
 SESSION_VARS = ('HYPRLAND_INSTANCE_SIGNATURE', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR')
 
 
@@ -143,10 +204,7 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
             lines, owners = encode(actions, with_owners=True)
             return control.run_batch(lines, generation, window=window, owners=owners)
         if op == 'window':
-            dispatcher = host.window_dispatch(args.get('action'), args.get('address'), args.get('workspace'),
-                                              args.get('w'), args.get('h'), args.get('mode'))
-            host.ctl('dispatch', dispatcher)
-            return {'ok': True, 'action': args.get('action'), 'address': args.get('address')}
+            return _window(args)
         if op == 'launch':
             argv = args.get('argv')
             if not isinstance(argv, list) or not argv or not all(isinstance(a, str) and '\0' not in a for a in argv):
