@@ -81,7 +81,7 @@ def focused_address() -> str | None:
 
 
 def windows() -> list[dict]:
-    keys = ('address', 'class', 'title', 'at', 'size', 'monitor', 'floating', 'fullscreen', 'focusHistoryID')
+    keys = ('address', 'class', 'title', 'at', 'size', 'monitor', 'floating', 'fullscreen', 'focusHistoryID', 'pid')
     rows = []
     for w in json.loads(ctl('clients', '-j')):
         if not w.get('mapped', True):
