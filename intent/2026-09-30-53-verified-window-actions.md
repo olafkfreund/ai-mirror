@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 53
 author: olafkfreund
 ---
@@ -60,7 +60,7 @@ belongs to the window the agent looked at.
 
 1. How long to wait for the state before calling it unverified? omapilot uses
    30×50 ms (1.5 s). Proposed: the same by default, overridable with
-   `timeout` as `wait` is.
+   `timeout` as `wait` is. **Decided: as proposed.**
 2. Enforce the address + pid match (refuse if the pid at the address changed)
    now, or only report `pid`? Proposed: only report it until address reuse is
-   actually seen.
+   actually seen. **Decided: as proposed.**
