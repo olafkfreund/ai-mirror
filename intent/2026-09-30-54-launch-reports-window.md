@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 54
 author: olafkfreund
 ---
@@ -65,8 +65,8 @@ Nothing tells an agent to do the same.
 1. How long to wait for a window? Apps vary widely: a terminal takes about
    0.2 s, a cold browser several seconds. Proposed: 5 s by default,
    overridable with `timeout` (≤30) as in `wait`, and returning early the
-   moment one new window appears.
+   moment one new window appears. **Decided: as proposed.**
 2. Should a window that appeared but belongs to no launched pid still count?
    Proposed: yes. Any window that is new since the launch counts, because
    pid attribution fails for exactly the single-instance apps that matter.
-   Report it as `window` only when it is the only new one.
+   Report it as `window` only when it is the only new one. **Decided: as proposed.**
