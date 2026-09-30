@@ -25,8 +25,8 @@ def _window(args: dict) -> dict:
     dispatcher = host.window_dispatch(action, address, args.get('workspace'),
                                       args.get('w'), args.get('h'), args.get('mode'))
 
-    def row_of():
-        return next((r for r in host.windows() if r['address'] == address), None)
+    def row_of(budget=10):
+        return next((r for r in host.windows(budget) if r['address'] == address), None)
 
     before = row_of()
     if before is None:
@@ -35,10 +35,15 @@ def _window(args: dict) -> dict:
         raise MirrorError('invalid', 'resize/center applies to floating windows; this one is tiled. '
                                      'Float it first; do not retry as is.')
     size = [args.get('w'), args.get('h')]
+    # Hyprland reports "03" as 3 and "special" as special:special.
+    # ponytail: a workspace renamed by a rule still will not match; compare ids if that bites.
+    want = args.get('workspace')
+    if isinstance(want, str):
+        want = str(int(want)) if want.isdigit() else 'special:special' if want == 'special' else want
     target = enabled if enabled is not None else not before['floating']
     holds = {  # already true: nothing to dispatch
         'focus': lambda: host.focused_address() == address,
-        'workspace': lambda: before['workspace'] == args.get('workspace'),
+        'workspace': lambda: before['workspace'] == want,
         'resize': lambda: before['size'] == size,
         'float': lambda: enabled is not None and before['floating'] == enabled,
     }
@@ -46,7 +51,7 @@ def _window(args: dict) -> dict:
         'focus': lambda r: host.focused_address() == address,
         'close': lambda r: r is None,
         'float': lambda r: r is not None and r['floating'] == target,
-        'workspace': lambda r: r is not None and r['workspace'] == args.get('workspace'),
+        'workspace': lambda r: r is not None and r['workspace'] == want,
         'resize': lambda r: r is not None and r['size'] == size,
         'fullscreen': lambda r: r is not None and r['fullscreen'] != before['fullscreen'],
         'center': lambda r: r is not None,  # position not checked; a closed window is not_confirmed
@@ -60,7 +65,7 @@ def _window(args: dict) -> dict:
 
     def check(budget):
         nonlocal after
-        after = row_of()
+        after = row_of(budget)
         return done[action](after)
 
     result = wait.poll(check, timeout)

@@ -39,7 +39,7 @@ Branch: `feat/53-verified-window-actions`.
   | `workspace` | the row's workspace is the requested one |
   | `resize` | `size == [w, h]` |
   | `fullscreen` | the row's `fullscreen` differs from `before` |
-  | `center` | not checked: read once, `verified: None` |
+  | `center` | position not checked: polls until the row exists, `verified: None`; a window that closes is `not_confirmed` after the timeout |
 
 - **Timing:**
   - Default 1.5 s; `timeout` is accepted with `wait`'s bounds.
@@ -101,7 +101,7 @@ Branch: `feat/53-verified-window-actions`.
    - Then `wait.poll(check, timeout)`, where `check` re-reads `host.windows()`
      (and `host.focused_address()` for focus), stores the latest row in a
      closure variable, and applies the confirm table.
-   - `center`: after dispatch, read once, return `verified: None`,
+   - `center`: after dispatch, poll until the row exists, return `verified: None`,
      `changed: after['at'] != before['at']`.
    - Map `poll` results to the success dict, `not_confirmed` or
      `unavailable`, as above.

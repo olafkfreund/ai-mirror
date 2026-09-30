@@ -2,8 +2,8 @@
 
 The dispatch returning says nothing happened, so the result must say whether
 it did, and must not dispatch at all when the state already holds. Needs no
-desktop: `host.windows`, `host.focused_address` and `host.ctl` are stubbed, and
-Base arms the guard so a stray dispatch would raise rather than move a window.
+desktop: `host.windows`, `host.focused_address` and `host.ctl` are stubbed, which
+keeps it off the desktop, and Base's armed guard catches any seam they miss.
 """
 import json
 from pathlib import Path
@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from ai_mirror import api, control, host, mcp
+from ai_mirror import api, cli, control, host, mcp
 
 from test_invariants import Base, grant
 
@@ -38,7 +38,7 @@ class WindowVerified(Base):
             if effect:
                 effect(self.state)
             return 'ok'
-        for name, fake in (('windows', lambda: [dict(r) for r in self.state['rows']]),
+        for name, fake in (('windows', lambda timeout=10: [dict(r) for r in self.state['rows']]),
                            ('focused_address', lambda: self.state['focused']),
                            ('ctl', ctl)):
             p = patch.object(host, name, fake)
@@ -126,10 +126,11 @@ class WindowVerified(Base):
 
     def test_a_failed_read_after_dispatch_is_unavailable(self):
         def boom(s):
-            def fail():
+            def fail(timeout=10):
                 raise OSError('hyprctl gone')
-            patch.object(host, 'windows', fail).start()
-            self.addCleanup(patch.stopall)
+            p = patch.object(host, 'windows', fail)
+            p.start()
+            self.addCleanup(p.stop)
         self.world([row()], effect=boom)
         with self.assertRaises(control.MirrorError) as e:
             self.win(action='close')
@@ -171,6 +172,42 @@ class WindowVerified(Base):
         self.assertEqual(json.loads(got['content'][0]['text'])['code'], 'not_confirmed')
         bad = mcp.call_tool('window', {'action': 'float', 'address': ADDR, 'timeout': float('nan')})
         self.assertTrue(bad['isError'])
+
+    def test_the_cli_keeps_false_and_takes_a_timeout(self):
+        got = cli.build_parser().parse_args(['window', 'float', '0x1', '--no-enabled', '--timeout', '2'])
+        self.assertIs(got.enabled, False)
+        self.assertEqual(got.timeout, 2.0)
+
+    def test_close_fullscreen_and_bare_float_always_dispatch(self):
+        for args in ({'action': 'close'}, {'action': 'fullscreen'}, {'action': 'float'}):
+            with self.subTest(args):
+                self.world([row()])
+                with self.assertRaises(control.MirrorError):  # nothing changes: not_confirmed
+                    self.win(**args)
+                self.assertEqual(len(self.dispatches), 1)
+
+    def test_float_disabled_on_a_tiled_row_sends_nothing(self):
+        self.world([row(floating=False)])
+        self.win(action='float', enabled=False)
+        self.assertEqual(self.dispatches, [])
+
+    def test_workspace_is_compared_as_hyprland_names_it(self):
+        for asked, named in (('03', '3'), ('special', 'special:special')):
+            with self.subTest(asked):
+                got = self.confirmed({'action': 'workspace', 'workspace': asked}, [row()],
+                                     lambda s, n=named: s['rows'][0].update(workspace=n))
+                self.assertIs(got['verified'], True)
+
+    def test_the_reads_get_the_remaining_budget(self):
+        self.world([row()], effect=lambda s: s['rows'][0].update(workspace='3'))
+        seen = []
+        real = host.windows
+        def spy(timeout=10):
+            seen.append(timeout)
+            return real(timeout)
+        with patch.object(host, 'windows', spy):
+            self.win(action='workspace', workspace='3', timeout=0.5)
+        self.assertLessEqual(seen[-1], 0.5)
 
 
 if __name__ == '__main__':
