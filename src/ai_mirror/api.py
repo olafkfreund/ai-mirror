@@ -71,7 +71,9 @@ def _window(args: dict) -> dict:
                                            'it may still land -- call windows before retrying',
                           details={'before': before, 'after': after, 'waited_ms': result['waited_ms']})
     center = action == 'center'
-    return {**ok, 'changed': after['at'] != before['at'] if center else after != before,
+    # Confirmed after a dispatch that 'holds' did not skip: the state changed by
+    # definition. Comparing whole rows would hang it on focusHistoryID and titles.
+    return {**ok, 'changed': after['at'] != before['at'] if center else True,
             'verified': None if center else True, 'before': before, 'after': after,
             'waited_ms': result['waited_ms']}
 
