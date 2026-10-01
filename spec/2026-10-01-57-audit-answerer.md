@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 57
 intent: intent/2026-10-01-57-audit-answerer.md
 ---
