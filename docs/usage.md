@@ -37,8 +37,8 @@
   It writes the state and signals every running `ai-mirror mcp`, whose input helper then releases
   all held keys and buttons and exits.
 - The state lives in the runtime dir: it is gone after logout, so control is never on at login.
-- Results carry third-party text (screen, titles, a11y, clipboard, index plugin descriptions,
-  launch class/title). The server's instructions tell agents it is data; that is guidance, not a
+- Results carry third-party text (screen, window titles and classes, layer namespaces, a11y,
+  clipboard, index plugin descriptions, launch class/title). The server's instructions tell agents it is data; that is guidance, not a
   boundary.
 
 ## MCP tools

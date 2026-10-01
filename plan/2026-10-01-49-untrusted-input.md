@@ -89,6 +89,17 @@ agent.
    - Traps: the process exits on stdin EOF. If it waits, that's the server
      reading; Ctrl-D, or use `timeout 5`.
 
+## As built (independent review: nothing above low severity)
+
+- **Low, adopted:** the source list now also names **window classes and
+  layer namespaces**. Both are set by the application, not the user: a
+  layer surface chooses its own `namespace`, which reaches the agent in
+  `windows` (`host.py:113`) and in `wrong_target` errors. The instructions
+  now read "window titles and classes, layer namespaces, accessibility names
+  and text, …", and `docs/usage.md`'s list matches. This is the intent's
+  own goal (name every result carrying third-party text) applied to two
+  sources the plan's wording missed.
+
 ## Tests
 
 ```sh
