@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 57
 author: olafkfreund
 ---
@@ -74,10 +74,10 @@ Reading the log after an event like 15:45 shows which of these it was.
    waiting", and it makes every confirm name what it approves. The cost: a
    human confirming from a terminal must copy the id (`status` shows it).
    Proposed: **require an id for `confirm`; keep `deny` id-optional,**
-   because denying blindly is always safe.
+   because denying blindly is always safe. **Decided: as proposed.**
 2. **The dialog may exist three times over.** Quickshell logs every open and
    close of the dialog's layer three times, which suggests one
    `AgentConfirmDialog` per bar instance, stacked. Proposed: **separate
    issue.** It belongs with #48's dialog, and #57 should not wait on it. But
    #57's `via` field will show it, if each instance also reports which bar
-   it belongs to.
+   it belongs to. **Decided: as proposed.**
