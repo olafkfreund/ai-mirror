@@ -193,8 +193,20 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
             # Only the human answers, and the agent reaches this dispatcher with by='agent'.
             if by == 'agent':
                 raise MirrorError('not_owner', 'only the person at the keyboard confirms or denies a request')
+            via, key, mods = args.get('via'), args.get('key'), args.get('mods')
+            if via not in (None, 'dialog-key', 'dialog-click'):
+                raise ValueError('via must be dialog-key or dialog-click')
+            if (key is not None or mods is not None) and via != 'dialog-key':
+                raise ValueError('key and mods go with via=dialog-key')
+            if any(x is not None and (type(x) is not int or x < 0) for x in (key, mods)):
+                raise ValueError('key and mods must be non-negative integers')
+            given = bool(args.get('id'))
+            if mode == 'confirm' and not given:
+                raise MirrorError('invalid', 'confirm needs the request id (ai-mirror status shows it): '
+                                             'a confirm must name what it approves')
             request = args.get('id') or control.read_state().get('request', {}).get('id')
-            return control.confirm_request(request) if mode == 'confirm' else control.deny_request(request)
+            answer = control.confirm_request if mode == 'confirm' else control.deny_request
+            return answer(request, via=via or 'cli', key=key, mods=mods, id_given=given)
         return control.set_owner(mode, by)
     if op == 'screenshot':
         dest = Path(args.get('out') or control.root() / 'shot.png').absolute()
