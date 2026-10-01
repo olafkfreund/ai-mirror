@@ -90,6 +90,43 @@ def _spawn(argv: list[str]) -> int:
                             stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True).pid
 
 
+def _launch(args: dict) -> dict:
+    """Start a program and report the window it opened (#54).
+
+    After the spawn this never raises: an error would invite a second launch.
+    """
+    from . import wait
+    argv = args.get('argv')
+    if not isinstance(argv, list) or not argv or not all(isinstance(a, str) and '\0' not in a for a in argv):
+        raise ValueError('argv must be a non-empty array of strings')
+    timeout = wait._timeout(args.get('timeout'), default=5.0)
+    before = {r['address'] for r in host.windows()}  # raises before anything starts
+    pid = _spawn(argv)
+    new: list[dict] = []
+
+    def check(budget):
+        new[:] = [r for r in host.windows(budget) if r['address'] not in before]
+        return bool(new)
+
+    result = wait.poll(check, timeout)
+    out = {'ok': True, 'pid': pid, 'waited_ms': result['waited_ms']}
+    # .get: windows() keeps only the fields Hyprland sent, and nothing here may raise.
+    seen = [{'address': r['address'], 'class': r.get('class'), 'title': r.get('title')} for r in new]
+    if result['result'] == 'confirmed':
+        if len(seen) == 1:
+            out.update(seen[0])
+            out['window'] = out.pop('address')
+        else:
+            out['candidates'] = seen
+    elif result['result'] == 'not_confirmed':
+        out['note'] = (f'no new window within {timeout:g}s; it may still appear -- '
+                       'call windows, do not launch again')
+    else:
+        out['note'] = (f"started, but windows could not be read: {result['reason']}. "
+                       'Call windows; do not launch again')
+    return out
+
+
 SESSION_VARS = ('HYPRLAND_INSTANCE_SIGNATURE', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR')
 
 
@@ -220,10 +257,7 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
         if op == 'window':
             return _window(args)
         if op == 'launch':
-            argv = args.get('argv')
-            if not isinstance(argv, list) or not argv or not all(isinstance(a, str) and '\0' not in a for a in argv):
-                raise ValueError('argv must be a non-empty array of strings')
-            return {'ok': True, 'pid': _spawn(argv)}
+            return _launch(args)
         if op == 'a11y_act':
             from . import a11y
             return a11y.act(args.get('node'), args.get('action'), args.get('text'), args.get('expect'))
