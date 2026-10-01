@@ -63,6 +63,9 @@ are as of `2eb9a23`.
      by='agent')` raises `guard.Blocked`.
    - → verify: `python3 -m unittest discover -s tests` is all OK, with one
      test more than before.
+   - Name the new seam in AGENTS.md's "Tests cannot reach the desktop"
+     invariant, next to `host.ctl dispatch`. *(Added during implementation:
+     the plan missed that AGENTS.md lists the seams by name.)*
    - Commit alone: `test(guard): launch's Popen is a guarded seam (#54, plan step 1)`.
    - Traps:
      - `Blocked` is deliberately not a `RuntimeError`, so do not catch it.

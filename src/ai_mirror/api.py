@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import control, host
+from . import control, guard, host
 from .control import MirrorError
 from .input import encode, needs_window
 
@@ -81,6 +81,13 @@ def _window(args: dict) -> dict:
     return {**ok, 'changed': after['at'] != before['at'] if center else True,
             'verified': None if center else True, 'before': before, 'after': after,
             'waited_ms': result['waited_ms']}
+
+
+def _spawn(argv: list[str]) -> int:
+    """The one process launch starts. Guarded: tests stub this, never Popen."""
+    guard.check('api._spawn', 'api._spawn')
+    return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True).pid
 
 
 SESSION_VARS = ('HYPRLAND_INSTANCE_SIGNATURE', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR')
@@ -216,9 +223,7 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
             argv = args.get('argv')
             if not isinstance(argv, list) or not argv or not all(isinstance(a, str) and '\0' not in a for a in argv):
                 raise ValueError('argv must be a non-empty array of strings')
-            proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)
-            return {'ok': True, 'pid': proc.pid}
+            return {'ok': True, 'pid': _spawn(argv)}
         if op == 'a11y_act':
             from . import a11y
             return a11y.act(args.get('node'), args.get('action'), args.get('text'), args.get('expect'))
