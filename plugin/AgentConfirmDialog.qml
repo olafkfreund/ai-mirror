@@ -4,20 +4,24 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import qs.Commons
 import qs.Ui
+import "ConfirmKeys.js" as ConfirmKeys
 
 // The human's half of the control gate: an agent asking for the desktop puts a
 // request in the state file, and this is where it is answered.
 //
-// Deny is the default in every direction — Escape, Return and the window
-// closing under a lapsed request all deny. Allow needs its own key (A) or a
-// click, so no stray Enter from whatever had focus can hand an agent the
-// keyboard. Nothing here decides anything: both buttons run the CLI, and the
-// state file is what actually changes.
+// Deny is the default in every direction — Escape, Return, any key typed at
+// it before Allow is armed, and the window closing under a lapsed request all
+// deny. Allow is armed by an arrow or Tab, then A; a click counts only after
+// the pointer has moved (ConfirmKeys.js, #48). Nothing here decides anything:
+// both buttons run the CLI, and the state file is what actually changes.
 Item {
   id: root
   property var request: null        // {id, by, since, expires} from state.json, or null
   property var command: null        // the Widget's Command; one process at a time is plenty
   readonly property bool opened: request !== null
+  property bool keyArmed: false
+  property bool pointerArmed: false
+  property var pointerStart: null
   property double now: Date.now() / 1000
   readonly property int secondsLeft: request ? Math.max(0, Math.round(request.expires - now)) : 0
 
@@ -32,7 +36,12 @@ Item {
     onTriggered: root.now = Date.now() / 1000
   }
 
-  onOpenedChanged: if (opened) Qt.callLater(function () { keys.forceActiveFocus() })
+  onOpenedChanged: if (opened) {
+    keyArmed = false
+    pointerArmed = false
+    pointerStart = null
+    Qt.callLater(function () { keys.forceActiveFocus() })
+  }
 
   PanelWindow {
     visible: root.opened
@@ -49,6 +58,17 @@ Item {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      acceptedButtons: Qt.NoButton
+      onPositionChanged: function (m) {
+        if (!root.pointerStart) root.pointerStart = { x: m.x, y: m.y }
+        else if (Math.hypot(m.x - root.pointerStart.x, m.y - root.pointerStart.y) > 8)
+          root.pointerArmed = true
+      }
+    }
+
     BorderSurface {
       anchors.centerIn: parent
       width: Math.min(Style.space(620), parent.width - Style.gapsOut * 2)
@@ -63,11 +83,10 @@ Item {
         anchors.fill: parent
         focus: true
         Keys.onPressed: function (event) {
+          var r = ConfirmKeys.decide({ keyArmed: root.keyArmed }, event.key, event.modifiers)
+          root.keyArmed = r.keyArmed
+          if (r.answer) root.answer(r.answer)
           event.accepted = true
-          if (event.key === Qt.Key_A) root.answer("confirm")
-          else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Return || event.key === Qt.Key_Enter
-                   || event.key === Qt.Key_D) root.answer("deny")
-          else event.accepted = false
         }
 
         Column {
@@ -93,6 +112,14 @@ Item {
             font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3) }
             textFormat: Text.PlainText
           }
+          Text {
+            width: parent.width
+            visible: !root.keyArmed
+            text: "Typing? Your next key denies this."
+            color: Color.menu.text
+            font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3) }
+            textFormat: Text.PlainText
+          }
           Row {
             spacing: Style.spacing.md
             Text {
@@ -103,11 +130,11 @@ Item {
               MouseArea { anchors.fill: parent; onClicked: root.answer("deny") }
             }
             Text {
-              text: "  Allow (A)  "
+              text: root.keyArmed ? "  Allow (A)  " : "  Allow (→ then A)  "
               color: Color.urgent
               font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3) }
               padding: Style.spacing.sm
-              MouseArea { anchors.fill: parent; onClicked: root.answer("confirm") }
+              MouseArea { anchors.fill: parent; onClicked: if (root.pointerArmed || root.keyArmed) root.answer("confirm") }
             }
           }
         }
