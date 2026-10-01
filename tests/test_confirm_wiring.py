@@ -56,5 +56,15 @@ class OneDialog(unittest.TestCase):
         self.assertEqual(m['entryPoints']['overlay'], 'Overlay.qml')
 
 
+
+class OverlayState(unittest.TestCase):
+    def test_overlay_retries_until_the_state_file_exists(self):
+        # A shell started before the first request has no state file to watch;
+        # without the retry the dialog never appears (#58 review).
+        overlay = (PLUGIN / 'Overlay.qml').read_text()
+        timer = overlay[overlay.index('Timer {'):]
+        self.assertIn('running: root.state === null', timer)
+        self.assertIn('file.reload()', timer)
+
 if __name__ == '__main__':
     unittest.main()

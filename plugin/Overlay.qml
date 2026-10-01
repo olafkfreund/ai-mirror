@@ -31,4 +31,13 @@ Item {
     }
     onLoadFailed: root.state = null
   }
+  // The state file only exists after first use; retry until it does, then
+  // inotify takes over. Without this a shell started before the first request
+  // never sees one, and every request lapses unanswered (#58 review).
+  Timer {
+    interval: 3000
+    repeat: true
+    running: root.state === null
+    onTriggered: file.reload()
+  }
 }
