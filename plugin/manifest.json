@@ -5,8 +5,8 @@
   "version": "2.0.0",
   "author": "olafkfreund",
   "description": "Shows when an AI agent controls your desktop; click to stop.",
-  "kinds": ["bar-widget"],
-  "entryPoints": {"barWidget": "Widget.qml"},
+  "kinds": ["bar-widget", "overlay"],
+  "entryPoints": {"barWidget": "Widget.qml", "overlay": "Overlay.qml"},
   "barWidget": {
     "displayName": "ai-mirror",
     "description": "Agent desktop control indicator and stop button",

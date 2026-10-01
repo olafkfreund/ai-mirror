@@ -28,11 +28,6 @@ BarWidget {
 
   AgentCommand { id: command }
 
-  AgentConfirmDialog {
-    request: root.pending ? root.state.request : null
-    command: command
-  }
-
   FileView {
     id: looks
     path: Quickshell.env("XDG_RUNTIME_DIR") + "/ai-mirror/watching"
