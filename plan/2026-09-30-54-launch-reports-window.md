@@ -86,7 +86,12 @@ are as of `2eb9a23`.
        blow the deadline.
      - The read before the spawn must happen *before* `_spawn`.
      - Nothing after `_spawn` may raise. Wrap only the poll's outcome
-       mapping, not the spawn.
+       mapping, not the spawn. *(As built: no wrap was needed. `check`
+       runs inside `wait.poll`, which catches, and the mapping reads
+       `class`/`title` with `.get`. Traced in review.)*
+     - The read before the spawn keeps `host.windows()`'s default 10 s,
+       not `timeout`: an error there costs nothing. So `timeout: 0` bounds
+       only the wait after the spawn.
      - `wait.poll` already turns a failed read into `unavailable`, so do not
        add a second `try`.
 
@@ -147,7 +152,8 @@ are as of `2eb9a23`.
      section tightened, because the default index has a 20000-byte cap
      (`test_invariants`: "an index too large to read is an index nobody
      reads"), which the first draft broke at 20229. The `launch` tool
-     description already says never to relaunch on a note.)*
+     description already says never to relaunch on a note. The
+     `gtk-launch <id>.desktop` example went for the same reason.)*
    - → verify: `./bin/ai-mirror index --section gotchas | grep -A3 "dies with your terminal"`.
    - Traps: this file is hand-written and human-reviewed. Keep it factual,
      and cite only what was measured.
