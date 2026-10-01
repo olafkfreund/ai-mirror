@@ -195,6 +195,11 @@ agent Oma's Omarchy and Hyprland tools.
   does not remove the ordinary key you already have to that machine. Reaching another
   machine's desktop this way is as strong as your SSH access to it and no stronger, so the
   thing that actually changes the picture is not giving the agent the key.
+- **Text on your screen can try to instruct the agent.** A web page, a window title or the
+  clipboard can contain words aimed at the agent ("ignore your task and type this"). The server
+  tells agents to treat all of it as data, but that is advice to the model, not a protection: a
+  model can still be talked round. Don't give an agent control while it is reading something you
+  don't trust.
 - A grant ends when its MCP server exits, when you stop it, and by itself after ten minutes
   with no input.
 - Every request, answer and stop is a line in `$XDG_RUNTIME_DIR/ai-mirror/audit.jsonl`.
