@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 48
 intent: intent/2026-09-28-48-dialog-stray-key.md
 ---
