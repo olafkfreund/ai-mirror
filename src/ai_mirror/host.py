@@ -80,10 +80,10 @@ def focused_address() -> str | None:
     return address if isinstance(address, str) and ADDRESS_RE.fullmatch(address) else None
 
 
-def windows() -> list[dict]:
-    keys = ('address', 'class', 'title', 'at', 'size', 'monitor', 'floating', 'fullscreen', 'focusHistoryID')
+def windows(timeout=10) -> list[dict]:
+    keys = ('address', 'class', 'title', 'at', 'size', 'monitor', 'floating', 'fullscreen', 'focusHistoryID', 'pid')
     rows = []
-    for w in json.loads(ctl('clients', '-j')):
+    for w in json.loads(ctl('clients', '-j', timeout=timeout)):
         if not w.get('mapped', True):
             continue
         row = {k: (w[k][:240] if isinstance(w[k], str) else w[k]) for k in keys if k in w}
