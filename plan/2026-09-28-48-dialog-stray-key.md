@@ -136,6 +136,21 @@ R4. **Docs.**
    - → verify: read back.
    - Traps: nothing added to `gotchas.md` (index cap).
 
+*Changed after review of R1–R4 (independent review, no high findings):*
+
+- **The request vanishing resets too.** `onRequestChanged` now handles
+  `!request` with `armedFor = ""`, `ready = false` and `grace.stop()`. A
+  request that disappears briefly (a half-written state file reads as none)
+  and returns with the same id must wait a full, continuous second again.
+  This only makes Allow harder.
+- **`tests/test_confirm_wiring.py` (new).** A textual check of the QML
+  wiring: the id-change branch resets `ready` and restarts `grace`; the
+  vanish branch resets; Allow's click requires `pointerArmed` and is the
+  only `answer("confirm")` outside the key rule; keys go through
+  `ConfirmKeys.decide`. A mutation check confirmed that deleting
+  `grace.restart()` or the click gate fails it.
+- A stale comment was fixed, and `docs/usage.md:11` was rewrapped.
+
 R5. **Live check (the human answers).** To load the new dialog, the shell
    must be restarted with the Omarchy restart command, in the foreground: a
    symlink swap alone re-runs cached QML. Before that:

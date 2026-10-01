@@ -40,9 +40,14 @@ Item {
   }
 
   // Per request, not per opening: a second `control agent` while one is pending
-  // replaces the request without closing the dialog, and arming for the first
-  // must not grant the second.
-  onRequestChanged: if (request && request.id !== armedFor) {
+  // replaces the request without closing the dialog, and the second must get
+  // its own full second. A request that vanishes (a half-written state file
+  // reads as none) starts over when it returns, so the second is continuous.
+  onRequestChanged: if (!request) {
+    armedFor = ""
+    ready = false
+    grace.stop()
+  } else if (request.id !== armedFor) {
     armedFor = request.id
     ready = false
     grace.restart()
