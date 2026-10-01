@@ -186,7 +186,9 @@ Branch `fix/48-dialog-stray-key`, on `master` at `a501317`.
        recorded beforehand and reload again.
      - (b) The human rebuilds their configuration from this branch.
 
-     Do not do either without the answer.
+     Do not do either without the answer. **Answered at plan approval:
+     (a).** The human said "use your recommendations", and (a) is the one
+     that is quick and fully reversible.
    - Traps: confirm by seeing the new label that the new dialog is the one
      answering. If the old one answers, the test proves nothing.
 
