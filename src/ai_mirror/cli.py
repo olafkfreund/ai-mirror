@@ -89,6 +89,7 @@ def build_parser():
     p.add_argument('--enabled', action=argparse.BooleanOptionalAction)
     p.add_argument('--timeout', type=float)
     p = commands.add_parser('launch')
+    p.add_argument('--timeout', type=float)
     p.add_argument('argv', nargs=argparse.REMAINDER, help='program and arguments after --')
     p = commands.add_parser('clipboard')
     p.add_argument('action', choices=['read', 'write'])

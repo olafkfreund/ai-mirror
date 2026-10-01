@@ -45,7 +45,7 @@
 | `windows` | address, class, title, `at`, `size`, monitor, workspace, floating, fullscreen, pid |
 | `input` | `frame` (image px) or `generation` (global px), `actions[1..16]`, `screenshot`, `wait_ms` |
 | `window` | `action: focus\|close\|float\|center\|fullscreen\|workspace\|resize`, `address`, `mode`, `workspace`, `w`, `h`, `enabled` (float: set, else toggle), `timeout` 0.1–30 (default 1.5). Checked against the compositor: `{changed, verified, before, after}`, or `no_such_window`, `not_confirmed` (may still land: `windows` before retrying), `unavailable`. resize/center need a floating window |
-| `launch` | `argv` — no shell |
+| `launch` | `argv` — no shell; `timeout` 0–30 (default 5). Returns `pid`, plus `window`/`class`/`title` for one new window, or `candidates` for several, or `note` if none appeared (never an error after the start: call `windows`, do not launch again) |
 | `clipboard` | `action: read\|write`, `text` |
 | `a11y_tree` | `app`, `depth`, `max_nodes` |
 | `a11y_find` | `name` (substring), `role` (exact, e.g. `push button`, `entry`, `link`), `app`, `limit` |
@@ -89,7 +89,7 @@ ai-mirror screenshot [--output DP-1|all] [--region x,y,w,h] [--max-size N] [--ou
 ai-mirror windows
 ai-mirror input --generation N '[{"type":"click","x":300,"y":200,"modifiers":["CTRL"]}]'
 ai-mirror window focus|close|float|center|fullscreen|workspace|resize 0x55d1… [--mode maximized] [--workspace 3] [--w 800 --h 600] [--enabled|--no-enabled] [--timeout S]
-ai-mirror launch -- firefox https://example.com
+ai-mirror launch [--timeout S] -- uwsm-app -- firefox https://example.com
 ai-mirror clipboard read | ai-mirror clipboard write "text"
 ai-mirror a11y-tree [--app firefox] [--depth 12] [--max-nodes 400]
 ai-mirror a11y-find --name Save [--role "push button"]

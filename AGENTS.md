@@ -42,7 +42,7 @@ Full reference: `docs/usage.md`.
 
 - **Tests cannot reach the desktop.** `Base.setUp` calls `guard.arm()`, and the seams that
   change the world outside the process — the bus write in `a11y._busctl`, `Helper.start`/
-  `.cmd`, `host.ctl dispatch` — raise `guard.Blocked` while it is armed. Reads are
+  `.cmd`, `host.ctl dispatch`, the `Popen` in `api._spawn` — raise `guard.Blocked` while it is armed. Reads are
   deliberately not guarded. A test that genuinely needs a live seam calls `guard.disarm()`,
   in one line. Put the check on the innermost real call, the one a test stubs, never on the
   wrapper above it.
