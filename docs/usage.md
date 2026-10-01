@@ -18,7 +18,8 @@
 - While an agent only *looks*, `watching` records when it last did and the bar shows a steady
   neutral mark: reading the screen is visible, even though it needs no grant.
 - Every request, answer, expiry and stop is one JSON line in
-  `$XDG_RUNTIME_DIR/ai-mirror/audit.jsonl`.
+  `$XDG_RUNTIME_DIR/ai-mirror/audit.jsonl`. `via` and `chain` show what answered, as that process
+  reported it; on a shared account they are evidence, not proof.
 - Every change bumps `generation`. Screenshots and input carry the generation they were made
   under; input from an older generation is refused with `stale_generation`.
 - A grant records its holder (`held_by`: a server's pid and birth time, or `null` for a CLI
@@ -86,7 +87,7 @@ Every command prints JSON; errors are `{"error":{"code","message"}}` with a nonz
 ```sh
 ai-mirror status
 ai-mirror control agent|off              # agent asks; off revokes
-ai-mirror control confirm|deny [ID]      # answer the waiting request (what the dialog runs)
+ai-mirror control confirm ID | deny [ID]  # answer the waiting request (what the dialog runs)
 ai-mirror screenshot [--output DP-1|all] [--region x,y,w,h] [--max-size N] [--out file.png]
 ai-mirror windows
 ai-mirror input --generation N '[{"type":"click","x":300,"y":200,"modifiers":["CTRL"]}]'
@@ -128,8 +129,8 @@ and `toolkit-accessibility`; ai-mirror also sets the AT-SPI `IsEnabled` flag on 
   desktop, not the event. Use `CTRL+W` and `CTRL+click` in Chrome (#37).
 - No dialog appears — the bar widget draws it, so enable the plugin
   (`omarchy plugin enable olafkfreund.ai-mirror --section right`). With it disabled, nobody can
-  answer and every request lapses after 30 seconds; `ai-mirror control confirm` from a terminal
-  is the way out.
+  answer and every request lapses after 30 seconds; `ai-mirror control confirm ID` from a terminal
+  (the id is in `ai-mirror status`) is the way out.
 - `ai-mirror-input helper not found` — use the flake package, or set `AI_MIRROR_HELPER`.
 - Indicator missing — `omarchy plugin enable olafkfreund.ai-mirror --section right`.
 - Kill switch key does nothing — add `pcall(require, "hypr.ai-mirror-binds")` to `bindings.lua`.
