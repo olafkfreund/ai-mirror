@@ -64,6 +64,7 @@ class Launch(Base):
         r = self.run_launch([[], OSError('boom')], {'timeout': 0.1})
         self.assertTrue(r['ok'])
         self.assertIn('boom', r['note'])
+        self.assertIn('do not launch again', r['note'])
         self.assertEqual(self.spawns, 1)
 
     def test_read_failing_before_spawn_raises(self):
@@ -75,6 +76,18 @@ class Launch(Base):
         with self.assertRaises(ValueError):
             self.run_launch([[]], {'argv': []})
         self.assertEqual(self.spawns, 0)
+
+    def test_timeout_zero_looks_once(self):
+        r = self.run_launch([[row('0x1')]], {'timeout': 0})
+        self.assertIn('note', r)
+        self.assertEqual(len(self.budgets), 2)  # the read before the spawn, then one look
+
+    def test_bad_timeout_spawns_nothing(self):
+        # The CLI reaches api.run without MCP's schema, so _timeout is the check.
+        for bad in (float('nan'), -1, 'soon'):
+            with self.subTest(bad), self.assertRaises(ValueError):
+                self.run_launch([[]], {'timeout': bad})
+            self.assertEqual(self.spawns, 0)
 
     def test_poll_reads_get_the_budget(self):
         self.run_launch([[]], {'timeout': 0.1})
