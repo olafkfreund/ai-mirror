@@ -41,8 +41,7 @@ are as of `2eb9a23`.
   - CLI: `--timeout` (float), placed before `--`.
 - **No argv rewriting.** `uwsm-app` is advice in `gotchas.md`, not a prefix
   ai-mirror adds.
-- **Gotcha:** a new section, "What you launch lives in your terminal's
-  scope".
+- **Gotcha:** a new section, "What you launch dies with your terminal".
 - **Docs:** `docs/usage.md` is updated.
 
 ## Steps
@@ -136,7 +135,7 @@ are as of `2eb9a23`.
 
 5. **`src/ai_mirror/gotchas.md`: append a section** at the end, in the
    file's format (a heading, why it bites, then **Do:**):
-   - **Heading:** `## What you launch lives in your terminal's scope`
+   - **Heading:** `## What you launch dies with your terminal`
    - **Why it bites:** `launch` starts the program as a child of the MCP
      server, and the server lives in its terminal's systemd scope. On this
      host they were measured in a tmux scope and a foot scope. Closing that
@@ -144,9 +143,12 @@ are as of `2eb9a23`.
    - **Do:** launch desktop apps as `["uwsm-app", "--", "<app>", …]`, or
      `["uwsm-app", "--", "gtk-launch", "<id>.desktop"]`, as Omarchy's
      `omarchy-launch-*` scripts do. `launch` does not add it for you.
-   - **Also:** a `note` in `launch`'s result means no window appeared in
-     time, not that the launch failed. Call `windows`; do not launch again.
-   - → verify: `./bin/ai-mirror index --section gotchas | grep -A3 "terminal's scope"`.
+   - *(Deviation: the planned "Also: a note…" line was dropped, and the
+     section tightened, because the default index has a 20000-byte cap
+     (`test_invariants`: "an index too large to read is an index nobody
+     reads"), which the first draft broke at 20229. The `launch` tool
+     description already says never to relaunch on a note.)*
+   - → verify: `./bin/ai-mirror index --section gotchas | grep -A3 "dies with your terminal"`.
    - Traps: this file is hand-written and human-reviewed. Keep it factual,
      and cite only what was measured.
 
