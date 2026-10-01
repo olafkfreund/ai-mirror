@@ -1,0 +1,359 @@
+---
+status: approved
+issue: 48
+spec: spec/2026-09-28-48-dialog-stray-key.md
+---
+
+# Plan: A stray keystroke cannot grant control
+
+Branch `fix/48-dialog-stray-key`, on `master` at `a501317`.
+
+## Approved decisions (self-contained)
+
+- **The rule is in one pure function.** `decide(state, key, modifiers)` lives
+  in a new `plugin/ConfirmKeys.js` (`.pragma library`, no imports). It reads
+  key codes from the `Qt` global. It returns
+  `{answer: "confirm"|"deny"|null, keyArmed: bool}`. The QML only applies
+  the result.
+
+  | state | key | result |
+  |---|---|---|
+  | any | modifier alone: Shift, Control, Alt, AltGr, Meta, Super_L, Super_R, CapsLock | nothing (`answer: null`, `keyArmed` unchanged) |
+  | any | Escape, Return, Enter, D | deny |
+  | unarmed | Left, Right, Up, Down, Tab, Backtab | `keyArmed: true` |
+  | unarmed | anything else, `A` included | deny |
+  | armed | `A` with none of Control, Alt or Meta held (Shift is fine) | confirm |
+  | armed | arrow, Tab, Backtab | nothing |
+  | armed | anything else | deny |
+
+  Rows are checked in table order: modifiers first, then the deny keys.
+- **Clicks arm separately.** `pointerArmed` is set once the pointer has moved
+  more than 8 logical px from the first position the full-window hover area
+  reported. Allow's click grants only if `pointerArmed || keyArmed`;
+  otherwise it is ignored. Pointer movement never arms the keyboard. Both
+  flags reset when a new request opens.
+- **Labels.**
+  - Allow reads `Allow (→ then A)` until `keyArmed`, then `Allow (A)`.
+  - Deny stays `Deny (Esc)`.
+  - While unarmed, a hint line reads "Typing? Your next key denies this."
+- **Tests.** `tests/test_confirm_keys.mjs` runs under `node --test`. It loads
+  the shipped JS through `node:vm` with a `Qt` stub carrying Qt 6's numeric
+  values. `flake.nix` gains `checks.confirm-keys`, with node as a
+  check-only input.
+- **Unchanged:** `control.py`, the CLI, MCP, the layer, the namespace and
+  exclusive focus.
+
+### Changed after review (#48 independent review)
+
+- **HIGH, fixed: the flags now reset per request id, not per opening.**
+  `set_owner('agent')` writes a new request over a pending one
+  (`control.py:313-324`), so `opened` stays true and `onOpenedChanged` never
+  fired. Arming for request 1 then granted request 2, possibly from another
+  asker. The dialog now resets in `onRequestChanged`, when `request.id`
+  differs from the id the flags were armed for. This replaces the plan's
+  "both flags reset when a new request opens" with "when the request id
+  changes".
+- **MEDIUM, adopted. Both changes only make Allow harder; no deny path
+  changed.**
+  - `decide` takes a fourth argument, `autoRepeat`. A repeat decides nothing,
+    so a key held since before the dialog opened can neither arm nor deny.
+  - An arrow, Tab or Backtab with Ctrl, Alt or Meta held (a word jump while
+    typing) no longer arms. It falls through to deny. Shift+Tab still arms.
+  - Tests are added for both.
+
+## Revision 1 steps (spec Revision 1: one-second grace, then plain `A`)
+
+These replace the parts of steps 1, 2, 4 and 5 that implement "→ then A".
+Everything else built under the original steps stays as it is: the
+per-request-id reset, the pointer rule, auto-repeat, the flake check and the
+`Qt` stub. Line numbers are as of `9d8b77d`.
+
+R1. **`plugin/ConfirmKeys.js:3-22`: the rule.**
+   - New signature: `decide(state, key, modifiers, autoRepeat)` with
+     `state = {ready: bool}`. It returns `"confirm"`, `"deny"` or `null`; the
+     object return goes, since there is no flag left to hand back.
+   - Order:
+     1. autoRepeat → null;
+     2. MODS → null;
+     3. DENY → "deny";
+     4. `!state.ready` → "deny";
+     5. `key === Qt.Key_A` with no Ctrl, Alt or Meta → "confirm";
+     6. otherwise → "deny".
+   - Delete the `K` (arming) array.
+   - Rewrite the header comment for the new rule.
+   - → verify: R2.
+   - Traps: the deny keys still come before the `ready` check, so Esc works
+     in the first second. Keep it ES5 and keep the `.pragma library` line.
+
+R2. **`tests/test_confirm_keys.mjs:30-104`: rewrite the assertions.**
+   - Keep the vm loader, the throwing `Qt` Proxy and the values. The helper
+     becomes `decide(ready, key, mods = 0, rep = false)` and returns the
+     answer; keep the JSON round-trip only if a test needs it.
+   - Tests:
+     - every row of the spec Revision 1 table;
+     - `a` and `A` (with Shift) deny when not ready and confirm when ready;
+     - arrows, Tab and a typed word deny when not ready, and arrows deny
+       when ready;
+     - Ctrl/Alt/Meta+A deny either way;
+     - Esc and D deny in both states;
+     - a repeat and a modifier alone give null in both states.
+   - → verify: `node --test tests/test_confirm_keys.mjs`, all pass.
+   - Traps: no npm and no `package.json`.
+
+R3. **`plugin/AgentConfirmDialog.qml`: the dialog.**
+   - Line 22: replace `property bool keyArmed: false` with
+     `property bool ready: false`.
+   - Add `Timer { id: grace; interval: 1000; onTriggered: root.ready = true }`
+     next to the existing `Timer`.
+   - Lines 43-45, `onRequestChanged`: replace `keyArmed = false` with
+     `ready = false; grace.restart()`. Keep the `armedFor` id check and the
+     pointer resets.
+   - Lines 91-92:
+     ```qml
+     var a = ConfirmKeys.decide({ ready: root.ready }, event.key, event.modifiers, event.isAutoRepeat)
+     if (a) root.answer(a)
+     event.accepted = true
+     ```
+   - Lines 122-123: hint `visible: !root.ready`,
+     `text: "Keys pressed now deny this."`.
+   - Line 138: Allow's text becomes the constant `"  Allow (A)  "`.
+   - Line 142: `onClicked: if (root.pointerArmed) root.answer("confirm")`.
+   - Header comment (lines 12-16): describe the one-second grace.
+   - → verify: `nix build .#plugin`, then
+     `grep -c "keyArmed\|then A" result/AgentConfirmDialog.qml` gives 0.
+   - Traps:
+     - `grace.restart()` must run on every id change, or a replacement
+       request inherits `ready`, which is the review's HIGH in a new form.
+     - Do not touch `answer()`, the layer, the namespace, `keyboardFocus`
+       or the hover `MouseArea`.
+
+R4. **Docs.**
+   - `AGENTS.md:36`: "keys in the first second deny; after that `A` allows
+     (`ConfirmKeys.js`)".
+   - `docs/usage.md:9-10`: "**A** allows once the dialog has been up for a
+     second; any key before that denies, so typing when it appears refuses
+     it. **Escape**, Enter or Deny refuse at any time."
+   - → verify: read back.
+   - Traps: nothing added to `gotchas.md` (index cap).
+
+*Changed after review of R1–R4 (independent review, no high findings):*
+
+- **The request vanishing resets too.** `onRequestChanged` now handles
+  `!request` with `armedFor = ""`, `ready = false` and `grace.stop()`. A
+  request that disappears briefly (a half-written state file reads as none)
+  and returns with the same id must wait a full, continuous second again.
+  This only makes Allow harder.
+- **`tests/test_confirm_wiring.py` (new).** A textual check of the QML
+  wiring: the id-change branch resets `ready` and restarts `grace`; the
+  vanish branch resets; Allow's click requires `pointerArmed` and is the
+  only `answer("confirm")` outside the key rule; keys go through
+  `ConfirmKeys.decide`. A mutation check confirmed that deleting
+  `grace.restart()` or the click gate fails it.
+- A stale comment was fixed, and `docs/usage.md:11` was rewrapped.
+
+R5. **Live check (the human answers).** To load the new dialog, the shell
+   must be restarted with the Omarchy restart command, in the foreground: a
+   symlink swap alone re-runs cached QML. Before that:
+   - read the bus;
+   - check that no NixOS switch is running;
+   - post on the bus;
+   - record the original link, and restore it afterwards.
+
+   Then:
+   - Case 2: wait about two seconds, then press `a` → `agent`; then
+     `control off`.
+   - Case 5: wait until ready, then I send a second request; press `a` at
+     once → `off`.
+   - Stall check: type a word the moment the dialog appears → `off`.
+   - Case 6: `Ctrl+A` → `off`.
+   - Cases 1, 3 and 4 passed earlier; rerun 1 as a smoke test.
+   - → verify: outcomes in the PR.
+
+## Steps (original)
+
+1. **`plugin/ConfirmKeys.js` (new).**
+   - The first line is `.pragma library`.
+   - Define `ARMING`, `MODIFIER_ONLY` and `ALWAYS_DENY` as arrays of
+     `Qt.Key_*`, plus `function decide(state, key, modifiers)`, implementing
+     the table in its row order.
+   - "Ctrl/Alt/Meta held" is
+     `modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)`.
+   - Build the arrays *inside* `decide`, or in a function it calls. In a
+     `.pragma library` file, module-level `Qt` access is fine in QML, but the
+     node test installs its stub before evaluation either way.
+   - A short header comment states the rule and points to #48.
+   - → verify: step 2's test.
+   - Traps: no `import`, no QML types; plain ES5-compatible JS (`var`,
+     `function`). Keep it under about 40 lines.
+
+2. **`tests/test_confirm_keys.mjs` (new).**
+   - Read `plugin/ConfirmKeys.js`, strip the `.pragma library` line, and run
+     it with `vm.runInContext` in a context whose `Qt` is a stub with these
+     Qt 6 values:
+     - Keys: `Key_A` 0x41, `Key_D` 0x44, `Key_Escape` 0x01000000, `Key_Tab`
+       0x01000001, `Key_Backtab` 0x01000002, `Key_Return` 0x01000004,
+       `Key_Enter` 0x01000005, `Key_Left` 0x01000012, `Key_Up` 0x01000013,
+       `Key_Right` 0x01000014, `Key_Down` 0x01000015, `Key_Shift`
+       0x01000020, `Key_Control` 0x01000021, `Key_Meta` 0x01000022,
+       `Key_Alt` 0x01000023, `Key_CapsLock` 0x01000024, `Key_Super_L`
+       0x01000053, `Key_Super_R` 0x01000054, `Key_AltGr` 0x01001103.
+     - Modifiers: `ShiftModifier` 0x02000000, `ControlModifier` 0x04000000,
+       `AltModifier` 0x08000000, `MetaModifier` 0x10000000.
+     - Make the stub a `Proxy` that **throws on any unknown name**, so a typo
+       or a missing key cannot silently be `undefined`.
+   - Asserts:
+     - Every table row.
+     - The words "banana", "hello" and "a" (letters as `0x41 + i`) deny on
+       their first key.
+     - `Right` then `A` → confirm.
+     - `Shift`, `Right`, then `A` with Shift → confirm.
+     - `Ctrl+A` → deny in both states.
+     - `D` and `Escape` deny when armed too.
+     - A modifier alone leaves `keyArmed` untouched in both states.
+   - Use `node:test` and `node:assert/strict`, with no npm packages.
+   - → verify: `node --test tests/test_confirm_keys.mjs` → all pass.
+   - Traps:
+     - `python3 -m unittest discover` must not pick this file up. The
+       `test*.py` pattern already excludes it.
+     - Do not add a `package.json`.
+
+3. **`flake.nix:109-110`: add a check** next to `unittest`:
+   ```nix
+   confirm-keys = pkgs.runCommand "ai-mirror-confirm-keys" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
+     cd ${./.}
+     node --test tests/test_confirm_keys.mjs
+     touch $out
+   '';
+   ```
+   - → verify:
+     `nix build .#checks.x86_64-linux.confirm-keys -L`, then
+     `nix flake check`.
+   - Traps:
+     - The source is read-only, so do not write into `${./.}`. node writes
+       nothing, but if it does, copy to `src` as `unittest` does.
+     - Node goes only in `checks`, not in `packages` or the plugin.
+
+4. **`plugin/AgentConfirmDialog.qml`: wire it.**
+   - After the existing imports, add `import "ConfirmKeys.js" as ConfirmKeys`.
+   - On `root`, add `property bool keyArmed: false`,
+     `property bool pointerArmed: false` and `property var pointerStart: null`.
+   - Line 35, `onOpenedChanged`: when opened, reset all three before forcing
+     focus.
+   - Lines 65-71, `Keys.onPressed`:
+     ```qml
+     var r = ConfirmKeys.decide({ keyArmed: root.keyArmed }, event.key, event.modifiers)
+     root.keyArmed = r.keyArmed
+     if (r.answer) root.answer(r.answer)
+     event.accepted = true
+     ```
+     The dialog holds exclusive focus, so every key is the dialog's to
+     consume.
+   - Add a full-window `MouseArea` as the first child of the `PanelWindow`
+     (before `BorderSurface`), so it sits beneath the buttons:
+     `anchors.fill: parent; hoverEnabled: true; acceptedButtons: Qt.NoButton`.
+     Its `onPositionChanged: function (m)`:
+     - if `root.pointerStart` is null, set it to `{x: m.x, y: m.y}`;
+     - else, if `Math.hypot(m.x - pointerStart.x, m.y - pointerStart.y) > 8`,
+       set `root.pointerArmed = true`.
+   - Line 110, Allow's `MouseArea`:
+     `onClicked: if (root.pointerArmed || root.keyArmed) root.answer("confirm")`.
+   - Labels and hint:
+     - Allow's text becomes
+       `root.keyArmed ? "  Allow (A)  " : "  Allow (→ then A)  "`.
+     - Add a `Text` "Typing? Your next key denies this." after the body
+       `Text`, with `visible: !root.keyArmed`, in the same font and colour
+       as the body text and `textFormat: Text.PlainText`.
+   - Update the header comment (lines 8-14) to state the new rule in two
+     sentences.
+   - → verify: `nix build .#plugin`. Then
+     `grep -c ConfirmKeys result/AgentConfirmDialog.qml` gives at least 2,
+     and `ls result/ConfirmKeys.js` exists. `nix flake check` runs the
+     plugin check (no symlinks).
+   - Traps:
+     - Do not touch `answer()`, the layer, the namespace or `keyboardFocus`.
+     - The hover `MouseArea` must use `Qt.NoButton`, or it will swallow
+       clicks meant for Deny and Allow.
+     - The QML cannot be loaded outside the shell, so get it right by
+       reading. The live check in step 6 is the real test.
+
+5. **Docs.**
+   - `AGENTS.md:36` (code map), replace "Deny on Escape/Enter, Allow on `A`"
+     with "an arrow or Tab arms Allow, then `A`; any other first key denies
+     (`ConfirmKeys.js`)".
+   - Add a code-map row for `plugin/ConfirmKeys.js`.
+   - `docs/usage.md:9`, replace "**A** allows, **Escape** (or Enter, or
+     Deny) refuses" with "**→** (or Tab) then **A** allows; **Escape**,
+     Enter, Deny, or any other first key refuses: typing when it appears
+     denies it".
+   - → verify: read back.
+   - Traps: do not add to `gotchas.md`. The default index is at its
+     20000-byte cap (`test_invariants`), and agents do not answer this
+     dialog.
+
+6. **Live check (the human answers; the agent only asks).** For each case,
+   run `ai-mirror control agent`, let the human act, then read
+   `ai-mirror status`:
+   1. Type `a` straight away → `off`.
+   2. `→`, then `a` → `agent`; then `control off`.
+   3. `Esc` → `off`.
+   4. Click Allow without moving the mouse → still `pending`. Then move the
+      mouse and click Allow → `agent`; then `control off`.
+   5a. Press `→` (armed), then run `ai-mirror control agent` again from a
+      second shell, then press `a` → `off`. The `a` lands on a fresh,
+      unarmed request (the review's HIGH).
+   5. `Ctrl+A` → `off`.
+   6. Also confirm that the label reads "→ then A" before arming and "A"
+      after, and that the hint line disappears on arming.
+
+   - → verify: outcomes pasted into the PR.
+   - **Loading the new dialog.** On this host the plugin is a Home Manager
+     symlink, `~/.config/omarchy/plugins/olafkfreund.ai-mirror` →
+     `/nix/store/…-ai-mirror-plugin-2.0.0`. Before the test, **ask the
+     human** which of these to use:
+     - (a) Temporarily repoint that symlink at `nix build .#plugin`'s
+       output, reload the shell, test, then restore the original target
+       recorded beforehand and reload again.
+     - (b) The human rebuilds their configuration from this branch.
+
+     Do not do either without the answer. **Answered at plan approval:
+     (a).** The human said "use your recommendations", and (a) is the one
+     that is quick and fully reversible.
+   - Traps: confirm by seeing the new label that the new dialog is the one
+     answering. If the old one answers, the test proves nothing.
+
+## Tests
+
+```sh
+python3 -m unittest discover -s tests              # unchanged, 209 OK
+node --test tests/test_confirm_keys.mjs           # all pass
+nix flake check                                   # includes confirm-keys and plugin
+```
+
+## Rollback
+
+Revert the implementation commits. The dialog goes back to "A allows",
+nothing persists, and the state file format is unchanged.
+
+## Live check results (2026-10-01, p620, Hyprland 0.56, three monitors)
+
+The test build combined #48, #57 and #58 (`test/live-48-57-58`). The human answered every case, and `ai-mirror audit` recorded each answer:
+
+| case | human input | outcome | audit |
+|---|---|---|---|
+| wait about 2 s, then `a` | key | granted | `confirmed via=dialog-key key=65 mods=0` |
+| moved the mouse, clicked Allow | click | granted | `confirmed via=dialog-click` |
+| `→` after the grace | key | denied | `denied via=dialog-key key=16777236` (Right) |
+| typed "hello" | key | denied | `denied via=dialog-key key=72` (H) |
+| `Esc` (earlier build) | key | denied | — |
+| `a` straight away (earlier build) | key | denied | — |
+
+- The dialog appeared **0.14 s** after the request, with **at most one**
+  `omarchy-ai-mirror-confirm` layer at a time (before #58 there were three).
+- The audit `chain` for dialog answers is
+  `.quickshell-wra < omarchy-launch- < .Hyprland-wrapp`.
+- The two "no-input" grants earlier in the day (15:45, on a pre-#57 build)
+  could not be traced retroactively. Every grant in this run matched a
+  human key or click.
+- The test dialog was loaded by repointing the Home Manager plugin link and
+  running a foreground shell reload, then restored the same way. A link swap
+  alone re-runs cached QML.
