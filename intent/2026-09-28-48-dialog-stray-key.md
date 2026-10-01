@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 48
 author: olafkfreund
 ---
@@ -64,10 +64,10 @@ and the 30-second timeout all still deny.
 
    Proposed: (d). It fails closed instead of guessing at timing, and it
    turns accidental typing into a denial rather than leaving the dialog open
-   for the next key.
+   for the next key. **Decided: as proposed.**
 2. Should a click on Allow also need the dialog to be armed (by an arrow key,
    Tab, or first moving the pointer onto the dialog)? Proposed: yes. A click
    arms only once the pointer has moved after the dialog appeared, so a click
-   already on its way cannot land.
+   already on its way cannot land. **Decided: as proposed.**
 3. Should the dialog show that Allow is not armed yet, e.g. "press → then A"?
-   Proposed: yes, otherwise the human does not know why `A` does nothing.
+   Proposed: yes, otherwise the human does not know why `A` does nothing. **Decided: as proposed.**
