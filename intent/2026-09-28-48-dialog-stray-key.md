@@ -18,6 +18,11 @@ and mouse. Enter and Return were already made to deny for this reason; letters
 were not. The gate is "a request a human answers", and an accidental key is not
 an answer.
 
+The same holds for the mouse. The dialog opens over everything, under a
+pointer that may already be on its way to a click, and a click on Allow
+grants. The target is small, so this is less likely than a key, but it is the
+same failure: input aimed at something else counts as consent.
+
 ## Proposed outcome
 
 No key pressed before the human has noticed the dialog can grant control.
@@ -29,7 +34,7 @@ and the 30-second timeout all still deny.
 
 - The Omarchy bar plugin (`plugin/AgentConfirmDialog.qml`) on every host that
   uses it.
-- Anyone answering a control request by keyboard; mouse users are unaffected.
+- Anyone answering a control request, by keyboard or by click.
 - The MCP and CLI side is unchanged: `confirm_request` still grants, only the
   dialog's key handling changes.
 
@@ -43,9 +48,26 @@ and the 30-second timeout all still deny.
 
 ## Open questions
 
-1. Which arming rule? (a) `A` is inert until the human presses an arrow key or
-   Tab (what omarchy-omcp does); (b) `A` is ignored for a short time after the
-   dialog opens; or (c) both. Proposed: (a), because a time window guesses at
-   how fast people type and (a) depends only on a deliberate act.
-2. Should the dialog show that Allow is not armed yet, e.g. "press → then A"?
+1. Which arming rule for the keyboard?
+   - (a) `A` is inert until the human presses an arrow key or Tab, as
+     omarchy-omcp does. *Weakness:* arrows are part of ordinary editing
+     (move the cursor, then type), so "arrow, then a" happens mid-sentence.
+   - (b) `A` is ignored for a short time after the dialog opens. It guesses
+     how fast people notice things.
+   - (c) Both (a) and (b).
+   - (d) **The first key decides.** While unarmed, an arrow key or Tab arms
+     Allow, and *every other key denies*. Once armed, `A` grants. A human who
+     is typing when the dialog lands denies it with their next keystroke,
+     which is the safe outcome; the agent sees `owner: off` and may ask
+     again. Granting by accident needs the first stray key to be an arrow and
+     the next to be `a`.
+
+   Proposed: (d). It fails closed instead of guessing at timing, and it
+   turns accidental typing into a denial rather than leaving the dialog open
+   for the next key.
+2. Should a click on Allow also need the dialog to be armed (by an arrow key,
+   Tab, or first moving the pointer onto the dialog)? Proposed: yes. A click
+   arms only once the pointer has moved after the dialog appeared, so a click
+   already on its way cannot land.
+3. Should the dialog show that Allow is not armed yet, e.g. "press → then A"?
    Proposed: yes, otherwise the human does not know why `A` does nothing.
