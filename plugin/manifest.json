@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "olafkfreund.ai-mirror",
   "name": "ai-mirror",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "olafkfreund",
   "description": "Shows when an AI agent controls your desktop; click to stop.",
   "kinds": ["bar-widget", "overlay"],
