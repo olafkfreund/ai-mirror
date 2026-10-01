@@ -26,8 +26,11 @@ Item {
   property double now: Date.now() / 1000
   readonly property int secondsLeft: request ? Math.max(0, Math.round(request.expires - now)) : 0
 
-  function answer(mode) {
-    if (command && request) command.run(["control", mode, String(request.id)])
+  function answer(mode, via, key, mods) {
+    if (!command || !request) return
+    var argv = ["control", mode, String(request.id), "--via", via]
+    if (via === "dialog-key") argv.push("--key", String(key), "--mods", String(mods))
+    command.run(argv)
   }
 
   Timer { id: grace; interval: 1000; onTriggered: root.ready = true }
@@ -97,7 +100,7 @@ Item {
         focus: true
         Keys.onPressed: function (event) {
           var a = ConfirmKeys.decide({ ready: root.ready }, event.key, event.modifiers, event.isAutoRepeat)
-          if (a) root.answer(a)
+          if (a) root.answer(a, "dialog-key", event.key, event.modifiers)
           event.accepted = true
         }
 
@@ -139,14 +142,14 @@ Item {
               color: Color.menu.selectedText
               font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3); bold: true }
               padding: Style.spacing.sm
-              MouseArea { anchors.fill: parent; onClicked: root.answer("deny") }
+              MouseArea { anchors.fill: parent; onClicked: root.answer("deny", "dialog-click") }
             }
             Text {
               text: "  Allow (A)  "
               color: Color.urgent
               font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3) }
               padding: Style.spacing.sm
-              MouseArea { anchors.fill: parent; onClicked: if (root.pointerArmed) root.answer("confirm") }
+              MouseArea { anchors.fill: parent; onClicked: if (root.pointerArmed) root.answer("confirm", "dialog-click") }
             }
           }
         }
