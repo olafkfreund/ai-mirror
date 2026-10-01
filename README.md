@@ -157,7 +157,7 @@ Everything the agent does is also a CLI command that prints JSON:
 
 ```sh
 ai-mirror control agent                          # ask for control (same as clicking the dim icon)
-ai-mirror control confirm                        # allow the waiting request (what the dialog runs)
+ai-mirror control confirm ID                     # allow the waiting request (what the dialog runs; the id is in `ai-mirror status`)
 ai-mirror control deny
 ai-mirror screenshot --output all --max-size 1600
 ai-mirror windows
