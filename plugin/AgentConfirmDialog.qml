@@ -22,6 +22,7 @@ Item {
   property bool keyArmed: false
   property bool pointerArmed: false
   property var pointerStart: null
+  property string armedFor: ""      // the request id the flags belong to
   property double now: Date.now() / 1000
   readonly property int secondsLeft: request ? Math.max(0, Math.round(request.expires - now)) : 0
 
@@ -36,7 +37,11 @@ Item {
     onTriggered: root.now = Date.now() / 1000
   }
 
-  onOpenedChanged: if (opened) {
+  // Per request, not per opening: a second `control agent` while one is pending
+  // replaces the request without closing the dialog, and arming for the first
+  // must not grant the second.
+  onRequestChanged: if (request && request.id !== armedFor) {
+    armedFor = request.id
     keyArmed = false
     pointerArmed = false
     pointerStart = null
@@ -83,7 +88,7 @@ Item {
         anchors.fill: parent
         focus: true
         Keys.onPressed: function (event) {
-          var r = ConfirmKeys.decide({ keyArmed: root.keyArmed }, event.key, event.modifiers)
+          var r = ConfirmKeys.decide({ keyArmed: root.keyArmed }, event.key, event.modifiers, event.isAutoRepeat)
           root.keyArmed = r.keyArmed
           if (r.answer) root.answer(r.answer)
           event.accepted = true

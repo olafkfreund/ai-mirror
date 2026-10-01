@@ -26,7 +26,7 @@ const src = readFileSync(new URL("../plugin/ConfirmKeys.js", import.meta.url), "
 const ctx = vm.createContext({ Qt })
 vm.runInContext(src, ctx)
 // JSON round-trip: objects built inside the vm have another realm's prototype.
-const decide = (armed, key, mods = 0) => JSON.parse(JSON.stringify(vm.runInContext("decide", ctx)({ keyArmed: armed }, key, mods)))
+const decide = (armed, key, mods = 0, rep = false) => JSON.parse(JSON.stringify(vm.runInContext("decide", ctx)({ keyArmed: armed }, key, mods, rep)))
 
 const V = VALUES
 const MODS = ["Key_Shift", "Key_Control", "Key_Alt", "Key_AltGr", "Key_Meta", "Key_Super_L", "Key_Super_R", "Key_CapsLock"]
@@ -81,4 +81,20 @@ test("Ctrl/Alt/Meta+A denies in both states", () => {
   for (const mod of [V.ControlModifier, V.AltModifier, V.MetaModifier])
     for (const armed of [false, true])
       assert.equal(decide(armed, V.Key_A, mod).answer, "deny")
+})
+
+test("a repeat of a held key decides nothing", () => {
+  for (const k of [V.Key_Right, V.Key_A, V.Key_Escape, keyOf("b")])
+    for (const armed of [false, true])
+      assert.deepEqual(decide(armed, k, 0, true), { answer: null, keyArmed: armed })
+})
+
+test("an arrow with Ctrl/Alt/Meta is editing: it denies and never arms", () => {
+  for (const mod of [V.ControlModifier, V.AltModifier, V.MetaModifier])
+    for (const armed of [false, true])
+      assert.deepEqual(decide(armed, V.Key_Right, mod), { answer: "deny", keyArmed: armed })
+})
+
+test("Shift+Tab (Backtab) still arms", () => {
+  assert.deepEqual(decide(false, V.Key_Backtab, V.ShiftModifier), { answer: null, keyArmed: true })
 })

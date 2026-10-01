@@ -43,6 +43,24 @@ Branch `fix/48-dialog-stray-key`, on `master` at `a501317`.
 - **Unchanged:** `control.py`, the CLI, MCP, the layer, the namespace and
   exclusive focus.
 
+### Changed after review (#48 independent review)
+
+- **HIGH, fixed: the flags now reset per request id, not per opening.**
+  `set_owner('agent')` writes a new request over a pending one
+  (`control.py:313-324`), so `opened` stays true and `onOpenedChanged` never
+  fired. Arming for request 1 then granted request 2, possibly from another
+  asker. The dialog now resets in `onRequestChanged`, when `request.id`
+  differs from the id the flags were armed for. This replaces the plan's
+  "both flags reset when a new request opens" with "when the request id
+  changes".
+- **MEDIUM, adopted. Both changes only make Allow harder; no deny path
+  changed.**
+  - `decide` takes a fourth argument, `autoRepeat`. A repeat decides nothing,
+    so a key held since before the dialog opened can neither arm nor deny.
+  - An arrow, Tab or Backtab with Ctrl, Alt or Meta held (a word jump while
+    typing) no longer arms. It falls through to deny. Shift+Tab still arms.
+  - Tests are added for both.
+
 ## Steps
 
 1. **`plugin/ConfirmKeys.js` (new).**
@@ -172,6 +190,9 @@ Branch `fix/48-dialog-stray-key`, on `master` at `a501317`.
    3. `Esc` → `off`.
    4. Click Allow without moving the mouse → still `pending`. Then move the
       mouse and click Allow → `agent`; then `control off`.
+   5a. Press `→` (armed), then run `ai-mirror control agent` again from a
+      second shell, then press `a` → `off`. The `a` lands on a fresh,
+      unarmed request (the review's HIGH).
    5. `Ctrl+A` → `off`.
    6. Also confirm that the label reads "→ then A" before arming and "A"
       after, and that the hint line disappears on arming.
