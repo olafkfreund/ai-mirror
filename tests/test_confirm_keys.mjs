@@ -25,8 +25,9 @@ const src = readFileSync(new URL("../plugin/ConfirmKeys.js", import.meta.url), "
   .replace(/^\.pragma library\s*$/m, "")
 const ctx = vm.createContext({ Qt })
 vm.runInContext(src, ctx)
-// JSON round-trip: objects built inside the vm have another realm's prototype.
-const decide = (armed, key, mods = 0, rep = false) => JSON.parse(JSON.stringify(vm.runInContext("decide", ctx)({ keyArmed: armed }, key, mods, rep)))
+
+// Answers are plain strings or null, so no JSON round-trip is needed.
+const decide = (ready, key, mods = 0, rep = false) => vm.runInContext("decide", ctx)({ ready }, key, mods, rep)
 
 const V = VALUES
 const MODS = ["Key_Shift", "Key_Control", "Key_Alt", "Key_AltGr", "Key_Meta", "Key_Super_L", "Key_Super_R", "Key_CapsLock"]
@@ -34,67 +35,42 @@ const ARROWS = ["Key_Left", "Key_Right", "Key_Up", "Key_Down", "Key_Tab", "Key_B
 const DENY = ["Key_Escape", "Key_Return", "Key_Enter", "Key_D"]
 const keyOf = (c) => 0x41 + c.charCodeAt(0) - 97
 
-test("modifier alone changes nothing", () => {
-  for (const m of MODS) for (const armed of [false, true])
-    assert.deepEqual(decide(armed, V[m]), { answer: null, keyArmed: armed }, m)
-})
-
-test("deny keys deny, armed or not", () => {
-  for (const k of DENY) for (const armed of [false, true])
-    assert.deepEqual(decide(armed, V[k]), { answer: "deny", keyArmed: armed }, k)
-})
-
-test("arrows and Tab arm, and do nothing when armed", () => {
-  for (const k of ARROWS) {
-    assert.deepEqual(decide(false, V[k]), { answer: null, keyArmed: true }, k)
-    assert.deepEqual(decide(true, V[k]), { answer: null, keyArmed: true }, k)
+test("a modifier alone or a repeat decides nothing, ready or not", () => {
+  for (const ready of [false, true]) {
+    for (const m of MODS) assert.equal(decide(ready, V[m]), null, m)
+    for (const k of [V.Key_Right, V.Key_A, V.Key_Escape, keyOf("b")])
+      assert.equal(decide(ready, k, 0, true), null)
   }
 })
 
-test("A: denies unarmed, confirms armed", () => {
-  assert.equal(decide(false, V.Key_A).answer, "deny")
-  assert.equal(decide(true, V.Key_A).answer, "confirm")
+test("Escape, Return, Enter and D deny in both states", () => {
+  for (const k of DENY) for (const ready of [false, true])
+    assert.equal(decide(ready, V[k]), "deny", k)
+})
+
+test("a and A (Shift) deny when not ready and confirm when ready", () => {
+  for (const mods of [0, V.ShiftModifier]) {
+    assert.equal(decide(false, V.Key_A, mods), "deny")
+    assert.equal(decide(true, V.Key_A, mods), "confirm")
+  }
+})
+
+test("arrows and Tab deny in both states", () => {
+  for (const k of ARROWS) for (const ready of [false, true])
+    assert.equal(decide(ready, V[k]), "deny", k)
 })
 
 test("other keys deny in both states", () => {
-  for (const armed of [false, true]) assert.equal(decide(armed, keyOf("b")).answer, "deny")
+  for (const ready of [false, true]) assert.equal(decide(ready, keyOf("b")), "deny")
 })
 
-test("typed words deny on the first key", () => {
+test("typed words deny on the first key when not ready", () => {
   for (const w of ["banana", "hello", "a"])
-    assert.equal(decide(false, keyOf(w[0])).answer, "deny", w)
+    assert.equal(decide(false, keyOf(w[0])), "deny", w)
 })
 
-test("Right then A confirms", () => {
-  const r = decide(false, V.Key_Right)
-  assert.equal(decide(r.keyArmed, V.Key_A).answer, "confirm")
-})
-
-test("Shift, Right, then Shift+A confirms", () => {
-  let r = decide(false, V.Key_Shift, V.ShiftModifier)
-  r = decide(r.keyArmed, V.Key_Right, V.ShiftModifier)
-  assert.equal(r.keyArmed, true)
-  assert.equal(decide(r.keyArmed, V.Key_A, V.ShiftModifier).answer, "confirm")
-})
-
-test("Ctrl/Alt/Meta+A denies in both states", () => {
+test("Ctrl/Alt/Meta+A deny in both states", () => {
   for (const mod of [V.ControlModifier, V.AltModifier, V.MetaModifier])
-    for (const armed of [false, true])
-      assert.equal(decide(armed, V.Key_A, mod).answer, "deny")
-})
-
-test("a repeat of a held key decides nothing", () => {
-  for (const k of [V.Key_Right, V.Key_A, V.Key_Escape, keyOf("b")])
-    for (const armed of [false, true])
-      assert.deepEqual(decide(armed, k, 0, true), { answer: null, keyArmed: armed })
-})
-
-test("an arrow with Ctrl/Alt/Meta is editing: it denies and never arms", () => {
-  for (const mod of [V.ControlModifier, V.AltModifier, V.MetaModifier])
-    for (const armed of [false, true])
-      assert.deepEqual(decide(armed, V.Key_Right, mod), { answer: "deny", keyArmed: armed })
-})
-
-test("Shift+Tab (Backtab) still arms", () => {
-  assert.deepEqual(decide(false, V.Key_Backtab, V.ShiftModifier), { answer: null, keyArmed: true })
+    for (const ready of [false, true])
+      assert.equal(decide(ready, V.Key_A, mod), "deny")
 })
