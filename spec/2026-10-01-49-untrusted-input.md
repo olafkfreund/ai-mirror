@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 49
 intent: intent/2026-10-01-49-untrusted-input.md
 ---
