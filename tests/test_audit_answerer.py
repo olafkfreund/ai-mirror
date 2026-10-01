@@ -40,10 +40,18 @@ class Answerer(Base):
     def test_bad_via_is_refused(self):
         rid = self.ask()
         for args in ({'via': 'cli'}, {'via': 'bogus'}, {'via': 'dialog-click', 'key': 65},
-                     {'via': 'dialog-key', 'key': -1}, {'via': 'dialog-key', 'key': True}):
+                     {'via': 'dialog-key', 'key': -1}, {'via': 'dialog-key', 'key': True},
+                     {'key': 65}, {'mods': 0}):
             with self.assertRaises(ValueError):
                 self.answer('confirm', id=rid, **args)
         self.assertEqual(control.read_state()['owner'], 'pending')
+
+    def test_cli_flags_reach_the_answer(self):
+        parse = cli.build_parser().parse_args
+        got = vars(parse(['control', 'confirm', 'abc', '--via', 'dialog-key', '--key', '65', '--mods', '0']))
+        self.assertEqual((got['via'], got['key'], got['mods'], got['id']), ('dialog-key', 65, 0, 'abc'))
+        with self.assertRaises(SystemExit), patch('sys.stderr'):
+            parse(['control', 'confirm', 'abc', '--via', 'cli'])  # cli is only ever the default
 
     def test_confirm_needs_an_id(self):
         self.ask()

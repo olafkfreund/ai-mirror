@@ -144,6 +144,20 @@ of `925745e`.
    - a bare `control confirm` is refused.
    - → verify: audit lines pasted into the PR.
 
+## As built (independent review: no blocking findings)
+
+- `_chain` also catches `StopIteration`, because `next()` has no default when
+  a `status` has no `PPid:` line. "Never raises" requires it.
+- `test_confirm_wiring.py`'s existing click assertion was updated for the new
+  `answer(..., "dialog-click")` call, and the wiring test pins exactly three
+  `root.answer(` calls.
+- The `/proc` failure test patches `open` only for `/proc/` paths. Patching
+  every `open` broke the state-file lock.
+- After review: tests for the CLI flags reaching `api.run`, for argparse
+  refusing `--via cli`, and for `key`/`mods` without `via` being refused.
+- Not done (review nit): `control agent|off --via …` ignores the flags rather
+  than refusing them. Nothing is audited on that path.
+
 ## Tests
 
 ```sh
