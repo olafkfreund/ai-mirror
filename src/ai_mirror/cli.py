@@ -67,7 +67,10 @@ def build_parser():
     p = commands.add_parser('control', help='agent: ask the human for control; off: revoke and release held keys; '
                                             'confirm/deny: answer the waiting request')
     p.add_argument('mode', choices=['agent', 'off', 'confirm', 'deny'])
-    p.add_argument('id', nargs='?', help='the request id to answer (default: the one waiting)')
+    p.add_argument('id', nargs='?', help='the request id; required for confirm, optional for deny (the waiting one)')
+    p.add_argument('--via', choices=['dialog-key', 'dialog-click'], help='how the dialog was answered (audit only)')
+    p.add_argument('--key', type=int, help='the key that answered, with --via dialog-key (audit only)')
+    p.add_argument('--mods', type=int, help='its modifiers, with --via dialog-key (audit only)')
     p = commands.add_parser('screenshot')
     p.add_argument('--out')
     p.add_argument('--output', help="monitor name or 'all' (default: focused)")
