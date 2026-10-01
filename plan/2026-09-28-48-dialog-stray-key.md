@@ -333,3 +333,27 @@ nix flake check                                   # includes confirm-keys and pl
 
 Revert the implementation commits. The dialog goes back to "A allows",
 nothing persists, and the state file format is unchanged.
+
+## Live check results (2026-10-01, p620, Hyprland 0.56, three monitors)
+
+The test build combined #48, #57 and #58 (`test/live-48-57-58`). The human answered every case, and `ai-mirror audit` recorded each answer:
+
+| case | human input | outcome | audit |
+|---|---|---|---|
+| wait about 2 s, then `a` | key | granted | `confirmed via=dialog-key key=65 mods=0` |
+| moved the mouse, clicked Allow | click | granted | `confirmed via=dialog-click` |
+| `→` after the grace | key | denied | `denied via=dialog-key key=16777236` (Right) |
+| typed "hello" | key | denied | `denied via=dialog-key key=72` (H) |
+| `Esc` (earlier build) | key | denied | — |
+| `a` straight away (earlier build) | key | denied | — |
+
+- The dialog appeared **0.14 s** after the request, with **at most one**
+  `omarchy-ai-mirror-confirm` layer at a time (before #58 there were three).
+- The audit `chain` for dialog answers is
+  `.quickshell-wra < omarchy-launch- < .Hyprland-wrapp`.
+- The two "no-input" grants earlier in the day (15:45, on a pre-#57 build)
+  could not be traced retroactively. Every grant in this run matched a
+  human key or click.
+- The test dialog was loaded by repointing the Home Manager plugin link and
+  running a foreground shell reload, then restored the same way. A link swap
+  alone re-runs cached QML.
