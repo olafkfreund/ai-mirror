@@ -10,16 +10,16 @@ import "ConfirmKeys.js" as ConfirmKeys
 // request in the state file, and this is where it is answered.
 //
 // Deny is the default in every direction — Escape, Return, any key typed at
-// it before Allow is armed, and the window closing under a lapsed request all
-// deny. Allow is armed by an arrow or Tab, then A; a click counts only after
-// the pointer has moved (ConfirmKeys.js, #48). Nothing here decides anything:
+// it in the first second, and the window closing under a lapsed request all
+// deny. After that one-second grace A allows; a click counts only after the
+// pointer has moved (ConfirmKeys.js, #48). Nothing here decides anything:
 // both buttons run the CLI, and the state file is what actually changes.
 Item {
   id: root
   property var request: null        // {id, by, since, expires} from state.json, or null
   property var command: null        // the Widget's Command; one process at a time is plenty
   readonly property bool opened: request !== null
-  property bool keyArmed: false
+  property bool ready: false
   property bool pointerArmed: false
   property var pointerStart: null
   property string armedFor: ""      // the request id the flags belong to
@@ -29,6 +29,8 @@ Item {
   function answer(mode) {
     if (command && request) command.run(["control", mode, String(request.id)])
   }
+
+  Timer { id: grace; interval: 1000; onTriggered: root.ready = true }
 
   Timer {
     interval: 500
@@ -42,7 +44,8 @@ Item {
   // must not grant the second.
   onRequestChanged: if (request && request.id !== armedFor) {
     armedFor = request.id
-    keyArmed = false
+    ready = false
+    grace.restart()
     pointerArmed = false
     pointerStart = null
     Qt.callLater(function () { keys.forceActiveFocus() })
@@ -88,9 +91,8 @@ Item {
         anchors.fill: parent
         focus: true
         Keys.onPressed: function (event) {
-          var r = ConfirmKeys.decide({ keyArmed: root.keyArmed }, event.key, event.modifiers, event.isAutoRepeat)
-          root.keyArmed = r.keyArmed
-          if (r.answer) root.answer(r.answer)
+          var a = ConfirmKeys.decide({ ready: root.ready }, event.key, event.modifiers, event.isAutoRepeat)
+          if (a) root.answer(a)
           event.accepted = true
         }
 
@@ -119,8 +121,8 @@ Item {
           }
           Text {
             width: parent.width
-            visible: !root.keyArmed
-            text: "Typing? Your next key denies this."
+            visible: !root.ready
+            text: "Keys pressed now deny this."
             color: Color.menu.text
             font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3) }
             textFormat: Text.PlainText
@@ -135,11 +137,11 @@ Item {
               MouseArea { anchors.fill: parent; onClicked: root.answer("deny") }
             }
             Text {
-              text: root.keyArmed ? "  Allow (A)  " : "  Allow (→ then A)  "
+              text: "  Allow (A)  "
               color: Color.urgent
               font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3) }
               padding: Style.spacing.sm
-              MouseArea { anchors.fill: parent; onClicked: if (root.pointerArmed || root.keyArmed) root.answer("confirm") }
+              MouseArea { anchors.fill: parent; onClicked: if (root.pointerArmed) root.answer("confirm") }
             }
           }
         }
