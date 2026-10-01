@@ -133,6 +133,8 @@
                  and (.kinds | index("bar-widget")) and .entryPoints.barWidget
                  and (.barWidget.defaultSection | IN("left", "center", "right"))' $m
           test -f ${plugin}/$(jq -r .entryPoints.barWidget $m)
+          jq -e '(.kinds | index("overlay")) == null or (.entryPoints | has("overlay"))' $m
+          test -f ${plugin}/$(jq -r '.entryPoints.overlay // .entryPoints.barWidget' $m)
           test -z "$(find ${plugin} -type l)"
           ! grep -rEw 'pacman|yay' ${plugin}
           ! grep -r '@ai-mirror@' ${plugin}
