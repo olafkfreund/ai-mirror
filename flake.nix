@@ -113,6 +113,11 @@
           XDG_RUNTIME_DIR=$TMPDIR python3 -m unittest discover -s tests -v
           touch $out
         '';
+        confirm-keys = pkgs.runCommand "ai-mirror-confirm-keys" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
+          cd ${./.}
+          node --test tests/test_confirm_keys.mjs
+          touch $out
+        '';
         # Every output someone can install carries the licence it ships under.
         licence = pkgs.runCommand "ai-mirror-licence-check" { } ''
           for installed in ${ai-mirror} ${ai-mirror-input} ${plugin}; do
