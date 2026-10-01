@@ -1,5 +1,5 @@
 ---
-status: approved
+status: draft
 issue: 48
 spec: spec/2026-09-28-48-dialog-stray-key.md
 ---
@@ -61,7 +61,100 @@ Branch `fix/48-dialog-stray-key`, on `master` at `a501317`.
     typing) no longer arms. It falls through to deny. Shift+Tab still arms.
   - Tests are added for both.
 
-## Steps
+## Revision 1 steps (spec Revision 1: one-second grace, then plain `A`)
+
+These replace the parts of steps 1, 2, 4 and 5 that implement "→ then A".
+Everything else built under the original steps stays as it is: the
+per-request-id reset, the pointer rule, auto-repeat, the flake check and the
+`Qt` stub. Line numbers are as of `9d8b77d`.
+
+R1. **`plugin/ConfirmKeys.js:3-22`: the rule.**
+   - New signature: `decide(state, key, modifiers, autoRepeat)` with
+     `state = {ready: bool}`. It returns `"confirm"`, `"deny"` or `null`; the
+     object return goes, since there is no flag left to hand back.
+   - Order:
+     1. autoRepeat → null;
+     2. MODS → null;
+     3. DENY → "deny";
+     4. `!state.ready` → "deny";
+     5. `key === Qt.Key_A` with no Ctrl, Alt or Meta → "confirm";
+     6. otherwise → "deny".
+   - Delete the `K` (arming) array.
+   - Rewrite the header comment for the new rule.
+   - → verify: R2.
+   - Traps: the deny keys still come before the `ready` check, so Esc works
+     in the first second. Keep it ES5 and keep the `.pragma library` line.
+
+R2. **`tests/test_confirm_keys.mjs:30-104`: rewrite the assertions.**
+   - Keep the vm loader, the throwing `Qt` Proxy and the values. The helper
+     becomes `decide(ready, key, mods = 0, rep = false)` and returns the
+     answer; keep the JSON round-trip only if a test needs it.
+   - Tests:
+     - every row of the spec Revision 1 table;
+     - `a` and `A` (with Shift) deny when not ready and confirm when ready;
+     - arrows, Tab and a typed word deny when not ready, and arrows deny
+       when ready;
+     - Ctrl/Alt/Meta+A deny either way;
+     - Esc and D deny in both states;
+     - a repeat and a modifier alone give null in both states.
+   - → verify: `node --test tests/test_confirm_keys.mjs`, all pass.
+   - Traps: no npm and no `package.json`.
+
+R3. **`plugin/AgentConfirmDialog.qml`: the dialog.**
+   - Line 22: replace `property bool keyArmed: false` with
+     `property bool ready: false`.
+   - Add `Timer { id: grace; interval: 1000; onTriggered: root.ready = true }`
+     next to the existing `Timer`.
+   - Lines 43-45, `onRequestChanged`: replace `keyArmed = false` with
+     `ready = false; grace.restart()`. Keep the `armedFor` id check and the
+     pointer resets.
+   - Lines 91-92:
+     ```qml
+     var a = ConfirmKeys.decide({ ready: root.ready }, event.key, event.modifiers, event.isAutoRepeat)
+     if (a) root.answer(a)
+     event.accepted = true
+     ```
+   - Lines 122-123: hint `visible: !root.ready`,
+     `text: "Keys pressed now deny this."`.
+   - Line 138: Allow's text becomes the constant `"  Allow (A)  "`.
+   - Line 142: `onClicked: if (root.pointerArmed) root.answer("confirm")`.
+   - Header comment (lines 12-16): describe the one-second grace.
+   - → verify: `nix build .#plugin`, then
+     `grep -c "keyArmed\|then A" result/AgentConfirmDialog.qml` gives 0.
+   - Traps:
+     - `grace.restart()` must run on every id change, or a replacement
+       request inherits `ready`, which is the review's HIGH in a new form.
+     - Do not touch `answer()`, the layer, the namespace, `keyboardFocus`
+       or the hover `MouseArea`.
+
+R4. **Docs.**
+   - `AGENTS.md:36`: "keys in the first second deny; after that `A` allows
+     (`ConfirmKeys.js`)".
+   - `docs/usage.md:9-10`: "**A** allows once the dialog has been up for a
+     second; any key before that denies, so typing when it appears refuses
+     it. **Escape**, Enter or Deny refuse at any time."
+   - → verify: read back.
+   - Traps: nothing added to `gotchas.md` (index cap).
+
+R5. **Live check (the human answers).** To load the new dialog, the shell
+   must be restarted with the Omarchy restart command, in the foreground: a
+   symlink swap alone re-runs cached QML. Before that:
+   - read the bus;
+   - check that no NixOS switch is running;
+   - post on the bus;
+   - record the original link, and restore it afterwards.
+
+   Then:
+   - Case 2: wait about two seconds, then press `a` → `agent`; then
+     `control off`.
+   - Case 5: wait until ready, then I send a second request; press `a` at
+     once → `off`.
+   - Stall check: type a word the moment the dialog appears → `off`.
+   - Case 6: `Ctrl+A` → `off`.
+   - Cases 1, 3 and 4 passed earlier; rerun 1 as a smoke test.
+   - → verify: outcomes in the PR.
+
+## Steps (original)
 
 1. **`plugin/ConfirmKeys.js` (new).**
    - The first line is `.pragma library`.
