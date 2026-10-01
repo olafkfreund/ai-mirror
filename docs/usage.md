@@ -6,9 +6,9 @@
 
 - **Control is asked for, not taken.** `control agent` — from an agent, the CLI or the bar —
   writes `owner: pending` with a `request {id, by, since, expires}` and opens a dialog on your
-  desktop. Only you answer it: **→** (or Tab) then **A** allows; **Escape**, Enter, Deny, or
-  any other first key refuses, so typing when it appears denies it. A click on Allow counts
-  only after the pointer has moved. An unanswered request lapses after 30 seconds and the
+  desktop. Only you answer it: **A** allows once the dialog has been up for a second; any
+  key before that denies, so typing when it appears refuses it. **Escape**, Enter or Deny
+  refuse at any time. A click on Allow counts only after the pointer has moved. An unanswered request lapses after 30 seconds and the
   state goes back to `off`.
 - A confirmed grant records `enabled_by: "human-confirmed"` and `request_by` (who asked).
   An agent cannot answer its own request: `control confirm|deny` over MCP is `not_owner`, and
