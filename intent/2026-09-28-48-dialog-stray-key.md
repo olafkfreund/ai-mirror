@@ -62,6 +62,10 @@ and the 30-second timeout all still deny.
      again. Granting by accident needs the first stray key to be an arrow and
      the next to be `a`.
 
+   *Revised 2026-10-01, after the live check:* the human found (d)'s "→ then A"
+   too much friction and chose (b) with one second, keeping (d)'s
+   fail-closed rule inside the window. See spec Revision 1.
+
    Proposed: (d). It fails closed instead of guessing at timing, and it
    turns accidental typing into a denial rather than leaving the dialog open
    for the next key. **Decided: as proposed.**

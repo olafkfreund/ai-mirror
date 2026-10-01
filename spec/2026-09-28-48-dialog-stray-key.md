@@ -1,10 +1,86 @@
 ---
-status: approved
+status: draft
 issue: 48
 intent: intent/2026-09-28-48-dialog-stray-key.md
 ---
 
 # Spec: A stray keystroke cannot grant control
+
+## Revision 1 (2026-10-01): one-second grace, then plain `A`
+
+**This section supersedes §1's rule table and §3's labels. Everything else
+stands.** That includes the per-request-id reset added after review, the
+pointer rule in §2, ignoring auto-repeat, the deny keys, the tests' approach
+and the live check's shape.
+
+**Why.** In the live check, "→ then A" worked as designed, and the human
+answering the dialog found it too much friction: "I just want to press A or
+a and be done with it." They chose intent Q1's option (b), a time window,
+with one second, keeping (d)'s fail-closed behaviour inside the window.
+
+### The rule
+
+`decide(state, key, modifiers, autoRepeat)`, where `state` is now
+`{ready: bool}`. `ready` becomes true one second after the current request
+id appeared, and resets to false when the id changes.
+
+| when | key | result |
+|---|---|---|
+| any | a repeat (`autoRepeat`) | nothing |
+| any | a modifier alone | nothing |
+| any | Escape, Return, Enter, `D` | deny |
+| not ready (first second) | anything else, `A` and arrows included | **deny** |
+| ready | `A` without Ctrl, Alt or Meta (Shift is fine) | confirm |
+| ready | anything else | deny |
+
+- **A person typing when the dialog lands** hits a key within the first
+  second and denies it.
+- **A person who reads the dialog and presses `a` or `A`** gets control,
+  with one key.
+- **Arrows no longer arm anything.** `keyArmed` is removed.
+
+### The dialog
+
+- `property bool ready`, set by a one-shot 1000 ms `Timer` that is
+  restarted in `onRequestChanged` whenever the id changes, alongside the
+  existing reset.
+- **Allow click:** it grants only if `pointerArmed` (§2 unchanged). The
+  `|| keyArmed` part goes, since there is no key arming.
+- **Labels:**
+  - Allow reads `Allow (A)` throughout.
+  - While `!ready`, the hint line reads "Keys pressed now deny this."; it
+    hides once ready.
+  - Deny stays `Deny (Esc)`.
+
+### Risk this revision adds
+
+- **A pause mid-typing.** Someone who pauses for more than a second while
+  the dialog opens, then types a word starting with "a", grants. The human
+  accepted this explicitly. It is narrower than before #48, where any "a"
+  granted at once.
+- **A stalled shell.** The clock is the shell's own, and a control request
+  switches on accessibility; on p620 that was seen to stall the shell
+  (`at-spi2-registryd: Disabling unresponsive app`). If the shell stalls
+  after the dialog maps, keys typed during the stall can be handled after
+  `ready` and grant. The live check includes typing immediately, to see
+  whether this happens. If it does, the fix is for the timer to start from
+  the first frame the window shows, not from the request.
+
+### Verification changes
+
+- The node tests are rewritten for the table above. Every row is covered,
+  plus: `a` while not ready denies; `a` when ready confirms; arrows deny
+  while not ready; Ctrl+A denies either way.
+- The live check replaces cases 2 and 5:
+  - Case 2: wait a moment, then press `a` → granted.
+  - Case 5: when ready, I send a second request, then you press `a` at once
+    → denied, because the new id restarted the second.
+  - Also new: type a word immediately as the dialog appears → denied (the
+    stall check).
+  - Cases 1, 3, 4 and 6 stand. Cases 1 and 3 have already passed, and case
+    4's click after moving has passed.
+
+---
 
 ## Design
 
