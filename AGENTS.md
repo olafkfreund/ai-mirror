@@ -35,6 +35,7 @@ Full reference: `docs/usage.md`.
 | `src/ai_mirror_input/ai_mirror_input.c` | Persistent wlr virtual pointer + virtual keyboard; `C` releases all; stdin EOF releases and exits |
 | `plugin/AgentConfirmDialog.qml` | The human's half of the gate: layer-shell dialog over everything, exclusive keyboard focus, keys in the first second deny; after that `A` allows (`ConfirmKeys.js`) |
 | `plugin/ConfirmKeys.js` | The dialog's key rule as one pure function, `decide(state, key, modifiers, autoRepeat)`; tested by `tests/test_confirm_keys.mjs` (`node --test`) |
+| `plugin/Overlay.qml` | Owns the one confirm dialog: the shell creates the overlay once, not per bar (#58) |
 | `plugin/` | Omarchy bar widget: `FileView` on the state file, click asks for control; `@ai-mirror@` substituted by Nix |
 | `flake.nix` | `packages.{ai-mirror,ai-mirror-input,plugin}`, `homeManagerModules.default`, `checks`, `devShells` |
 | `tests/test_invariants.py` | Fast regressions (no Wayland); `tests/smoke.py` live desktop check |
