@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Wayland
 import Quickshell.Hyprland
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "ConfirmKeys.js" as ConfirmKeys
 
@@ -89,9 +90,9 @@ Item {
       anchors.centerIn: parent
       width: Math.min(Style.space(620), parent.width - Style.gapsOut * 2)
       height: content.implicitHeight + Style.spacing.panelPadding * 2
-      color: Color.menu.background
+      color: Commons.Color.menu.background
       radius: Style.cornerRadius
-      borderSpec: Border.surfaceSpec("menu", "border", Color.urgent, Math.max(1, Style.space(2)))
+      borderSpec: Border.surfaceSpec("menu", "border", Commons.Color.urgent, Math.max(1, Style.space(2)))
       padding: Style.spacing.panelPadding
 
       Item {
@@ -112,7 +113,7 @@ Item {
           Text {
             width: parent.width
             text: "Let an AI agent use this desktop?"
-            color: Color.menu.text
+            color: Commons.Color.menu.text
             font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.title * 1.4); bold: true }
             textFormat: Text.PlainText
           }
@@ -123,7 +124,7 @@ Item {
                 + "Super+Shift+Escape takes it back at any moment.\n\n"
                 + "Asked by: " + (root.request ? root.request.by : "") + "  ·  expires in "
                 + root.secondsLeft + "s"
-            color: Color.menu.text
+            color: Commons.Color.menu.text
             font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3) }
             textFormat: Text.PlainText
           }
@@ -131,7 +132,7 @@ Item {
             width: parent.width
             visible: !root.ready
             text: "Keys pressed now deny this."
-            color: Color.menu.text
+            color: Commons.Color.menu.text
             font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3) }
             textFormat: Text.PlainText
           }
@@ -139,14 +140,14 @@ Item {
             spacing: Style.spacing.md
             Text {
               text: "  Deny (Esc)  "
-              color: Color.menu.selectedText
+              color: Commons.Color.menu.selectedText
               font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3); bold: true }
               padding: Style.spacing.sm
               MouseArea { anchors.fill: parent; onClicked: root.answer("deny", "dialog-click") }
             }
             Text {
               text: "  Allow (A)  "
-              color: Color.urgent
+              color: Commons.Color.urgent
               font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3) }
               padding: Style.spacing.sm
               MouseArea { anchors.fill: parent; onClicked: if (root.pointerArmed) root.answer("confirm", "dialog-click") }
