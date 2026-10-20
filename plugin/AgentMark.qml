@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Shapes
 import qs.Commons
+import qs.Commons as Commons
 
 // Our own mark rather than a font glyph.
 //
@@ -21,7 +22,7 @@ Item {
   id: root
 
   property real iconSize: 16
-  property color color: Color.foreground
+  property color color: Commons.Color.foreground
   // Control is live: fill the cursor and let it throw motion arcs.
   property bool active: false
 
