@@ -51,8 +51,10 @@ by the quoted text if they drift.
 ## Steps
 
 1. **Measure (session model, live; no code).** Ask for control through the
-   confirm dialog. On workspace 25 (hidden), with the human's window
-   focused, launch the apps; for Firefox and Chrome open a scratch page with
+   confirm dialog. On a scratch workspace shown on a monitor the human is not
+   using (Firefox exposes no content on a hidden workspace, measured in #65;
+   GTK4 and Chrome also work hidden), with the human's window focused, launch
+   the apps; for Firefox and Chrome open a scratch page with
    `<input type="range" min=0 max=10 step=1>`, `<input type="number">`, a
    closed `<select>`, `<select size=4>`, a `role=tablist`, and a list box.
    Read the tree (`ai-mirror a11y-tree --app <name>`) and, with a short
@@ -63,8 +65,7 @@ by the quoted text if they drift.
    revocation stops it), `acc, At = a11y.resolve(node_id)` (privacy check),
    and `a11y._write('measure', lambda: iface.set_current_value(v))` /
    `... sel.select_child(i)` (the guarded seam); record before/after
-   `hyprctl cursorpos`, `activewindow`, focused node and new layers. Firefox needs a **visible** workspace for content
-   (measured in #65). `control off` after. → verify by: a row per app ×
+   `hyprctl cursorpos`, `activewindow`, focused node and new layers. `control off` after. → verify by: a row per app ×
    control in the PR description, and `SELECTION_DEPTH` decided.
    Traps: silence notifications first and restore them; close every test
    window; a GTK4 `set_text`-style read that returns nothing is a finding,
@@ -77,7 +78,12 @@ by the quoted text if they drift.
    ```
    `_node(acc, node_id, Atspi, value=True)`: after the text block (~line 146),
    when `value` and `(v := _call(acc.get_value_iface)) is not None`, read
-   `current`, `minimum`, `maximum`, `step` with `_call` (never the names
+   `current`, `minimum`, `maximum`, `step` with `_call` from exactly
+   `v.get_current_value`, `v.get_minimum_value`, `v.get_maximum_value`,
+   `v.get_minimum_increment` (a guessed name such as `get_step` passes every
+   `MagicMock` test and silently yields `None` live -- so the tests use a
+   `MagicMock(spec=[...])` limited to those four plus `set_current_value`)
+   (never the names
    `min`/`max`: `_node` already calls the built-in `min(count, 120)`), and when
    `current` is finite set `row['value'] = [current, minimum if
    _finite(minimum) else None, maximum if _finite(maximum) else None, step if
@@ -96,14 +102,17 @@ by the quoted text if they drift.
 3. **`a11y.py`: `set_value`.** `act(..., timeout=None, value=None)`. Right
    after the `timeout` validation: if `action == 'set_value'` and not
    `_finite(value)` → `ValueError('set_value needs a finite number value')`
-   (bools excluded by `_finite`'s `type(...) in` test). After `expect` and
-   `states_before`, `if action == 'set_value': return _set_value(...)`, a new
-   function holding decision 3 end to end: the `unsupported` / `invalid` /
-   already-set checks, `_write('set_current_value', lambda:
-   iface.set_current_value(float(value)))` inside a `try` that re-raises
-   `MirrorError` and `guard.Blocked` and turns other exceptions into
-   `unavailable` (as `act` does), then a `wait.poll` probe that only reads
-   (`resolve`, role compare, `get_current_value`), then the result of
+   (bools excluded by `_finite`'s `type(...) in` test). The branch goes as the
+   **first `if` inside `act()`'s existing `try:`** (line ~390), so every
+   AT-SPI call before the write -- `get_value_iface()`, the bound reads -- is
+   covered by `act`'s `except (MirrorError, guard.Blocked): raise` /
+   `except Exception: unavailable`: `if action == 'set_value': return
+   _set_value(...)`, a new function holding decision 3 end to end: the
+   `unsupported` / `invalid` / already-set checks, `_write('set_current_value',
+   lambda: iface.set_current_value(float(value)))`, then a `wait.poll` probe
+   that only reads -- `resolve` (catching `MirrorError` with code `stale_node`
+   as "not yet", exactly as `_read_back` does; any other code re-raises), role
+   compare, `get_current_value` -- then the result of
    decision 5. Any value placed in a result or in `details` (`value_before`,
    `value_after`, `details.value`) is `None` when not finite -- `nan`/`inf`
    never reach JSON. A poll result of `unavailable` after the write raises
@@ -115,7 +124,8 @@ by the quoted text if they drift.
    `4` asked `4` → no write, `changed: False`; `4.4` at `4`, step 1 →
    written; read-back `5` for wanted `5` → verified; read-back `4` for wanted
    `5`, step 1 → `not_confirmed` with details; `0.6999999880` for `0.7`, step
-   0 → verified; read-back `nan` → `not_confirmed` with `details.value is
+   0 → verified; the node `stale_node` on the first probe then back with `5`
+   → verified (not `unavailable`); read-back `nan` → `not_confirmed` with `details.value is
    None`; `resolve` raising `sensitive` after the write → `unavailable` with
    `details.delivered`; `_write` falsy → `unavailable`; with the guard armed
    and `_write` unpatched → `guard.Blocked`.
@@ -124,7 +134,7 @@ by the quoted text if they drift.
    every exception, including `Blocked`).
 
 4. **`a11y.py`: `select`.** Module constant `SELECTION_DEPTH = 2` (or the
-   step 1 value) with a comment citing #70. In `act`, after `set_value`'s
+   step 1 value) with a comment citing #70. In `act`, inside the same `try:`, right after `set_value`'s
    branch: `if action == 'select': return _select(...)`, holding decision 4
    end to end, same `try` shape around `_write('select_child', lambda:
    sel.select_child(index))`, and a reads-only probe. `act` captured the
