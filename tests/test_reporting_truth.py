@@ -319,6 +319,38 @@ class SetText(unittest.TestCase):
                     a11y.act('1.0.0', action, 'x')
 
 
+class ClickSemantics(unittest.TestCase):
+    """#65: click names a real default action or refuses; no first-action fallback."""
+
+    def _run(self, names, do_action=True):
+        from unittest.mock import MagicMock, patch
+        from ai_mirror import a11y
+        acc = MagicMock()
+        acc.get_action_iface().get_n_actions.return_value = len(names)
+        acc.get_action_iface().get_action_name.side_effect = names
+        write = MagicMock(side_effect=lambda seam, call: call())
+        acc.get_action_iface().do_action.return_value = do_action
+        with patch.object(a11y, 'resolve', return_value=(acc, None)), patch.object(a11y, '_write', write):
+            try:
+                return a11y.act('1.0.0', 'click'), write, acc, None
+            except MirrorError as exc:
+                return None, write, acc, exc
+
+    def test_unknown_action_is_unsupported_and_not_written(self):
+        _, write, _, exc = self._run(['showContextMenu'])
+        self.assertEqual(exc.code, 'unsupported')
+        write.assert_not_called()
+
+    def test_default_click_name_runs(self):
+        _, _, acc, exc = self._run(['doDefault'])
+        self.assertIsNone(exc)
+        acc.get_action_iface().do_action.assert_called_with(0)
+
+    def test_refusal_is_unavailable(self):
+        _, _, _, exc = self._run(['press'], do_action=False)
+        self.assertEqual(exc.code, 'unavailable')
+
+
 class Departed(unittest.TestCase):
     """#39: what left the baseline, so a returning surface reads differently from a new one."""
 

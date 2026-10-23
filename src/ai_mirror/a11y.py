@@ -114,6 +114,10 @@ def _call(fn, default=None):
         return default
 
 
+# #65: measured default-click names; Chrome/Firefox check boxes offer `check`, not a click name.
+DEFAULT_CLICKS = ('doDefault', 'check', 'uncheck')
+
+
 def _write(seam: str, call):
     """The one place a11y changes an application. Tests stub this."""
     guard.check(f'a11y.act {seam}', 'a11y._write')
@@ -387,11 +391,12 @@ def act(node_id: str, action: str, text: str | None = None, expect: dict | None 
         else:
             iface = acc.get_action_iface()
             names = [iface.get_action_name(i) for i in range(iface.get_n_actions())] if iface else []
-            wanted = ('click', 'press', 'activate', 'jump') if action == 'click' else (action,)
-            index = next((names.index(w) for w in wanted if w in names), 0 if action == 'click' and names else None)
+            wanted = ('click', 'press', 'activate', 'jump', *DEFAULT_CLICKS) if action == 'click' else (action,)
+            index = next((names.index(w) for w in wanted if w in names), None)
             if index is None:
                 raise MirrorError('unsupported', f'element actions are {names}')
-            _write('do_action', lambda: iface.do_action(index))
+            if not _write('do_action', lambda: iface.do_action(index)):
+                raise MirrorError('unavailable', f'the application refused {names[index]}')
     except (MirrorError, guard.Blocked):
         raise
     except Exception as exc:  # GLib.Error

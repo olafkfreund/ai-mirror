@@ -131,6 +131,7 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
    raises `unavailable`. Stub `a11y._write` to record calls.
    → verify by the unittest command.
    Traps: `iface` may be `None` → `names == []` → `unsupported` (keep that).
+   - Deviation: the three new tests are in a new class `ClickSemantics` in `tests/test_reporting_truth.py`, not in an existing one.
 
 4. **`a11y.py` `act()`: read back.**
    Signature `act(node_id, action, text=None, expect=None, timeout=None)`.
