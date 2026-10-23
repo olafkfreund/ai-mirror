@@ -161,7 +161,7 @@ def doctor() -> dict:
 def _generation(args) -> int:
     generation = args.get('generation')
     if type(generation) is not int:
-        raise ValueError('generation (from status or a fresh screenshot) is required')
+        raise ValueError('generation is required -- from status, windows, a11y_find, a11y_tree or a screenshot frame')
     return generation
 
 
@@ -214,7 +214,8 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
     if op == 'windows':
         # Layer surfaces too: a menu or panel is not a window, and it is what
         # an agent types into once it has opened one (#26).
-        return {'windows': host.windows(), 'layers': host.layers()}
+        gen = control.read_state().get('generation')  # before the walk: a change mid-walk makes it stale
+        return {'windows': host.windows(), 'layers': host.layers(), 'generation': gen}
     if op == 'clipboard':
         if args.get('action') == 'read':
             result = subprocess.run(['wl-paste', '--no-newline'], capture_output=True, timeout=10)
@@ -222,7 +223,7 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
             return {'text': data, 'truncated': len(result.stdout) > 65536}
         if args.get('action') == 'write':
             if by == 'agent':
-                control.require_agent(control.read_state().get('generation'))
+                control.require_agent(_generation(args))
             text = args.get('text')
             if not isinstance(text, str) or len(text.encode()) > 1 << 20:
                 raise ValueError('text must be a string up to 1 MiB')
@@ -234,10 +235,12 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
         raise ValueError('action must be read or write')
     if op == 'a11y_tree':
         from . import a11y
-        return a11y.tree(args.get('app'), args.get('depth', 12), args.get('max_nodes', 400))
+        gen = control.read_state().get('generation')
+        return {**a11y.tree(args.get('app'), args.get('depth', 12), args.get('max_nodes', 400)), 'generation': gen}
     if op == 'a11y_find':
         from . import a11y
-        return a11y.find(args.get('name'), args.get('role'), args.get('app'), args.get('limit', 20))
+        gen = control.read_state().get('generation')
+        return {**a11y.find(args.get('name'), args.get('role'), args.get('app'), args.get('limit', 20)), 'generation': gen}
     if op == 'wait':
         # Read-only, and outside the ownership gate for the same reason as
         # index: observing is not acting. A caller whose control was revoked
@@ -252,7 +255,7 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
     if op in MUTATING:
         # Agents always need a current grant; the human using the CLI does too, so
         # scripted input never lands while control is off.
-        generation = args.get('generation', control.read_state().get('generation')) if op != 'input' else _generation(args)
+        generation = _generation(args)
         control.require_agent(generation)
         if op == 'input':
             actions = args.get('actions')

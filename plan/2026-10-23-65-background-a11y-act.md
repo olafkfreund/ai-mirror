@@ -222,6 +222,11 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
    Traps: generation + owner gate all mutating ops (AGENTS.md); the a11y
    import in `api.py` stays local (keeps gi off the import path); MCP tool
    errors stay `isError` results, never a dead server.
+   - Deviation: New tests are in a new file `tests/test_generation_required.py` rather than an existing one.
+   - Deviation: Tests pass the grant's generation via `grant()['generation']` rather than a literal 1 where a real grant exists (test_launch_window, test_window_verified, test_invariants clipboard); literal 1 is used only in schema/CLI-parse tests.
+   - Deviation: `test_invariants.py:352` (revoked clipboard write) reuses the same pre-revocation gen, as the plan said; no other change was needed at :348 beyond passing gen.
+   - Deviation: The a11y_tree/a11y_find tests stub `a11y.tree`/`a11y.find` (bumping state mid-call) instead of `a11y._walk`, since api reads the generation before calling them; windows stubs `host.windows`.
+   - Deviation: The CLI `--generation` on a11y-act sits with the added `--expect`/`--timeout` after `--text`; the MCP `timeout` on a11y_act was added as in the plan. Step 7 description text and clipboard docs were not touched (step 7).
 
 6. **Callers outside the unit tests.**
    - `tests/smoke.py`: `gen` from line 38 into `launch` (42), `window` (44),
