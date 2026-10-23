@@ -56,6 +56,43 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
    *current* code, so `click` may still use the index-0 fallback -- record
    which action name actually ran.
 
+   **Result (2026-10-23, Hyprland on this host, target window not focused,
+   the human's terminal focused throughout).** Installed: GTK4
+   (gnome-calculator), Firefox, Chrome. Not installed: GTK3, Qt.
+
+   | App | Element | Actions offered | Action | Result | Active window changed | Pointer moved |
+   |---|---|---|---|---|---|---|
+   | GTK4 calculator | button `7` | `click` | click | ok | no | no |
+   | GTK4 calculator | text entry | `text.*`, `clipboard.*`, `menu.popup` (no click) | set_text | ok | no | no |
+   | GTK4 calculator | button `7` | `click` | focus | `atspi_error` (grab_focus unsupported) | no | no |
+   | Chrome | button | `press`, `showContextMenu` | click | ok; in-page focus moved to it | no | no |
+   | Chrome | check box | `check`, `showContextMenu` | click | ok **only via the index-0 fallback** | no | no |
+   | Chrome | entry | `activate`, `showContextMenu` | set_text | `unsupported` (no EditableText) | no | no |
+   | Chrome | entry | `activate`, `showContextMenu` | focus | ok; in-page focus moved to it | no | no |
+   | Chrome | link | `jump`, `showContextMenu` | click | ok | no | no |
+   | Chrome | label text | `doDefault`, `showContextMenu` | -- | (a name match on "Your name" hit the label, not the entry: target entries by role) | | |
+   | Firefox | button | `press` | click | ok | no | no |
+   | Firefox | check box | `check` | click | ok **only via the index-0 fallback** | no | no |
+   | Firefox | entry | `activate` | set_text | ok (EditableText present) | no | no |
+   | Firefox | entry | `activate` | focus | ok | no | no |
+   | Firefox | link | `jump` | click | ok | no | no |
+
+   Findings:
+   - No action, in any app, changed the active window or the workspace. Every
+     "pointer moved" seen during the runs coincided with the human using the
+     mouse and did not reproduce on rerun; AT-SPI has no call that moves it.
+   - **Check boxes in Chrome and Firefox offer `check`, not a click name.**
+     Removing the fallback without adding it breaks clicking them.
+     `DEFAULT_CLICKS = ('doDefault', 'check', 'uncheck')` -- `doDefault` seen on
+     Chrome text, `uncheck` the unmeasured counterpart a checked box offers.
+   - **Firefox exposes no content while its window is on a hidden workspace**
+     (application and frame only); on a visible one, full tree. Chrome exposes
+     content hidden. GTK4 calculator too.
+   - `focus` changes in-page focus in the browsers without activating the
+     window; on GTK4 `grab_focus` fails outright.
+   - A fresh Firefox profile opens a "make default" dialog first; dismissing
+     it with `a11y-act <Not now> click` worked.
+
 2. **`src/ai_mirror/a11y.py`: the guarded seam.**
    Add after `_call` (~line 116):
    ```python
@@ -82,8 +119,8 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
 3. **`a11y.py:384-388`: click semantics and refusal.**
    `wanted = ('click', 'press', 'activate', 'jump', *DEFAULT_CLICKS)` for
    `click`, where `DEFAULT_CLICKS` is a module constant holding the names from
-   step 1 (`('doDefault',)` unless the measurement says otherwise), with a
-   one-line comment citing #65. `index = next((names.index(w) for w in wanted
+   step 1: `('doDefault', 'check', 'uncheck')`, with a one-line comment
+   citing #65. `index = next((names.index(w) for w in wanted
    if w in names), None)`. After `_write('do_action', ...)` returns falsy:
    `raise MirrorError('unavailable', f'the application refused {names[index]}')`.
    Tests: `['showContextMenu']` + `click` → `unsupported` and `_write` not
