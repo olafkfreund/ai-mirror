@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 68
 author: olafkfreund
 ---
@@ -97,7 +97,7 @@ other than what happened -- and the smoke test cannot pass while it stands.
    alternative, "release any key this action pressed, wherever focus is",
    covers that too, and sends nothing `C` would not have sent on the failure
    path; it is #52's current rule, made to require a matching press. Your
-   call: narrow ("target gone") or broad ("matching press").
+   call: narrow ("target gone") or broad ("matching press"). **Decided: as proposed (narrow, "target gone").**
 2. Rewrite #52's layer rule to the same "target gone" test, or keep #52's
    broader layer rule and add the narrower window rule beside it? Proposed: one
-   rule for both, "target gone", so there is a single behaviour to describe.
+   rule for both, "target gone", so there is a single behaviour to describe. **Decided: as proposed.**
