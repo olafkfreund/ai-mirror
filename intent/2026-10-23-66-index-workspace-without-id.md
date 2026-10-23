@@ -32,9 +32,9 @@ appears whenever such a workspace exists.
   an `id`: version, dispatch form and monitors are all there.
 - Such a workspace is still reported, by its name, rather than silently
   dropped -- a screensaver or scratchpad holding a window is something an
-  agent should know is there. That includes whether it holds a window, and it
-  shows in **both** outputs: the JSON and the Markdown the CLI prints by
-  default, which today renders only `occupied` (`index.py:429`).
+  agent should know is there. The JSON lists every one with whether it holds a
+  window; the Markdown the CLI prints by default (which today renders only
+  `occupied`, `index.py:429`) lists the occupied ones, as it does for ids.
 - A unit test with a fixture workspace lacking `id` keeps it that way.
 
 ## Affected users and systems
@@ -51,6 +51,9 @@ appears whenever such a workspace exists.
 - The `workspaces` and `occupied` lists keep their current shape for workspaces
   that have an `id`, so existing readers are unaffected.
 - No new dependencies.
+- Other keys can be missing too: reading a workspace entry must not raise on
+  any absent or oddly typed field (`name`, `windows`, a non-int `id`), or the
+  same section blanks again for a different reason.
 
 ## Open questions
 
