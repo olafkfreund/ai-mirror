@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 70
 intent: intent/2026-10-23-70-a11y-value-selection.md
 ---
