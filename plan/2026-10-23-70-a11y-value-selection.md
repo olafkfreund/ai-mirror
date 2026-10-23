@@ -1,0 +1,167 @@
+---
+status: draft
+issue: 70
+spec: spec/2026-10-23-70-a11y-value-selection.md
+---
+
+# Plan: set values and select items without the pointer
+
+Self-contained. Branch `feat/70-a11y-value-selection`, stacked on
+`fix/65-background-a11y-act` (PR #67). Line numbers as of `eef21dc`; re-find
+by the quoted text if they drift.
+
+## Approved decisions (from the spec)
+
+1. **Measure first** (GTK4, Firefox, Chrome with a scratch profile and
+   `--force-renderer-accessibility`): which controls implement `Value` /
+   `Selection`, at which depth, and whether using them moves the pointer,
+   focus, the active window, or maps a surface. Rows go into the **existing**
+   measured table in `gotchas.md` (index cap 22,000 bytes, <1 KB left).
+   Decides `SELECTION_DEPTH` (default 2) and closed-`<select>` reachability.
+2. **Rows** gain `value: [current, minimum, maximum, step]` when
+   `get_value_iface()` is present and `current` is finite; an unreadable or
+   non-finite bound/step is `None`, never `nan`. `_states()` does not read
+   values. `_actionable` counts `value`; the quiet-role filter keeps it.
+3. **`set_value`**: `value` an `int`/`float`, finite, not `bool`, validated
+   before `resolve` (with `timeout`). No `Value` → `unsupported`. Range check
+   only when both bounds are finite and `minimum < maximum` → `invalid`
+   before writing. `eps = 1e-5 * max(1.0, abs(value))`;
+   `tol = max(step / 2, eps)` when `step` is finite and `> 0`, else `eps`.
+   Already set (within `eps`) → no write. Write through `_write`; falsy →
+   `unavailable`. Read-back: finite and within `tol` → verified; else
+   `not_confirmed`, `details={'value': current, 'wanted': value}`.
+4. **`select`** on the item's own id. For `k` in
+   `1..min(SELECTION_DEPTH, len(parts) - 1)`: container
+   `'.'.join(parts[:-k])`, `index = int(parts[-k])`, selected node
+   `'.'.join(parts[:len(parts) - k + 1])`. First container with
+   `get_selection_iface()` wins; none → `unsupported`. `expect` is the guard
+   (role, name of the item). Already selected → no write. Write through
+   `_write`; falsy → `unavailable`. Read-back: re-resolve selected node and
+   container each probe, `stale_node` from either → not yet; confirmed only
+   when the selected node has its original role **and** (`selected` in its
+   states **or** `is_child_selected(index)`). States and `selected: {role,
+   name}` describe the selected node; `selected_via: k`.
+5. **One result shape** for both: `ok, node, action, verified, changed,
+   states_before, states_after, waited_ms` + `value_before, value_after`
+   (`set_value`) or `selected, selected_via` (`select`). Already-there path:
+   `changed: false`, `waited_ms: 0`.
+6. A read-back failure after a delivered write says so (`details.delivered`),
+   as #65's `_read_back` does. No deselect, no clear.
+
+## Steps
+
+1. **Measure (session model, live; no code).** Ask for control through the
+   confirm dialog. On workspace 25 (hidden), with the human's window
+   focused, launch the apps; for Firefox and Chrome open a scratch page with
+   `<input type="range" min=0 max=10 step=1>`, `<input type="number">`, a
+   closed `<select>`, `<select size=4>`, a `role=tablist`, and a list box.
+   Read the tree (`ai-mirror a11y-tree --app <name>`) and, with a short
+   `nix develop -c python3` probe, record per control: `get_value_iface()` /
+   `get_selection_iface()` on the node and up to 3 ancestors, values, bounds,
+   step. Then call `set_current_value` / `select_child` directly in that probe
+   and record before/after `hyprctl cursorpos`, `activewindow`, focused node
+   and new layers. Firefox needs a **visible** workspace for content
+   (measured in #65). `control off` after. → verify by: a row per app ×
+   control in the PR description, and `SELECTION_DEPTH` decided.
+   Traps: silence notifications first and restore them; close every test
+   window; a GTK4 `set_text`-style read that returns nothing is a finding,
+   not a failure.
+
+2. **`src/ai_mirror/a11y.py`: reading values.** Add `import math`. Add
+   ```python
+   def _finite(x):
+       return type(x) in (int, float) and math.isfinite(x)
+   ```
+   `_node(acc, node_id, Atspi, value=True)`: after the text block (~line 146),
+   when `value` and `(v := _call(acc.get_value_iface)) is not None`, read
+   current/min/max/increment with `_call`, and when `current` is finite set
+   `row['value'] = [current, min if _finite(min) else None, max if ... else
+   None, step if _finite(step) else None]`. `_states` (line 373) calls
+   `_node(acc, node_id, Atspi, value=False)`. `_actionable` (line 212) adds
+   `or row.get('value')`. The quiet-role filter (line 256) adds
+   `and 'value' not in row`.
+   Tests (`tests/test_reporting_truth.py`, a new class `ValueRows`, fake
+   accessibles via `MagicMock`): value present only when the iface is; `nan`
+   bound becomes `None`; `nan` current omits the field; `_states` never calls
+   the value iface; `_actionable` true for a value-only row at content depth;
+   `tree()` keeps a quiet-role row with a value (stub `_walk`).
+   → verify by `python3 -m unittest discover -s tests`.
+   Traps: reads stay unguarded; never emit `nan` (JSON).
+
+3. **`a11y.py`: `set_value`.** `act(..., timeout=None, value=None)`. Right
+   after the `timeout` validation: if `action == 'set_value'` and not
+   `_finite(value)` → `ValueError('set_value needs a finite number value')`
+   (bools excluded by `_finite`'s `type(...) in` test). After `expect` and
+   `states_before`, `if action == 'set_value': return _set_value(...)`, a new
+   function holding decision 3 end to end: the `unsupported` / `invalid` /
+   already-set checks, `_write('set_current_value', lambda:
+   iface.set_current_value(float(value)))` inside a `try` that re-raises
+   `MirrorError` and `guard.Blocked` and turns other exceptions into
+   `unavailable` (as `act` does), then a `wait.poll` probe that only reads
+   (`resolve`, role compare, `get_current_value`), then the result of
+   decision 5.
+   Tests (new class `SetValue`, `resolve` and `_write` patched, `timeout=0.1`):
+   bool / `nan` / `'3'` → `ValueError` and `_write` not called; out of
+   `[0, 10]` → `invalid`, no write; bounds `0..0` or `None` → written; already
+   `4` asked `4` → no write, `changed: False`; `4.4` at `4`, step 1 →
+   written; read-back `5` for wanted `5` → verified; read-back `4` for wanted
+   `5`, step 1 → `not_confirmed` with details; `0.6999999880` for `0.7`, step
+   0 → verified; `_write` falsy → `unavailable`; with the guard armed and
+   `_write` unpatched → `guard.Blocked`.
+   → verify by the unittest command.
+   Traps: `_write` is never called from the probe (`wait.poll` swallows
+   every exception, including `Blocked`).
+
+4. **`a11y.py`: `select`.** Module constant `SELECTION_DEPTH = 2` (or the
+   step 1 value) with a comment citing #70. In `act`, after `set_value`'s
+   branch: `if action == 'select': return _select(...)`, holding decision 4
+   end to end, same `try` shape around `_write('select_child', lambda:
+   sel.select_child(index))`, and a reads-only probe.
+   Tests (new class `Select`, `resolve` patched by id → fake accessible):
+   direct parent (`selected_via: 1`); grandparent (`selected_via: 2`, states
+   from the row); none within depth → `unsupported`; id `"3.0"` → stops at the
+   application, no `IndexError`; `expect` name mismatch after the list
+   shifted (keep the original observation, give the path a sibling with a
+   different name) → `stale_node`, `_write` not called; already selected → no
+   write; confirmed via `is_child_selected`; confirmed via `selected` state;
+   container `stale_node` on the first probe then present → confirmed (not
+   `unavailable`); selected node gone → `not_confirmed`; `select_child` falsy
+   → `unavailable`; guard armed → `guard.Blocked`.
+   → verify by the unittest command.
+
+5. **Wiring and words.** `api.py:276`: pass `value=args.get('value')`.
+   `mcp.py:78`: add `'value': {'type': 'number'}` to `a11y_act`'s properties;
+   description adds "set_value (value) on a slider or spin button; select on
+   a list or tab item; both read back". `cli.py:111` block: `--value
+   type=float`. `docs/usage.md:58` and `:102`: the two actions, `value` in
+   rows, `changed`, `value_before/after`, `selected`, `selected_via`.
+   `gotchas.md`: step 1's rows into the existing measured table. Tests: MCP
+   `validate('a11y_act', {..., 'value': 3.5})` passes, `'value': 'x'` fails;
+   CLI parses `--value 3.5`; the index payload stays under 22,000 bytes
+   (existing test).
+   → verify by the unittest command and `nix flake check`.
+
+6. **Live (session model).** Under a grant from the confirm dialog: one
+   `set_value` and one `select` per measured app that supports them; results
+   match the table (`verified`, `changed`, states). `control off` after.
+
+## Execution
+
+Steps 2-5 edit four source files and tests across four steps: one `coder`
+agent per step in a dynamic workflow in its own git worktree, each step
+checked by `codex review --uncommitted` (no custom prompt) and agy
+(read-only, one command per call), then committed naming the step; a fresh
+Opus review compares `git diff fix/65-background-a11y-act...HEAD` with this
+plan. Steps 1 and 6 are the session model's, under the human's grant.
+
+## Tests
+
+```sh
+python3 -m unittest discover -s tests -v
+nix flake check
+```
+
+## Rollback
+
+Revert the step commits. No state, config or plugin changes; existing
+`a11y_act` actions are untouched.
