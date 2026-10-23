@@ -424,10 +424,10 @@ def act(node_id: str, action: str, text: str | None = None, expect: dict | None 
 def _read_back(node_id, action, text, role, states_before, Atspi, timeout) -> dict:
     """Look again after the write. Reads only: a probe must never call _write."""
     from . import wait
-    after = got = None
+    after = got = states_after = None
 
     def probe(budget):
-        nonlocal after, got
+        nonlocal after, got, states_after
         try:
             node, _ = resolve(node_id)
         except MirrorError as exc:
@@ -436,16 +436,20 @@ def _read_back(node_id, action, text, role, states_before, Atspi, timeout) -> di
             node = None
         after = node if node is not None and _call(node.get_role_name, '') == role else None
         got = _full_text(after) if action == 'set_text' and after is not None else None
+        # The states reported are the ones that decided the result, not a later read.
+        states_after = None if after is None else _states(after, node_id, Atspi)
         if action == 'set_text':
             return got is not None and got == text
         if action == 'focus':
-            return after is not None and 'focused' in _states(after, node_id, Atspi)
+            return states_after is not None and 'focused' in states_after
         return True
 
     result = wait.poll(probe, timeout)
     if result['result'] == 'unavailable':
-        raise MirrorError('unavailable', result['reason'])
-    states_after = None if after is None else _states(after, node_id, Atspi)
+        # The write already landed; only the look afterwards failed.
+        raise MirrorError('unavailable', f"the {action} was delivered, but reading it back failed "
+                                         f"({result['reason']}); do not repeat it -- observe first",
+                          {'delivered': True})
     if result['result'] == 'not_confirmed':
         if action == 'set_text':
             details = ({'text': got[:120], 'length': len(got)} if isinstance(got, str) else

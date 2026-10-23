@@ -106,7 +106,7 @@ def check_index():
     assert data['gotchas']['text'].strip()
 
     rendered = index.render(data)
-    assert len(rendered) < 20000, f'default payload is {len(rendered)} bytes'
+    assert len(rendered) < 22000, f'default payload is {len(rendered)} bytes'
     print(f'PASS: index -- {len(binds)} keys, {len(plugins)} plugins, '
           f'{len(opens)} joined to a key, {len(rendered)} bytes')
 

@@ -275,6 +275,11 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
 - Opus review, low: `test_every_a11y_write_is_guarded` disarms the guard on
   cleanup; a `focus` read-back test added; `docs/usage.md` `window` synopsis
   shows `--generation`.
+- agy review of the branch: `tests/smoke.py` index cap raised to 22000 to
+  match `test_invariants.py`; `gotchas.md` check-box rows corrected (click
+  works via `check` now); `focus` read-back reports the states that decided
+  it; a read-back that fails after the write says the action was delivered
+  (`details.delivered`) so it is not retried.
 
 ## Execution
 

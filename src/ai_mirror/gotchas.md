@@ -153,12 +153,12 @@ pointer. Re-measure on your host.
 | GTK4 calculator | entry | `text.*`, `clipboard.*`, `menu.popup` | set_text | ok |
 | GTK4 calculator | button | `click` | focus | `atspi_error` (grab_focus unsupported) |
 | Chrome | button | `press` | click | ok, in-page focus moves |
-| Chrome | check box | `check` | click | needs the named action `check` |
+| Chrome | check box | `check` | click | ok (`check` counts as a click since #65) |
 | Chrome | entry | `activate` | set_text | `unsupported` (no EditableText) |
 | Chrome | entry | `activate` | focus | ok, in-page focus moves |
 | Chrome | link | `jump` | click | ok |
 | Firefox | button, link | `press`, `jump` | click | ok |
-| Firefox | check box | `check` | click | needs the named action `check` |
+| Firefox | check box | `check` | click | ok (`check` counts as a click since #65) |
 | Firefox | entry | `activate` | set_text, focus | ok |
 
 Firefox exposes no content while its window is on a hidden workspace; Chrome

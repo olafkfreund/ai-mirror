@@ -399,6 +399,27 @@ class ReadBack(unittest.TestCase):
                 self._act('focus')
         self.assertEqual(c.exception.code, 'not_confirmed')
 
+    def test_a_failed_read_back_says_the_action_landed(self):
+        from unittest.mock import MagicMock, patch
+        from ai_mirror import a11y
+        before = MagicMock()
+        before.get_role_name.return_value = 'push button'
+        before.get_action_iface().get_n_actions.return_value = 1
+        before.get_action_iface().get_action_name.return_value = 'press'
+        calls = iter([(before, None)])
+
+        def resolve(node_id):
+            try:
+                return next(calls)
+            except StopIteration:
+                raise MirrorError('sensitive', 'now inside a password manager') from None
+        with patch.object(a11y, 'resolve', resolve), patch.object(a11y, '_write', lambda seam, call: True):
+            with self.assertRaises(MirrorError) as c:
+                a11y.act('1.0.0', 'click', timeout=0.1)
+        self.assertEqual(c.exception.code, 'unavailable')
+        self.assertTrue(c.exception.details['delivered'])
+        self.assertIn('do not repeat', str(c.exception))
+
     def test_a_bad_timeout_refuses_before_writing(self):
         from unittest.mock import patch
         from ai_mirror import a11y
