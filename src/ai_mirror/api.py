@@ -6,13 +6,125 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import control, host
+from . import control, guard, host
 from .control import MirrorError
 from .input import encode, needs_window
 
 MUTATING = {'input', 'window', 'launch', 'a11y_act'}
 # Ungated reads. An agent doing any of these lights the watching mark in the bar.
 OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'wait', 'index'}
+
+
+def _window(args: dict) -> dict:
+    """Read, act, confirm (#53): the dispatch returning says nothing happened."""
+    from . import wait
+    action, address, enabled = args.get('action'), args.get('address'), args.get('enabled')
+    if enabled is not None and not isinstance(enabled, bool):
+        raise ValueError('enabled must be true or false')
+    timeout = wait._timeout(args.get('timeout'), default=1.5)
+    dispatcher = host.window_dispatch(action, address, args.get('workspace'),
+                                      args.get('w'), args.get('h'), args.get('mode'))
+
+    def row_of(budget=10):
+        return next((r for r in host.windows(budget) if r['address'] == address), None)
+
+    before = row_of()
+    if before is None:
+        raise MirrorError('no_such_window', f'no window {address}: call windows for current addresses')
+    if action in ('resize', 'center') and not before['floating']:
+        raise MirrorError('invalid', 'resize/center applies to floating windows; this one is tiled. '
+                                     'Float it first; do not retry as is.')
+    size = [args.get('w'), args.get('h')]
+    # Hyprland reports "03" as 3 and "special" as special:special.
+    # ponytail: a workspace renamed by a rule still will not match; compare ids if that bites.
+    want = args.get('workspace')
+    if isinstance(want, str):
+        want = str(int(want)) if want.isdigit() else 'special:special' if want == 'special' else want
+    target = enabled if enabled is not None else not before['floating']
+    holds = {  # already true: nothing to dispatch
+        'focus': lambda: host.focused_address() == address,
+        'workspace': lambda: before['workspace'] == want,
+        'resize': lambda: before['size'] == size,
+        'float': lambda: enabled is not None and before['floating'] == enabled,
+    }
+    done = {  # true once the action has landed
+        'focus': lambda r: host.focused_address() == address,
+        'close': lambda r: r is None,
+        'float': lambda r: r is not None and r['floating'] == target,
+        'workspace': lambda r: r is not None and r['workspace'] == want,
+        'resize': lambda r: r is not None and r['size'] == size,
+        'fullscreen': lambda r: r is not None and r['fullscreen'] != before['fullscreen'],
+        'center': lambda r: r is not None,  # position not checked; a closed window is not_confirmed
+    }
+    ok = {'ok': True, 'action': action, 'address': address}
+    if action in holds and holds[action]():
+        return {**ok, 'changed': False, 'verified': True, 'before': before, 'after': before, 'waited_ms': 0}
+    host.ctl('dispatch', dispatcher)
+
+    after = None
+
+    def check(budget):
+        nonlocal after
+        after = row_of(budget)
+        return done[action](after)
+
+    result = wait.poll(check, timeout)
+    if result['result'] == 'unavailable':
+        raise MirrorError('unavailable', result['reason'], details={'before': before})
+    if result['result'] == 'not_confirmed':
+        raise MirrorError('not_confirmed', f'did not reach the requested state within {timeout:g}s; '
+                                           'it may still land -- call windows before retrying',
+                          details={'before': before, 'after': after, 'waited_ms': result['waited_ms']})
+    center = action == 'center'
+    # Confirmed after a dispatch that 'holds' did not skip: the state changed by
+    # definition. Comparing whole rows would hang it on focusHistoryID and titles.
+    return {**ok, 'changed': after['at'] != before['at'] if center else True,
+            'verified': None if center else True, 'before': before, 'after': after,
+            'waited_ms': result['waited_ms']}
+
+
+def _spawn(argv: list[str]) -> int:
+    """The one process launch starts. Guarded: tests stub this, never Popen."""
+    guard.check('api._spawn', 'api._spawn')
+    return subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True).pid
+
+
+def _launch(args: dict) -> dict:
+    """Start a program and report the window it opened (#54).
+
+    After the spawn this never raises: an error would invite a second launch.
+    """
+    from . import wait
+    argv = args.get('argv')
+    if not isinstance(argv, list) or not argv or not all(isinstance(a, str) and '\0' not in a for a in argv):
+        raise ValueError('argv must be a non-empty array of strings')
+    timeout = wait._timeout(args.get('timeout'), default=5.0)
+    before = {r['address'] for r in host.windows()}  # raises before anything starts
+    pid = _spawn(argv)
+    new: list[dict] = []
+
+    def check(budget):
+        new[:] = [r for r in host.windows(budget) if r['address'] not in before]
+        return bool(new)
+
+    result = wait.poll(check, timeout)
+    out = {'ok': True, 'pid': pid, 'waited_ms': result['waited_ms']}
+    # .get: windows() keeps only the fields Hyprland sent, and nothing here may raise.
+    seen = [{'address': r['address'], 'class': r.get('class'), 'title': r.get('title')} for r in new]
+    if result['result'] == 'confirmed':
+        if len(seen) == 1:
+            out.update(seen[0])
+            out['window'] = out.pop('address')
+        else:
+            out['candidates'] = seen
+    elif result['result'] == 'not_confirmed':
+        out['note'] = (f'no new window within {timeout:g}s; it may still appear -- '
+                       'call windows, do not launch again')
+    else:
+        out['note'] = (f"started, but windows could not be read: {result['reason']}. "
+                       'Call windows; do not launch again')
+    return out
 
 
 SESSION_VARS = ('HYPRLAND_INSTANCE_SIGNATURE', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR')
@@ -81,8 +193,20 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
             # Only the human answers, and the agent reaches this dispatcher with by='agent'.
             if by == 'agent':
                 raise MirrorError('not_owner', 'only the person at the keyboard confirms or denies a request')
+            via, key, mods = args.get('via'), args.get('key'), args.get('mods')
+            if via not in (None, 'dialog-key', 'dialog-click'):
+                raise ValueError('via must be dialog-key or dialog-click')
+            if (key is not None or mods is not None) and via != 'dialog-key':
+                raise ValueError('key and mods go with via=dialog-key')
+            if any(x is not None and (type(x) is not int or x < 0) for x in (key, mods)):
+                raise ValueError('key and mods must be non-negative integers')
+            given = bool(args.get('id'))
+            if mode == 'confirm' and not given:
+                raise MirrorError('invalid', 'confirm needs the request id (ai-mirror status shows it): '
+                                             'a confirm must name what it approves')
             request = args.get('id') or control.read_state().get('request', {}).get('id')
-            return control.confirm_request(request) if mode == 'confirm' else control.deny_request(request)
+            answer = control.confirm_request if mode == 'confirm' else control.deny_request
+            return answer(request, via=via or 'cli', key=key, mods=mods, id_given=given)
         return control.set_owner(mode, by)
     if op == 'screenshot':
         dest = Path(args.get('out') or control.root() / 'shot.png').absolute()
@@ -143,17 +267,9 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
             lines, owners = encode(actions, with_owners=True)
             return control.run_batch(lines, generation, window=window, owners=owners)
         if op == 'window':
-            dispatcher = host.window_dispatch(args.get('action'), args.get('address'), args.get('workspace'),
-                                              args.get('w'), args.get('h'), args.get('mode'))
-            host.ctl('dispatch', dispatcher)
-            return {'ok': True, 'action': args.get('action'), 'address': args.get('address')}
+            return _window(args)
         if op == 'launch':
-            argv = args.get('argv')
-            if not isinstance(argv, list) or not argv or not all(isinstance(a, str) and '\0' not in a for a in argv):
-                raise ValueError('argv must be a non-empty array of strings')
-            proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)
-            return {'ok': True, 'pid': proc.pid}
+            return _launch(args)
         if op == 'a11y_act':
             from . import a11y
             return a11y.act(args.get('node'), args.get('action'), args.get('text'), args.get('expect'))

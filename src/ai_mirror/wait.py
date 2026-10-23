@@ -108,7 +108,7 @@ PREDICATES = {
 }
 
 
-def _timeout(value) -> float:
+def _timeout(value, default: float = DEFAULT_TIMEOUT) -> float:
     """A finite, non-negative deadline, clamped.
 
     `nan` is the dangerous one: `min(nan, MAX)` is `nan` and nothing is ever
@@ -117,7 +117,7 @@ def _timeout(value) -> float:
     a falsy default, because "look once" is a reasonable thing to ask for.
     """
     if value is None:
-        return DEFAULT_TIMEOUT
+        return default
     try:
         seconds = float(value)
     except (TypeError, ValueError):
@@ -141,6 +141,14 @@ def until(args: dict | None = None) -> dict:
     absent = bool(args.get('absent'))
     timeout = _timeout(args.get('timeout'))
 
+    result = poll(lambda budget: check(value, budget) is not absent, timeout)
+    # `predicate` sits after `polls`, where it always has.
+    return {'result': result.pop('result'), 'polls': result.pop('polls'),
+            'predicate': name, **result}
+
+
+def poll(check, timeout: float) -> dict:
+    """Call `check(budget)` until it is true, or the deadline passes."""
     started, polls = time.monotonic(), 0
 
     def elapsed_ms() -> int:
@@ -152,18 +160,18 @@ def until(args: dict | None = None) -> dict:
             # Each probe gets only what is left of the caller's budget.
             # host.ctl otherwise allows itself ten seconds, so one slow query
             # could blow a 0.1 s deadline by two orders of magnitude.
-            held = check(value, max(timeout - (time.monotonic() - started), 0.1))
+            held = check(max(timeout - (time.monotonic() - started), 0.1))
         except Exception as exc:  # noqa: BLE001 - reported, never raised
             # "could not look" must not be reported as "looked and it was not
             # there": a caller that conflates them acts on absent evidence.
-            return {'result': 'unavailable', 'polls': polls, 'predicate': name,
+            return {'result': 'unavailable', 'polls': polls,
                     'reason': f'{type(exc).__name__}: {exc}'.strip()[:200],
                     'waited_ms': elapsed_ms()}
-        if held is not absent:
-            return {'result': 'confirmed', 'polls': polls, 'predicate': name,
+        if held:
+            return {'result': 'confirmed', 'polls': polls,
                     'waited_ms': elapsed_ms()}
         left = timeout - (time.monotonic() - started)
         if left <= 0:
             return {'result': 'not_confirmed', 'polls': polls,
-                    'predicate': name, 'waited_ms': elapsed_ms()}
+                    'waited_ms': elapsed_ms()}
         time.sleep(min(INTERVAL, left))

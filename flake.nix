@@ -8,7 +8,7 @@
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
       inherit (pkgs) lib;
-      version = "2.0.0";
+      version = "2.1.0";
 
       # Everything installable ships the licence it is under, in one place.
       licenceFiles = ''
@@ -113,6 +113,11 @@
           XDG_RUNTIME_DIR=$TMPDIR python3 -m unittest discover -s tests -v
           touch $out
         '';
+        confirm-keys = pkgs.runCommand "ai-mirror-confirm-keys" { nativeBuildInputs = [ pkgs.nodejs ]; } ''
+          cd ${./.}
+          node --test tests/test_confirm_keys.mjs
+          touch $out
+        '';
         # Every output someone can install carries the licence it ships under.
         licence = pkgs.runCommand "ai-mirror-licence-check" { } ''
           for installed in ${ai-mirror} ${ai-mirror-input} ${plugin}; do
@@ -128,6 +133,8 @@
                  and (.kinds | index("bar-widget")) and .entryPoints.barWidget
                  and (.barWidget.defaultSection | IN("left", "center", "right"))' $m
           test -f ${plugin}/$(jq -r .entryPoints.barWidget $m)
+          jq -e '(.kinds | index("overlay")) == null or (.entryPoints | has("overlay"))' $m
+          test -f ${plugin}/$(jq -r '.entryPoints.overlay // .entryPoints.barWidget' $m)
           test -z "$(find ${plugin} -type l)"
           ! grep -rEw 'pacman|yay' ${plugin}
           ! grep -r '@ai-mirror@' ${plugin}

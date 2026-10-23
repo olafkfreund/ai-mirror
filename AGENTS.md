@@ -33,7 +33,9 @@ Full reference: `docs/usage.md`.
 | `src/ai_mirror/gotchas.md` | The hand-written half of the index. Read only; nothing generates it |
 | `src/ai_mirror/a11y.py` | AT-SPI via `gi.repository.Atspi`: tree, find, act |
 | `src/ai_mirror_input/ai_mirror_input.c` | Persistent wlr virtual pointer + virtual keyboard; `C` releases all; stdin EOF releases and exits |
-| `plugin/AgentConfirmDialog.qml` | The human's half of the gate: layer-shell dialog over everything, exclusive keyboard focus, Deny on Escape/Enter, Allow on `A` |
+| `plugin/AgentConfirmDialog.qml` | The human's half of the gate: layer-shell dialog over everything, exclusive keyboard focus, keys in the first second deny; after that `A` allows (`ConfirmKeys.js`) |
+| `plugin/ConfirmKeys.js` | The dialog's key rule as one pure function, `decide(state, key, modifiers, autoRepeat)`; tested by `tests/test_confirm_keys.mjs` (`node --test`) |
+| `plugin/Overlay.qml` | Owns the one confirm dialog: the shell creates the overlay once, not per bar (#58) |
 | `plugin/` | Omarchy bar widget: `FileView` on the state file, click asks for control; `@ai-mirror@` substituted by Nix |
 | `flake.nix` | `packages.{ai-mirror,ai-mirror-input,plugin}`, `homeManagerModules.default`, `checks`, `devShells` |
 | `tests/test_invariants.py` | Fast regressions (no Wayland); `tests/smoke.py` live desktop check |
@@ -42,7 +44,7 @@ Full reference: `docs/usage.md`.
 
 - **Tests cannot reach the desktop.** `Base.setUp` calls `guard.arm()`, and the seams that
   change the world outside the process — the bus write in `a11y._busctl`, `Helper.start`/
-  `.cmd`, `host.ctl dispatch` — raise `guard.Blocked` while it is armed. Reads are
+  `.cmd`, `host.ctl dispatch`, the `Popen` in `api._spawn` — raise `guard.Blocked` while it is armed. Reads are
   deliberately not guarded. A test that genuinely needs a live seam calls `guard.disarm()`,
   in one line. Put the check on the innermost real call, the one a test stubs, never on the
   wrapper above it.

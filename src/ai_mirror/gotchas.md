@@ -278,3 +278,11 @@ Two things that look like this bug and are not:
 
 **Do:** in Chrome, use the keyboard — `CTRL+W` for a tab, `CTRL+click` for a
 link in a background tab. Elsewhere, middle click normally.
+
+## What you launch dies with your terminal
+
+`launch` children share the MCP server's systemd scope, which is its
+terminal's (measured: tmux, foot). Close that terminal and they go too.
+
+**Do:** `["uwsm-app", "--", "<app>", …]` gives each app its own scope, as
+`omarchy-launch-*` do. `launch` does not add it for you.

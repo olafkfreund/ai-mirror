@@ -152,6 +152,9 @@ def read_audit(limit: int = 20) -> dict:
     from one writer, so a partial line means a crash mid-write; refusing to
     show the other four hundred entries because of it is the wrong trade for
     something reached for when worried.
+
+    `via` and `chain` show what answered, as that process reported it; on a
+    shared account they are evidence, not proof.
     """
     path = root() / 'audit.jsonl'
     if not path.exists():
@@ -358,7 +361,30 @@ def _baseline_layers() -> list[str] | None:
         return None
 
 
-def _answer(request_id: str, granted: bool) -> dict:
+def _chain(pid: int | None = None, depth: int = 3) -> str | None:
+    """Names of the nearest ancestors of `pid`, for the audit line. Best effort.
+
+    `comm` only, never argv: a command line can hold anything. Evidence of what
+    answered, not proof -- a process on the same account can lie about it.
+    """
+    names = []
+    try:
+        pid = pid or os.getpid()
+        for _ in range(depth):
+            with open(f'/proc/{pid}/status') as fh:
+                ppid = int(next(l for l in fh if l.startswith('PPid:')).split()[1])
+            if ppid <= 1:
+                break
+            with open(f'/proc/{ppid}/comm') as fh:
+                names.append(fh.read().strip())
+            pid = ppid
+    except (OSError, ValueError, IndexError, StopIteration):
+        pass
+    return ' < '.join(names) or None
+
+
+def _answer(request_id: str, granted: bool, *, via: str = 'cli', key: int | None = None,
+            mods: int | None = None, id_given: bool = True) -> dict:
     with locked('control'):
         state = read_state()
         request = state.get('request') or {}
@@ -366,7 +392,8 @@ def _answer(request_id: str, granted: bool) -> dict:
             raise MirrorError('bad_request', 'no request with that id is waiting; ask again')
         generation = int(state.get('generation', 0)) + 1
         audit('confirmed' if granted else 'denied', request=request_id, by=request.get('by'),
-              holder=_holder_pid(request.get('server')))
+              holder=_holder_pid(request.get('server')), via=via, key=key, mods=mods,
+              pid=os.getpid(), chain=_chain(), id_given=id_given)
         if not granted:
             _a11y_restore(state.get('a11y_before') or {})
             return _write({'owner': 'off', 'generation': generation, 'since': stamp(), 'enabled_by': None})
@@ -385,12 +412,12 @@ def _answer(request_id: str, granted: bool) -> dict:
         return _write(granted_state)
 
 
-def confirm_request(request_id: str) -> dict:
-    return _answer(request_id, True)
+def confirm_request(request_id: str, **answerer) -> dict:
+    return _answer(request_id, True, **answerer)
 
 
-def deny_request(request_id: str) -> dict:
-    return _answer(request_id, False)
+def deny_request(request_id: str, **answerer) -> dict:
+    return _answer(request_id, False, **answerer)
 
 
 def require_agent(generation: int) -> dict:

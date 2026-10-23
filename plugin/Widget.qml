@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 
 // Warns, in the bar, while an agent may drive the desktop; click to stop.
 //
@@ -27,11 +28,6 @@ BarWidget {
   readonly property bool watching: !root.on && root.now - root.lastLook < 10
 
   AgentCommand { id: command }
-
-  AgentConfirmDialog {
-    request: root.pending ? root.state.request : null
-    command: command
-  }
 
   FileView {
     id: looks
@@ -91,10 +87,10 @@ BarWidget {
           anchors.centerIn: parent
           iconSize: Style.bar.iconCanvas * 0.92
           color: root.on
-                 ? (root.bar ? root.bar.urgent : Color.urgent)
+                 ? (root.bar ? root.bar.urgent : Commons.Color.urgent)
                  : root.watching
-                   ? Color.accent
-                   : (root.bar ? root.bar.barForeground : Color.foreground)
+                   ? Commons.Color.accent
+                   : (root.bar ? root.bar.barForeground : Commons.Color.foreground)
           active: root.on
           opacity: root.on || root.watching ? 1.0 : (root.pending ? 0.8 : 0.45)
           Behavior on opacity { NumberAnimation { duration: 160 } }

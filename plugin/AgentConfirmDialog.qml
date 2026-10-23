@@ -3,27 +3,38 @@ import Quickshell
 import Quickshell.Wayland
 import Quickshell.Hyprland
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
+import "ConfirmKeys.js" as ConfirmKeys
 
 // The human's half of the control gate: an agent asking for the desktop puts a
 // request in the state file, and this is where it is answered.
 //
-// Deny is the default in every direction — Escape, Return and the window
-// closing under a lapsed request all deny. Allow needs its own key (A) or a
-// click, so no stray Enter from whatever had focus can hand an agent the
-// keyboard. Nothing here decides anything: both buttons run the CLI, and the
-// state file is what actually changes.
+// Deny is the default in every direction — Escape, Return, any key typed at
+// it in the first second, and the window closing under a lapsed request all
+// deny. After that one-second grace A allows; a click counts only after the
+// pointer has moved (ConfirmKeys.js, #48). Nothing here decides anything:
+// both buttons run the CLI, and the state file is what actually changes.
 Item {
   id: root
   property var request: null        // {id, by, since, expires} from state.json, or null
   property var command: null        // the Widget's Command; one process at a time is plenty
   readonly property bool opened: request !== null
+  property bool ready: false
+  property bool pointerArmed: false
+  property var pointerStart: null
+  property string armedFor: ""      // the request id the flags belong to
   property double now: Date.now() / 1000
   readonly property int secondsLeft: request ? Math.max(0, Math.round(request.expires - now)) : 0
 
-  function answer(mode) {
-    if (command && request) command.run(["control", mode, String(request.id)])
+  function answer(mode, via, key, mods) {
+    if (!command || !request) return
+    var argv = ["control", mode, String(request.id), "--via", via]
+    if (via === "dialog-key") argv.push("--key", String(key), "--mods", String(mods))
+    command.run(argv)
   }
+
+  Timer { id: grace; interval: 1000; onTriggered: root.ready = true }
 
   Timer {
     interval: 500
@@ -32,7 +43,22 @@ Item {
     onTriggered: root.now = Date.now() / 1000
   }
 
-  onOpenedChanged: if (opened) Qt.callLater(function () { keys.forceActiveFocus() })
+  // Per request, not per opening: a second `control agent` while one is pending
+  // replaces the request without closing the dialog, and the second must get
+  // its own full second. A request that vanishes (a half-written state file
+  // reads as none) starts over when it returns, so the second is continuous.
+  onRequestChanged: if (!request) {
+    armedFor = ""
+    ready = false
+    grace.stop()
+  } else if (request.id !== armedFor) {
+    armedFor = request.id
+    ready = false
+    grace.restart()
+    pointerArmed = false
+    pointerStart = null
+    Qt.callLater(function () { keys.forceActiveFocus() })
+  }
 
   PanelWindow {
     visible: root.opened
@@ -49,13 +75,24 @@ Item {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
 
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      acceptedButtons: Qt.NoButton
+      onPositionChanged: function (m) {
+        if (!root.pointerStart) root.pointerStart = { x: m.x, y: m.y }
+        else if (Math.hypot(m.x - root.pointerStart.x, m.y - root.pointerStart.y) > 8)
+          root.pointerArmed = true
+      }
+    }
+
     BorderSurface {
       anchors.centerIn: parent
       width: Math.min(Style.space(620), parent.width - Style.gapsOut * 2)
       height: content.implicitHeight + Style.spacing.panelPadding * 2
-      color: Color.menu.background
+      color: Commons.Color.menu.background
       radius: Style.cornerRadius
-      borderSpec: Border.surfaceSpec("menu", "border", Color.urgent, Math.max(1, Style.space(2)))
+      borderSpec: Border.surfaceSpec("menu", "border", Commons.Color.urgent, Math.max(1, Style.space(2)))
       padding: Style.spacing.panelPadding
 
       Item {
@@ -63,11 +100,9 @@ Item {
         anchors.fill: parent
         focus: true
         Keys.onPressed: function (event) {
+          var a = ConfirmKeys.decide({ ready: root.ready }, event.key, event.modifiers, event.isAutoRepeat)
+          if (a) root.answer(a, "dialog-key", event.key, event.modifiers)
           event.accepted = true
-          if (event.key === Qt.Key_A) root.answer("confirm")
-          else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Return || event.key === Qt.Key_Enter
-                   || event.key === Qt.Key_D) root.answer("deny")
-          else event.accepted = false
         }
 
         Column {
@@ -78,7 +113,7 @@ Item {
           Text {
             width: parent.width
             text: "Let an AI agent use this desktop?"
-            color: Color.menu.text
+            color: Commons.Color.menu.text
             font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.title * 1.4); bold: true }
             textFormat: Text.PlainText
           }
@@ -89,7 +124,15 @@ Item {
                 + "Super+Shift+Escape takes it back at any moment.\n\n"
                 + "Asked by: " + (root.request ? root.request.by : "") + "  ·  expires in "
                 + root.secondsLeft + "s"
-            color: Color.menu.text
+            color: Commons.Color.menu.text
+            font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3) }
+            textFormat: Text.PlainText
+          }
+          Text {
+            width: parent.width
+            visible: !root.ready
+            text: "Keys pressed now deny this."
+            color: Commons.Color.menu.text
             font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3) }
             textFormat: Text.PlainText
           }
@@ -97,17 +140,17 @@ Item {
             spacing: Style.spacing.md
             Text {
               text: "  Deny (Esc)  "
-              color: Color.menu.selectedText
+              color: Commons.Color.menu.selectedText
               font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3); bold: true }
               padding: Style.spacing.sm
-              MouseArea { anchors.fill: parent; onClicked: root.answer("deny") }
+              MouseArea { anchors.fill: parent; onClicked: root.answer("deny", "dialog-click") }
             }
             Text {
               text: "  Allow (A)  "
-              color: Color.urgent
+              color: Commons.Color.urgent
               font { family: Style.font.menuFamily; pixelSize: Math.round(Style.font.caption * 1.3) }
               padding: Style.spacing.sm
-              MouseArea { anchors.fill: parent; onClicked: root.answer("confirm") }
+              MouseArea { anchors.fill: parent; onClicked: if (root.pointerArmed) root.answer("confirm", "dialog-click") }
             }
           }
         }
