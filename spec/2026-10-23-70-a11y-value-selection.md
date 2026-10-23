@@ -165,8 +165,16 @@ path has `changed: false` and `waited_ms: 0`; a write has `changed: true`.
   degenerate or unreadable bounds → written and read back without error;
   already at value → no write; refusal → `unavailable`; read-back within half
   a step → verified; the adjacent value (5 wanted, 4 read, step 1) →
-  `not_confirmed` with details, and not treated as "already set"; `select` direct parent, grandparent (`selected_via: 2`), none
-  within depth → `unsupported`; a shifted index -- the original observation
+  `not_confirmed` with details, and not treated as "already set"; `4.4` on a
+  step-1 slider at `4` is written; a float32 round-trip (`0.7` read as
+  `0.6999999880...`, step 0) is verified; `nan` and `None` readings never
+  reach a comparison or the JSON; `select` direct parent, grandparent
+  (`selected_via: 2`), none within depth → `unsupported`; a shallow id
+  (`"3.0"` with depth 2) stops at the application, no `IndexError`; the
+  container going stale during read-back → polls again, not `unavailable`;
+  the selected node gone → `not_confirmed`; `selected_via: 2` reports the
+  row's states, not the cell's; the quiet-role filter keeps a value-only row;
+  a shifted index -- the original observation
   kept, the child list then shifted so the item's path holds a sibling with a
   different name -- refused by `expect` before any write; already selected →
   no write; read-back confirmed via `is_child_selected`; a guarded
