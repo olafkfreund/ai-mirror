@@ -58,9 +58,12 @@ by the quoted text if they drift.
    Read the tree (`ai-mirror a11y-tree --app <name>`) and, with a short
    `nix develop -c python3` probe, record per control: `get_value_iface()` /
    `get_selection_iface()` on the node and up to 3 ancestors, values, bounds,
-   step. Then call `set_current_value` / `select_child` directly in that probe
-   and record before/after `hyprctl cursorpos`, `activewindow`, focused node
-   and new layers. Firefox needs a **visible** workspace for content
+   step. Then, for each write, the probe goes through ai-mirror's own gate,
+   never around it: `control.require_agent(gen)` (owner + generation, so a
+   revocation stops it), `acc, At = a11y.resolve(node_id)` (privacy check),
+   and `a11y._write('measure', lambda: iface.set_current_value(v))` /
+   `... sel.select_child(i)` (the guarded seam); record before/after
+   `hyprctl cursorpos`, `activewindow`, focused node and new layers. Firefox needs a **visible** workspace for content
    (measured in #65). `control off` after. → verify by: a row per app ×
    control in the PR description, and `SELECTION_DEPTH` decided.
    Traps: silence notifications first and restore them; close every test
@@ -74,9 +77,11 @@ by the quoted text if they drift.
    ```
    `_node(acc, node_id, Atspi, value=True)`: after the text block (~line 146),
    when `value` and `(v := _call(acc.get_value_iface)) is not None`, read
-   current/min/max/increment with `_call`, and when `current` is finite set
-   `row['value'] = [current, min if _finite(min) else None, max if ... else
-   None, step if _finite(step) else None]`. `_states` (line 373) calls
+   `current`, `minimum`, `maximum`, `step` with `_call` (never the names
+   `min`/`max`: `_node` already calls the built-in `min(count, 120)`), and when
+   `current` is finite set `row['value'] = [current, minimum if
+   _finite(minimum) else None, maximum if _finite(maximum) else None, step if
+   _finite(step) else None]`. `_states` (line 373) calls
    `_node(acc, node_id, Atspi, value=False)`. `_actionable` (line 212) adds
    `or row.get('value')`. The quiet-role filter (line 256) adds
    `and 'value' not in row`.
