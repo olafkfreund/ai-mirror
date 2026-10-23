@@ -41,7 +41,10 @@ Self-contained. Branch `fix/66-index-workspace-without-id`. Line numbers as of
    Traps: `index` is read-only and ungated; `_render_section` must still work
    for a `state` without `named` (use `.get`). Stdlib only.
 
-   *(The test, written in step 1:)* one test in `DesktopIndex`:
+   *(The test, written in step 1:)* one test in `DesktopIndex`, reading the
+   section through `out = index.build({'section': ['state']})['state']` --
+   `state()` itself raises a bare `KeyError`; only `build`'s `_section` turns
+   that into `_unavailable`:
    patch `index.sh` to return `'Hyprland 0.56.2 built from x\n'` for
    `('hyprctl','version')` and the fixture from the spec for
    `('hyprctl','workspaces','-j')`, and `host.monitors` to `[]`. Fixture:
