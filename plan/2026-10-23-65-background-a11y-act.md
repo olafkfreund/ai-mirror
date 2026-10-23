@@ -286,6 +286,20 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
   `check_index` fails on #66 (screensaver workspace with no `id`), and
   `check_wait`'s `nixarchy-pkg-menu` layer no longer exists on this host --
   both outside #65.
+- Deviation (spec change 4 / step 4): `_full_text` reads
+  `get_character_count()` then `get_text(0, count)`, not `get_text(0, -1)`:
+  live on GTK4 the `-1` form returned nothing, so every `set_text` there read
+  back as unreadable. After the fix, GTK4 calculator `set_text '6*7'` still
+  reports `not_confirmed`; whether the app rewrites the text or the write does
+  not land is unmeasured (the grant for that check was not given).
+- Live step 8 (generation 37): `a11y-act` without `--generation` refused;
+  agent clipboard write with generation read back; `launch`/`window` with
+  generation ok; `a11y_find` returned `generation`; GTK4 `click`
+  `verified: null` with states and note; GTK4 `focus` `unavailable` as
+  measured; after `control off`, the old generation got `not_owner`.
+  `smoke.main()` stops at Enter-up after its `foot` window closes on Enter --
+  the key-up-after-target-closes bug PR #52 fixes for layers, here for a
+  window; not #65.
 
 ## Execution
 

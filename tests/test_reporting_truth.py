@@ -377,6 +377,14 @@ class ReadBack(unittest.TestCase):
         self.assertEqual(len(c.exception.details['text']), 120)
         self.assertEqual(c.exception.details['length'], 500)
 
+    def test_read_back_asks_for_an_explicit_end(self):
+        from unittest.mock import MagicMock
+        from ai_mirror import a11y
+        acc = MagicMock()
+        acc.get_text_iface().get_character_count.return_value = 3
+        acc.get_text_iface().get_text.side_effect = lambda start, end: 'abc' if end == 3 else ''
+        self.assertEqual(a11y._full_text(acc), 'abc')
+
     def test_set_text_match_is_verified(self):
         self.assertIs(self._act('set_text', 'want', after_text='want')['verified'], True)
 

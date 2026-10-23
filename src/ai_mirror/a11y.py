@@ -365,7 +365,9 @@ def resolve(node_id: str):
 def _full_text(acc):
     """The whole text, or None when it cannot be read (never '' by default)."""
     text = _call(acc.get_text_iface)
-    return None if text is None else _call(lambda: text.get_text(0, -1))
+    # An explicit end offset: GTK4 returns nothing for get_text(0, -1) (#65, live).
+    count = None if text is None else _call(text.get_character_count)
+    return None if count is None else _call(lambda: text.get_text(0, count))
 
 
 def _states(acc, node_id: str, Atspi) -> list:
