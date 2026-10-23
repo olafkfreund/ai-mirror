@@ -39,9 +39,9 @@ def main():
     window = None
     try:
         # A plain `read`, not the user's shell: slow shell startup discards type-ahead.
-        api.run('launch', {'argv': ['foot', '--app-id', app_id, 'sh', '-c', f'IFS= read -r line && printf %s "$line" > {proof}']})
+        api.run('launch', {'generation': gen, 'argv': ['foot', '--app-id', app_id, 'sh', '-c', f'IFS= read -r line && printf %s "$line" > {proof}']})
         window = wait_for(lambda: next((w for w in api.run('windows')['windows'] if w.get('class') == app_id), None))
-        api.run('window', {'action': 'focus', 'address': window['address']})
+        api.run('window', {'generation': gen, 'action': 'focus', 'address': window['address']})
         region = window['at'] + window['size']
         # Frame-relative input, exactly as an MCP agent does it.
         frame = mcp.observe({'region': region, 'max_size': 640})
@@ -53,7 +53,7 @@ def main():
             {'type': 'type', 'text': LONG + '\n'}]})
         api.run('input', args)
         assert wait_for(lambda: proof.exists() and proof.read_text() == LONG), proof.read_text()
-        api.run('clipboard', {'action': 'write', 'text': 'ai-mirror ✓'}, by='agent')
+        api.run('clipboard', {'generation': gen, 'action': 'write', 'text': 'ai-mirror ✓'}, by='agent')
         assert api.run('clipboard', {'action': 'read'})['text'] == 'ai-mirror ✓'
         # The kill switch path: a separate process revokes, stale input is refused.
         subprocess.run([str(Path(__file__).resolve().parents[1] / 'bin/ai-mirror'), 'control', 'off'], check=True, capture_output=True)
@@ -66,7 +66,7 @@ def main():
     finally:
         state = take_control()
         if window and any(w['address'] == window['address'] for w in api.run('windows')['windows']):
-            api.run('window', {'action': 'close', 'address': window['address']})
+            api.run('window', {'generation': state['generation'], 'action': 'close', 'address': window['address']})
         control.set_owner('off', 'human')
         control.HELPER.stop()
         print('control:', control.read_state()['owner'], '(was generation', state['generation'], ')')
