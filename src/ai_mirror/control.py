@@ -733,6 +733,16 @@ def _require_target(window: str) -> dict | None:
     return None
 
 
+def _target_gone(window: str) -> bool:
+    """True only if `window` is in neither the layer list nor the window list.
+
+    "Could not ask" is not "gone": read errors propagate and the caller refuses.
+    """
+    if any(layer['address'] == window for layer in host.layers()):
+        return False
+    return not any(w['address'] == window for w in host.windows())
+
+
 def _partial(exc: MirrorError, delivered: int, lines: list[str],
              owners: list[int] | None) -> MirrorError:
     """Restate a mid-batch refusal in terms of what already landed (#30).
