@@ -104,15 +104,21 @@ by the quoted text if they drift.
    `MirrorError` and `guard.Blocked` and turns other exceptions into
    `unavailable` (as `act` does), then a `wait.poll` probe that only reads
    (`resolve`, role compare, `get_current_value`), then the result of
-   decision 5.
+   decision 5. Any value placed in a result or in `details` (`value_before`,
+   `value_after`, `details.value`) is `None` when not finite -- `nan`/`inf`
+   never reach JSON. A poll result of `unavailable` after the write raises
+   `unavailable` with `details={'delivered': True}` and "do not repeat it",
+   as `_read_back` does.
    Tests (new class `SetValue`, `resolve` and `_write` patched, `timeout=0.1`):
    bool / `nan` / `'3'` → `ValueError` and `_write` not called; out of
    `[0, 10]` → `invalid`, no write; bounds `0..0` or `None` → written; already
    `4` asked `4` → no write, `changed: False`; `4.4` at `4`, step 1 →
    written; read-back `5` for wanted `5` → verified; read-back `4` for wanted
    `5`, step 1 → `not_confirmed` with details; `0.6999999880` for `0.7`, step
-   0 → verified; `_write` falsy → `unavailable`; with the guard armed and
-   `_write` unpatched → `guard.Blocked`.
+   0 → verified; read-back `nan` → `not_confirmed` with `details.value is
+   None`; `resolve` raising `sensitive` after the write → `unavailable` with
+   `details.delivered`; `_write` falsy → `unavailable`; with the guard armed
+   and `_write` unpatched → `guard.Blocked`.
    → verify by the unittest command.
    Traps: `_write` is never called from the probe (`wait.poll` swallows
    every exception, including `Blocked`).
@@ -121,7 +127,12 @@ by the quoted text if they drift.
    step 1 value) with a comment citing #70. In `act`, after `set_value`'s
    branch: `if action == 'select': return _select(...)`, holding decision 4
    end to end, same `try` shape around `_write('select_child', lambda:
-   sel.select_child(index))`, and a reads-only probe.
+   sel.select_child(index))`, and a reads-only probe. `act` captured the
+   *item's* role and `states_before`; when `k > 1`, `_select` resolves the
+   selected node (`'.'.join(parts[:len(parts) - k + 1])`) **before** checking
+   or writing and takes its role, name and states as the snapshot that the
+   already-selected check, the read-back role comparison, `states_before` and
+   `selected` use. Delivered-then-unreadable is reported as in step 3.
    Tests (new class `Select`, `resolve` patched by id → fake accessible):
    direct parent (`selected_via: 1`); grandparent (`selected_via: 2`, states
    from the row); none within depth → `unsupported`; id `"3.0"` → stops at the
@@ -131,7 +142,8 @@ by the quoted text if they drift.
    write; confirmed via `is_child_selected`; confirmed via `selected` state;
    container `stale_node` on the first probe then present → confirmed (not
    `unavailable`); selected node gone → `not_confirmed`; `select_child` falsy
-   → `unavailable`; guard armed → `guard.Blocked`.
+   → `unavailable`; `resolve` raising `sensitive` after the write →
+   `unavailable` with `details.delivered`; guard armed → `guard.Blocked`.
    → verify by the unittest command.
 
 5. **Wiring and words.** `api.py:276`: pass `value=args.get('value')`.
