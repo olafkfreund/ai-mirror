@@ -84,7 +84,12 @@ implementation; `master` merged in at `31eb954`). Line numbers as of
        (pressed.add if edge == '1' else pressed.discard)(head)
    ```
    Keep the ownership check (`read_state()`) as the first thing in the loop,
-   untouched. → verify by the unittest command.
+   untouched. **In the same step**, add `patch.object(host, 'windows',
+   return_value=[])` to the existing
+   `test_key_release_is_sent_when_surface_closes_on_keydown` in
+   `tests/test_layer_typing.py`: the rescue now reads `host.windows()`, and an
+   unstubbed read reaches the live compositor or fails in `nix flake check`.
+   → verify by the unittest command.
    Traps: AGENTS.md "run_batch re-reads the state before every helper line and
    sends C on every failure path" -- the rescue must not move or skip either.
    `surface` keeps its value from the last successful check when rescued.
@@ -99,8 +104,6 @@ implementation; `master` merged in at `31eb954`). Line numbers as of
    reach the live compositor or fail in `nix flake check`). Use
    `FakeHelper` (from `test_invariants`, records `sent`, acks from a list) and
    `self.granted` from `TypingIntoASurface.setUp`; pass `owners=`.
-   - Update `test_key_release_is_sent_when_surface_closes_on_keydown`: add
-     `patch.object(host, 'windows', return_value=[])`; expectation unchanged.
    - New, in a class `ReleaseAfterTargetCloses(TypingIntoASurface)`:
      1. window closes on Enter-down (`['K 28 1','K 28 0']`, owners `[0,0]`,
         focus `WINDOW` then `'0xother'`, `host.windows` without `WINDOW`)
@@ -124,17 +127,24 @@ implementation; `master` merged in at `31eb954`). Line numbers as of
          refused.
      12. `unavailable` refusal (`host.focused_address` raising on the up) with
          the target gone → refused, not rescued.
-   → verify by the unittest command; every new test must fail on `master`'s
-   `run_batch` where it asserts a send (check by temporarily reverting
-   step 2 locally, not committed).
+   → verify by the unittest command. Against the pre-step-2 `run_batch`
+   (check by temporarily reverting step 2 locally, not committed): tests 1 and
+   11's first half (they assert a rescued send) must **fail**; the refusal
+   tests (2-10, 11's second half, 12) pass on old code too -- they guard the
+   new exemption from widening, not the fix.
    Traps: `FakeHelper.cmd` raises when an ack in its list is an Exception;
    `typed(helper)` strips `'C'`.
 
 5. **Merge PR #67 into this branch once #67 is merged to `master`**, resolving
    `tests/test_layer_typing.py::test_windows_op_lists_both`, where #67 adds
-   `'generation'` to the expected keys. Then live, under a grant from the
-   confirm dialog: `nix develop -c python3 -c "import sys; sys.path.insert(0,'tests'); import smoke; smoke.main()"`
+   `'generation'` to the expected keys. Then live:
+   `nix develop -c python3 -c "import sys; sys.path.insert(0,'tests'); import smoke; smoke.main()"`
    passes. → verify by its `PASS:` line.
+   **`smoke.main()` grants itself control** (`take_control()` calls
+   `confirm_request` directly, also in its `finally`): it is the human's own
+   script. The human runs it, or the session model runs it only with the
+   human's explicit approval for that run -- never under a dialog grant given
+   for something else.
    Traps: smoke's `check_index` needs #66; `check_wait` needs a panel this host
    no longer has -- run `main()` only.
 
