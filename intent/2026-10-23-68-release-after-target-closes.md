@@ -36,6 +36,10 @@ other than what happened -- and the smoke test cannot pass while it stands.
   and reports success, with every key it pressed released.
 - Every press, every `T` text line, every pointer move and every new action is
   still checked against the target before it is sent, exactly as now.
+- The success result tells the truth about where the keys went. Today's note
+  says "`<window>`, which still had focus" or "the topmost surface on screen"
+  (`control.py:820-826`), which is false once the target closed; the note says
+  the target closed after the keystroke instead.
 - `tests/smoke.py` `main()` passes end to end.
 - PR #52 is this issue's implementation; its layer-only rule widens to cover
   windows.
@@ -43,8 +47,9 @@ other than what happened -- and the smoke test cannot pass while it stands.
 ## Affected users and systems
 
 - Agents using `input` with `window` (MCP and CLI).
-- `src/ai_mirror/control.py` (`run_batch`), `tests/test_layer_typing.py` and a
-  window-case test, `tests/smoke.py` (already fixed for #24 in #67).
+- `src/ai_mirror/control.py` (`run_batch` and its result note),
+  `tests/test_layer_typing.py` and window-case tests, `tests/smoke.py` (its #24
+  gaps are fixed in PR #67, commit `6bea83a`).
 - No change to the helper, the plugin, the confirm dialog or the ownership
   gate.
 
@@ -55,9 +60,17 @@ other than what happened -- and the smoke test cannot pass while it stands.
   mid-way (AGENTS.md: "`run_batch` re-reads the state before every helper
   line").
 - Every failure path still sends `C` (release all).
-- Only a *release* (`K … 0` / `B … 0`) of a key or button pressed earlier in
-  the *same action*, after that action's target was validated, may skip the
-  target check. A release cannot type text.
+- Only a *release* (`K <code> 0` / `B <code> 0`) whose **matching press** (same
+  code) was sent earlier in the *same action*, after that action's target was
+  validated, may skip the target check. A release cannot type text. #52 today
+  exempts any release after a validated layer, matched or not
+  (`control.py:775-799`); this narrows it.
+- A target list that cannot be read is not evidence the target is gone: it
+  stays a refusal, as `_require_target` already treats a failed layer query
+  (`control.py:712-733`).
+- Tests cover: a window that closes on the press, a layer that closes, a target
+  that still exists but lost focus (still refused), an unmatched release
+  (still checked), and an unreadable target list (still refused).
 - Tests cannot reach the desktop: the window case is tested with `host`
   stubbed, as `tests/test_layer_typing.py` does for layers.
 
