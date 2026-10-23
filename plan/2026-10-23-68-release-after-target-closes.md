@@ -100,6 +100,7 @@ implementation; `master` merged in at `31eb954`). Line numbers as of
    from decision 5; otherwise keep today's `where` / `f'delivered to {where}. …'`
    code unchanged. (Do not feed the closed sentence through `where`, or it
    reads "delivered to keys pressed in …".) → verify by the unittest command.
+   - Deviation (step 3): Used an early return inside the closed branch instead of an if/else around the existing note code. The existing where/note code is untouched and the behaviour is identical.
 
 4. **`tests/test_layer_typing.py`: tests.** Patch `host.layers`,
    `host.windows` and `host.focused_address` in every test (unstubbed reads

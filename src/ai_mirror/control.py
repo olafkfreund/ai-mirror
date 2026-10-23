@@ -831,6 +831,13 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
     result = {'ok': True, 'acked': len(lines), 'generation': generation}
     if window is not None:
         result['window'] = window
+        if closed:
+            result['closed'] = True
+            result['note'] = (f'keys pressed in {window}, which then closed; the matching key-up '
+                              'was sent after it closed, to whatever has focus now. Application '
+                              'acceptance and task completion are NOT verified -- observe before '
+                              'reporting the outcome.')
+            return result
         # Delivered is not accepted, and accepted is not done. The helper acked
         # the keystrokes; whether the application took them, and whether the
         # task happened, are things only a fresh observation can say.
