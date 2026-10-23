@@ -67,20 +67,29 @@ def _section(fn, *args) -> dict:
 
 # ------------------------------------------------------------------ sections
 
+def _holds(workspace: dict) -> bool:
+    return type(workspace.get('windows')) is int and workspace['windows'] > 0
+
+
 def state() -> dict:
     """Compositor version, dispatch form, and where the screens are."""
     from . import host
 
     version = sh('hyprctl', 'version').splitlines()[0].strip()
-    workspaces = json.loads(sh('hyprctl', 'workspaces', '-j'))
+    workspaces = [w for w in json.loads(sh('hyprctl', 'workspaces', '-j')) if isinstance(w, dict)]
+    numbered = [w for w in workspaces if type(w.get('id')) is int]
     return {
         'hyprland': version,
         # The old `hyprctl dispatch workspace 8` form is a syntax error on
         # 0.4x+, and a dispatch that matches nothing still reports ok.
         'dispatch': 'hyprctl dispatch \'hl.dsp.focus({ workspace = "8" })\'',
         'monitors': host.monitors(),
-        'workspaces': sorted(w['id'] for w in workspaces),
-        'occupied': sorted(w['id'] for w in workspaces if w.get('windows')),
+        'workspaces': sorted(w['id'] for w in numbered),
+        'occupied': sorted(w['id'] for w in numbered if _holds(w)),
+        # Some special workspaces come back with no id at all -- Omarchy's
+        # screensaver (#66) -- and are still somewhere a window can be.
+        'named': [{'name': str(w.get('name') or '?')[:80], 'windows': _holds(w)}
+                  for w in workspaces if type(w.get('id')) is not int],
     }
 
 
@@ -424,9 +433,13 @@ def _render_section(name: str, section: dict) -> list[str]:
     if name == 'gotchas':
         return [section['text'].rstrip()]
     if name == 'state':
+        in_use = f"- workspaces in use: {section['occupied']}"
+        named = [n['name'] for n in section.get('named', []) if n['windows']]
+        if named:
+            in_use += f" and {', '.join(named)}"
         rows = [f"- {section['hyprland'].split(' built from')[0]}",
                 f"- dispatch: `{section['dispatch']}`",
-                f"- workspaces in use: {section['occupied']}", '',
+                in_use, '',
                 '| monitor | at | size | focused |', '| --- | --- | --- | --- |']
         rows += [f"| `{m['name']}` | {m['x']},{m['y']} | {m['w']}x{m['h']} |"
                  f" {'yes' if m['focused'] else ''} |" for m in section['monitors']]
