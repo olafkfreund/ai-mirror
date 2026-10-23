@@ -252,6 +252,9 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
      `--expect`, `--timeout`, the new result fields.
    → verify by the unittest command (tests that pin doc/instruction text).
    Traps: `gotchas.md` is read-only data the index serves; hand-written only.
+   - Deviation: `tests/test_invariants.py:492` raises the default index payload cap from 20000 to 22000 bytes; the step 1 table in `gotchas.md` pushed the payload to 21020 bytes, and shrinking the table under the old budget (~200 bytes spare) would drop most measured rows.
+   - Deviation: `docs/usage.md` CLI `window` line unchanged (its synopsis has no `--generation`); the `window` table row lists `generation`, and the `launch` and `a11y-act` CLI lines show `--generation N`.
+   - Deviation: the `gotchas.md` table is condensed from the step 1 table: Firefox button and link share a row, the pointer and active-window columns fold into one sentence above the table, and the Chrome label-text row is omitted.
 
 8. **Verify everything.** Commands under Tests. Then live, under a grant:
    `tests/smoke.py`, and one `a11y-act` click and `set_text` against a GTK

@@ -75,7 +75,7 @@ TOOLS = [
           'max_nodes': {'type': 'integer', 'minimum': 1, 'maximum': 2000}}),
     tool('a11y_find', 'Find accessible elements by name substring and/or exact role (e.g. "push button", "entry", "link").',
          {'name': STR, 'role': STR, 'app': STR, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200}}),
-    tool('a11y_act', 'Act on an element id from a11y_tree/a11y_find: click, focus, set_text (text), or a named action. expect {role,name} guards against a changed UI.',
+    tool('a11y_act', 'Act on an element id from a11y_tree/a11y_find: click, focus, set_text (text), or a named action. focus takes keyboard focus; set_text and named actions never move the pointer; see index gotchas for which ones activate their window. expect {role,name} guards against a changed UI. Pass generation.',
          {'node': STR, 'action': STR, 'text': STR, 'expect': {'type': 'object'}, 'generation': INT,
           'timeout': {'type': 'number', 'minimum': 0.1, 'maximum': 30}}, ['node', 'action', 'generation']),
 ]

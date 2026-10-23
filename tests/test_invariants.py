@@ -489,7 +489,7 @@ o.bind("SUPER + SHIFT + S", nil, "omarchy-capture-screenshot")
                  patch.object(index, 'state', side_effect=RuntimeError('no compositor')), \
                  patch.object(index, 'nav', side_effect=RuntimeError('no bus')):
                 rendered = index.render(index.build({}))
-        self.assertLess(len(rendered), 20000, f'default payload is {len(rendered)} bytes')
+        self.assertLess(len(rendered), 22000, f'default payload is {len(rendered)} bytes')
 
     def test_a_commented_out_bind_is_not_reported_as_live(self):
         # The exact failure this feature exists to prevent: an agent pressing a
