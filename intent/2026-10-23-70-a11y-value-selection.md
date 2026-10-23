@@ -12,14 +12,16 @@ author: olafkfreund
 the human's cursor: it is guarded, `click` runs only click-like actions, it
 reads back what it can, and it needs the grant's generation (PR #67).
 Measured on this host, no `a11y_act` action moved the pointer or changed the
-active window -- though in the browsers, actions did move *in-page* keyboard
-focus (`gotchas.md`'s measured table).
+active window -- though in Chrome, actions did move *in-page* keyboard focus
+(`gotchas.md`'s measured table).
 
 But it can only click, focus, set text, or run a named action. Two common
 kinds of control are out of its reach:
 
-- **Ranged controls** -- sliders, spin buttons, volume and brightness,
-  zoom. There is no way to read their value or set one. An agent drags with
+- **Ranged controls** inside applications -- sliders, spin buttons, a
+  browser `<input type="range">`, zoom and media position. There is no way to
+  read their value or set one. (The shell's own volume and brightness panels
+  are quickshell, which exposes no accessibility tree; they have commands.) An agent drags with
   the pointer or presses arrow keys into the focused window, both of which
   take what the human is using.
 - **Choosers** -- lists, tab bars, tree rows, and possibly combo boxes. There
@@ -42,8 +44,9 @@ Deferred in issue #65 ("Out of scope (follow-up)").
 - `a11y_tree` and `a11y_find` show a ranged control's value and range, so an
   agent can read a slider without a screenshot.
 - `a11y_act` can **set a value** on a ranged control and **select an item**
-  in a chooser that the measurement shows exposes its items as direct
-  children of a `Selection` implementer, with #65's guarantees: through the
+  in a chooser whose items the measurement shows are reachable -- the item's
+  nearest ancestor implementing `Selection`, with the item as that ancestor's
+  child (directly, or through containers the measurement records) -- with #65's guarantees: through the
   guarded `_write` seam, the grant's generation required, and read back where
   the state stays readable (`verified` / `not_confirmed`), never a bare `ok`.
 - No promise of "background" beyond what is measured: the table records
@@ -56,9 +59,10 @@ Deferred in issue #65 ("Out of scope (follow-up)").
 ## Affected users and systems
 
 - Agents using `a11y_tree`, `a11y_find`, `a11y_act` (MCP and CLI).
-- `src/ai_mirror/a11y.py` (`_node`, `act`), `mcp.py` (schema and
-  description), `cli.py`, `gotchas.md` (measured table), `docs/usage.md`,
-  tests.
+- `src/ai_mirror/a11y.py` (`_node`, `_actionable` -- an unnamed slider with
+  only a value must count as content -- and `act`), `api.py` (forwards the new
+  argument), `mcp.py` (schema and description), `cli.py`, `gotchas.md`,
+  `docs/usage.md`, tests.
 - Builds on PR #67; this branch is stacked on it until #67 merges.
 
 ## Constraints
@@ -70,8 +74,17 @@ Deferred in issue #65 ("Out of scope (follow-up)").
 - Read-back follows #65: a write the application accepts but that cannot be
   confirmed is `not_confirmed`, and a read-back failure after a delivered
   write says it was delivered.
-- Reads stay unguarded; `_node` reading a value must not slow the tree walk
-  noticeably (one interface query per node, as `text` already does).
+- Reads stay unguarded. Reading a value costs one interface query per node
+  and, only on nodes that implement `Value`, three or four more calls; the
+  spec must keep the tree walk's cost close to today's and not add to
+  `_read_back`'s per-probe `_node` reads.
+- `Value` is floating point and toolkits round to their step: read-back must
+  compare within the control's minimum increment (or a small tolerance when
+  it reports none), never with `==`. A range check applies only when the
+  bounds are sane (`minimum < maximum`); `0..0` or missing bounds mean "no
+  check", not "refuse".
+- The measured rows go into the existing table in `gotchas.md`: the default
+  `index` payload has under 1 KB left below its 22,000-byte cap.
 - The measurement drives the real desktop, so it runs under a grant from the
   confirm dialog, on a scratch workspace, and changes no code.
 - Stdlib and PyGObject only.
@@ -84,8 +97,8 @@ Deferred in issue #65 ("Out of scope (follow-up)").
    Node ids are child-index paths and `expect` checks only role and name,
    which items can share, so the spec must say how the target is re-checked
    before writing and in read-back. Selecting in a single-select container
-   also *replaces* the current choice; the result says what was selected
-   before.
+   also *replaces* the current choice; the existing `states_before` /
+   `states_after` show `selected` appear on the item, which is enough.
 2. **Deselect and clear too, or select only?** Proposed: select only for
    now; add deselect only if the measurement finds a multi-select control an
    agent needs. No "clear all".
@@ -98,4 +111,6 @@ Deferred in issue #65 ("Out of scope (follow-up)").
    Chrome running without `--force-renderer-accessibility`), so which apps
    implement these interfaces, how their items are laid out, and whether a
    combo box can be driven closed is unknown until apps are launched under a
-   grant.
+   grant. **Closed combo boxes are out of scope unless the measurement shows
+   their items in the tree while closed** -- opening one pops a surface over
+   the human's work, which is what this is meant to avoid.
