@@ -170,6 +170,14 @@ implementation; `master` merged in at `31eb954`). Line numbers as of
 - The rescue's `_target_gone` call catches any exception, not only the ones
   `host` raises, so an unexpected failure still refuses and sends `C`.
 
+**Step 5 result.** Deviation: #67 is not yet merged to `master`, so instead of
+merging it into this branch, a throwaway local branch merged
+`fix/65-background-a11y-act` into this one (clean merge, 255 tests OK; not
+pushed, deleted after). On it, with the human's explicit approval for this
+self-granting run: `smoke.main()` printed
+`PASS: launch, windows, focus, frame input, Unicode typing, clipboard, kill switch`
+-- the final Enter key-up, sent after `foot` closed, is what used to fail.
+
 ## Execution
 
 Steps 1-4 edit one source file and one test file across four steps, so they go
