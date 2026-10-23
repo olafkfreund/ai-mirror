@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 70
 author: olafkfreund
 ---
@@ -98,14 +98,14 @@ Deferred in issue #65 ("Out of scope (follow-up)").
    which items can share, so the spec must say how the target is re-checked
    before writing and in read-back. Selecting in a single-select container
    also *replaces* the current choice; the existing `states_before` /
-   `states_after` show `selected` appear on the item, which is enough.
+   `states_after` show `selected` appear on the item, which is enough. **Decided: as proposed.**
 2. **Deselect and clear too, or select only?** Proposed: select only for
    now; add deselect only if the measurement finds a multi-select control an
-   agent needs. No "clear all".
+   agent needs. No "clear all". **Decided: as proposed.**
 3. **Out-of-range values:** refuse before writing, or let the application
    clamp and report the read-back? Proposed: refuse values outside
    `[minimum, maximum]` before writing, naming the range -- the read-back
-   would otherwise report `not_confirmed` for a value that was never valid.
+   would otherwise report `not_confirmed` for a value that was never valid. **Decided: as proposed.**
 4. **Measure first?** Proposed: yes, as #65's plan step 1. A bare read of this
    desktop's tree on 2026-10-23 visited 40 nodes in total (tray apps, and
    Chrome running without `--force-renderer-accessibility`), so which apps
@@ -113,4 +113,4 @@ Deferred in issue #65 ("Out of scope (follow-up)").
    combo box can be driven closed is unknown until apps are launched under a
    grant. **Closed combo boxes are out of scope unless the measurement shows
    their items in the tree while closed** -- opening one pops a surface over
-   the human's work, which is what this is meant to avoid.
+   the human's work, which is what this is meant to avoid. **Decided: as proposed.**
