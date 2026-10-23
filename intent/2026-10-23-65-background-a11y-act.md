@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 65
 author: olafkfreund
 ---
@@ -99,11 +99,11 @@ Firefox or Chromium `click` raises its window has not been measured, so
    `a11y_find` and `windows` so the caller always has one to hand back. The
    returned generation must belong to the observation: read before the walk,
    and if the grant changed during it, say so rather than label old ids with
-   the new grant.
+   the new grant. **Decided: as proposed.**
 2. Should `focus` stay in `a11y_act` when the goal is background work?
    Proposed: keep it -- it is needed for the Chromium text route -- and mark it
    in the tool description as taking keyboard focus, even though it never moves
-   the pointer.
+   the pointer. **Decided: as proposed.**
 3. Scope of the measurement: which apps? Proposed: whatever of GTK3, GTK4,
    Qt, Firefox and Chromium (with `--force-renderer-accessibility`) is
-   installed here, one simple window each.
+   installed here, one simple window each. **Decided: as proposed.**
