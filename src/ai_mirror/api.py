@@ -272,5 +272,6 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
             return _launch(args)
         if op == 'a11y_act':
             from . import a11y
-            return a11y.act(args.get('node'), args.get('action'), args.get('text'), args.get('expect'))
+            return a11y.act(args.get('node'), args.get('action'), args.get('text'), args.get('expect'),
+                         args.get('timeout'))
     raise ValueError(f'Unknown operation: {op}')

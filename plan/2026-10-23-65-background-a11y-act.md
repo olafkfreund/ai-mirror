@@ -179,6 +179,11 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
    → verify by the unittest command.
    Traps: `wait.poll` catches every exception (`wait.py:164`), so no `_write`
    inside `probe`; `MirrorError` has `.code` (check `control.py`).
+   - Deviation: The read-back lives in a new helper `_read_back()`, called from `act()`, plus `_full_text()` and `_states()`, instead of inline in `act()`. The behaviour is the plan's.
+   - Deviation: `states_before` and `states_after` use `_states()`, which wraps `_node` in `_call` and defaults to `[]`, so the pre-read does not raise on minimal fake accessibles such as `FakeAccessible`.
+   - Deviation: Existing `ClickSemantics._run` changed `get_action_name.side_effect` from a list to a lambda indexing names; the new pre-read via `_node` also calls `get_action_name` and exhausted the list.
+   - Deviation: Added a `ReadBack` test class with 4 tests (set_text mismatch truncated to 120 chars with length, set_text match verified, different role gives `states_after: None`, click gives `verified: None` with note). No focus read-back test.
+   - Deviation: Not changed: CLI and MCP `--timeout`/`--expect` and the timeout schema (steps 5 and 7). `api.py` now passes `args.get('timeout')` to `act`, as step 4 says.
 
 5. **Generation: `api.py`, `mcp.py`, `cli.py`.**
    - `api.py:161` `_generation`: message

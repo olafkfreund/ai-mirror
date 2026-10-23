@@ -362,12 +362,25 @@ def resolve(node_id: str):
     return acc, Atspi
 
 
-def act(node_id: str, action: str, text: str | None = None, expect: dict | None = None) -> dict:
+def _full_text(acc):
+    """The whole text, or None when it cannot be read (never '' by default)."""
+    text = _call(acc.get_text_iface)
+    return None if text is None else _call(lambda: text.get_text(0, -1))
+
+
+def _states(acc, node_id: str, Atspi) -> list:
+    return _call(lambda: _node(acc, node_id, Atspi).get('states', []), [])
+
+
+def act(node_id: str, action: str, text: str | None = None, expect: dict | None = None,
+        timeout: float | None = None) -> dict:
     acc, Atspi = resolve(node_id)
     if expect:
         for key, getter in (('role', acc.get_role_name), ('name', acc.get_name)):
             if key in expect and (_call(getter, '') or '')[:120] != expect[key]:
                 raise MirrorError('stale_node', f'{key} changed; read the tree again')
+    role = _call(acc.get_role_name, '')
+    states_before = _states(acc, node_id, Atspi)
     try:
         if action == 'focus':
             comp = acc.get_component_iface()
@@ -401,4 +414,45 @@ def act(node_id: str, action: str, text: str | None = None, expect: dict | None 
         raise
     except Exception as exc:  # GLib.Error
         raise MirrorError('unavailable', str(exc)[:300]) from None
-    return {'ok': True, 'node': node_id, 'action': action}
+    return _read_back(node_id, action, text, role, states_before, Atspi, timeout)
+
+
+def _read_back(node_id, action, text, role, states_before, Atspi, timeout) -> dict:
+    """Look again after the write. Reads only: a probe must never call _write."""
+    from . import wait
+    after = got = None
+
+    def probe(budget):
+        nonlocal after, got
+        try:
+            node, _ = resolve(node_id)
+        except MirrorError as exc:
+            if exc.code != 'stale_node':
+                raise
+            node = None
+        after = node if node is not None and _call(node.get_role_name, '') == role else None
+        got = _full_text(after) if action == 'set_text' and after is not None else None
+        if action == 'set_text':
+            return got is not None and got == text
+        if action == 'focus':
+            return after is not None and 'focused' in _states(after, node_id, Atspi)
+        return True
+
+    result = wait.poll(probe, wait._timeout(timeout, default=1.0))
+    if result['result'] == 'unavailable':
+        raise MirrorError('unavailable', result['reason'])
+    states_after = None if after is None else _states(after, node_id, Atspi)
+    if result['result'] == 'not_confirmed':
+        if action == 'set_text':
+            details = ({'text': got[:120], 'length': len(got)} if isinstance(got, str) else
+                       {'text': None, 'length': None, 'reason': 'node gone or text unreadable'})
+        else:
+            details = {'states_after': states_after}
+        raise MirrorError('not_confirmed', f'{action} was written but could not be read back', details)
+    out = {'ok': True, 'node': node_id, 'action': action,
+           'verified': True if action in ('set_text', 'focus') else None,
+           'states_before': states_before, 'states_after': states_after,
+           'waited_ms': result['waited_ms']}
+    if out['verified'] is None:
+        out['note'] = 'invoked; the effect is not visible to accessibility -- observe before reporting it'
+    return out

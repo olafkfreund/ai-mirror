@@ -327,7 +327,7 @@ class ClickSemantics(unittest.TestCase):
         from ai_mirror import a11y
         acc = MagicMock()
         acc.get_action_iface().get_n_actions.return_value = len(names)
-        acc.get_action_iface().get_action_name.side_effect = names
+        acc.get_action_iface().get_action_name.side_effect = lambda i: names[i]
         write = MagicMock(side_effect=lambda seam, call: call())
         acc.get_action_iface().do_action.return_value = do_action
         with patch.object(a11y, 'resolve', return_value=(acc, None)), patch.object(a11y, '_write', write):
@@ -349,6 +349,44 @@ class ClickSemantics(unittest.TestCase):
     def test_refusal_is_unavailable(self):
         _, _, _, exc = self._run(['press'], do_action=False)
         self.assertEqual(exc.code, 'unavailable')
+
+
+class ReadBack(unittest.TestCase):
+    """#65: act() looks again after writing and says what it saw."""
+
+    def _act(self, action, text=None, after_text='x', after_role='entry', **kw):
+        from unittest.mock import MagicMock, patch
+        from ai_mirror import a11y
+        before, after = MagicMock(), MagicMock()
+        before.get_role_name.return_value = 'entry'
+        after.get_role_name.return_value = after_role
+        after.get_text_iface().get_text.return_value = after_text
+        iface = before.get_action_iface()
+        iface.get_n_actions.return_value = 1
+        iface.get_action_name.return_value = 'press'
+        resolved = iter([(before, None)] + [(after, None)] * 50)
+        with patch.object(a11y, 'resolve', side_effect=lambda n: next(resolved)), \
+                patch.object(a11y, '_write', lambda seam, call: True):
+            return a11y.act('1.0.0', action, text, timeout=0.1, **kw)
+
+    def test_set_text_mismatch_is_not_confirmed_and_truncated(self):
+        with self.assertRaises(MirrorError) as c:
+            self._act('set_text', 'want', after_text='y' * 500)
+        self.assertEqual(c.exception.code, 'not_confirmed')
+        self.assertEqual(len(c.exception.details['text']), 120)
+        self.assertEqual(c.exception.details['length'], 500)
+
+    def test_set_text_match_is_verified(self):
+        self.assertIs(self._act('set_text', 'want', after_text='want')['verified'], True)
+
+    def test_different_role_means_no_states_after(self):
+        out = self._act('click', after_role='dialog')
+        self.assertIsNone(out['states_after'])
+
+    def test_click_is_not_verified_and_carries_a_note(self):
+        out = self._act('click')
+        self.assertIsNone(out['verified'])
+        self.assertIn('note', out)
 
 
 class Departed(unittest.TestCase):
