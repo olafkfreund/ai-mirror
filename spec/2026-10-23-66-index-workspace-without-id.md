@@ -18,18 +18,21 @@ numbered = [w for w in workspaces if type(w.get('id')) is int]
 return {
     ...,
     'workspaces': sorted(w['id'] for w in numbered),
-    'occupied': sorted(w['id'] for w in numbered if w.get('windows')),
+    'occupied': sorted(w['id'] for w in numbered if _holds(w)),
     # Hyprland lists some special workspaces (Omarchy's screensaver) with no
     # id at all (#66); they are still somewhere an agent should know about.
-    'named': [{'name': str(w.get('name') or '?')[:80], 'windows': bool(w.get('windows'))}
+    'named': [{'name': str(w.get('name') or '?')[:80], 'windows': _holds(w)}
               for w in workspaces if type(w.get('id')) is not int],
 }
 ```
 
+with `_holds(w)` = `type(w.get('windows')) is int and w['windows'] > 0`, so a
+string such as `"0"`, `None` or a bool never counts as holding a window, and
+`occupied` uses the same rule it did for real counts.
+
 `type(...) is int` excludes `bool` and `None` as well as a missing key, so
-`sorted` never sees mixed types. `windows` becomes a bool: the count is not
-used anywhere and a non-int value cannot raise. The name is capped like other
-app-set text in the index.
+`sorted` never sees mixed types. The name is capped like other app-set text in
+the index.
 
 ### 2. Markdown shows the occupied named ones (line 429)
 
@@ -41,11 +44,12 @@ workspace holds a window; unchanged otherwise.
 
 In `tests/test_invariants.py`, next to the existing index section tests: stub
 `index.sh` so `hyprctl workspaces -j` returns
-`[{"id": 1, "name": "1", "windows": 2}, {"name": "special:screensaver-HDMI-A-1", "windows": 1}, {"id": null, "name": "x"}, {"id": 3}]`
+`[{"id": 1, "name": "1", "windows": 2}, {"name": "special:screensaver-HDMI-A-1", "windows": 1}, {"id": null, "name": "x"}, {"id": 3}, {"id": "4", "name": 7, "windows": "0"}, {"id": true}, "junk"]`
 (and `hyprctl version` / `host.monitors` stubbed). Assert `state()` returns
-`workspaces == [1, 3]`, `occupied == [1]`, `named` holds the screensaver
-(`windows: True`) and `x` (`windows: False`), and the rendered Markdown line
-names the screensaver and not `x`.
+without `_unavailable`, `workspaces == [1, 3]`, `occupied == [1]`, `named`
+holds the screensaver (`windows: True`), `x`, `7` and the `true`-id entry all
+with `windows: False`, and the rendered Markdown line names the screensaver
+and none of the others.
 
 ## Alternatives rejected
 
