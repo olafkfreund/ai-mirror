@@ -145,6 +145,8 @@ implementation; `master` merged in at `31eb954`). Line numbers as of
    new exemption from widening, not the fix.
    Traps: `FakeHelper.cmd` raises when an ack in its list is an Exception;
    `typed(helper)` strips `'C'`.
+   - Deviation (step 4): Plan test 9 (helper acks 'ERR') also fails on the old code. On old code the up-line is skipped or errors differently, so the assertion on the rescued send does not hold. Three tests fail on old code, not the two the plan predicted (1 and 11's first half): test 1, test 11 (one test method holds both halves) and test 9.
+   - Deviation (step 4): The 12 new tests share one helper, drive(), instead of each building its own mocks. The plan's `on_cmd`/callable guidance is followed inside it. host.layers, host.windows and host.focused_address are patched in every new test through drive(). I did not touch the older tests.
 
 5. **Merge PR #67 into this branch once #67 is merged to `master`**, resolving
    `tests/test_layer_typing.py::test_windows_op_lists_both`, where #67 adds
