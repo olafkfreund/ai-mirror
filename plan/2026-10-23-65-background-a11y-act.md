@@ -47,7 +47,9 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
    record their `actions`; then for `click`, one named action, `set_text`
    and `focus` record before/after `hyprctl cursorpos`,
    `hyprctl activewindow -j | jq .address` and the focused node
-   (`a11y-find` filtered on `focused` in `states`). `control off` after.
+   (`ai-mirror a11y-tree --app <name>` filtered with
+   `jq '[.nodes[] | select((.states // []) | index("focused"))]'` --
+   `a11y-find` has no state filter). `control off` after.
    Output: a table in the PR description and the default-click names for
    step 3. → verify by: the table has a row per app × action.
    Traps: `omarchy-toggle-notification-silencing` first; the measurement runs
@@ -114,7 +116,13 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
        return True
    result = wait.poll(probe, wait._timeout(timeout, default=1.0))
    ```
-   `_full_text(acc)`: Text iface `get_text(0, -1)` via `_call`, `''` if none.
+   `_full_text(acc)`: Text iface `get_text(0, -1)` via `_call`; returns
+   `None` when the node has no Text interface or the read fails, and `probe`
+   treats `None` as not confirmed (never equal, not even to `''`), so an
+   unreadable field cannot verify an empty write. Keep the last read in a
+   `got` variable (`None` if the node went away); mismatch `details` are
+   `{'text': got[:120], 'length': len(got)}` when `got` is a string, else
+   `{'text': None, 'length': None, 'reason': 'node gone or text unreadable'}`.
    `result['result'] == 'unavailable'` → `MirrorError('unavailable', reason)`.
    `not_confirmed` for `set_text` → `details={'text': got[:120], 'length':
    len(got)}`; for `focus` → `details={'states_after': ...}`.
@@ -132,7 +140,7 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
    inside `probe`; `MirrorError` has `.code` (check `control.py`).
 
 5. **Generation: `api.py`, `mcp.py`, `cli.py`.**
-   - `api.py:242-245` `_generation`: message
+   - `api.py:161` `_generation`: message
      `'generation is required -- from status, windows, a11y_find, a11y_tree or a screenshot frame'`.
    - `api.py:255`: `generation = _generation(args)` for every op in
      `MUTATING` (drop the `if op != 'input'` default).
@@ -149,10 +157,16 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
    - `cli.py`: `--generation type=int required=True` on `window` (line 85),
      `launch` (94), `a11y-act` (109); on `a11y-act` also
      `--expect type=json.loads` and `--timeout type=float`.
-   - Update existing tests: `tests/test_launch_window.py:18,45`,
-     `tests/test_window_verified.py:50,169,173` and the CLI parse test near
-     176 (add `--generation 1`), `tests/test_invariants.py:348` (pass the
-     grant's generation; 352 keeps raising).
+   - Update existing tests: `tests/test_launch_window.py:18,45` (pass the
+     grant's generation), `:97-101` `test_mcp_timeout_schema` (add
+     `'generation': 1` to every `validate('launch', ...)` call so the timeout
+     is what fails), `:103-105` `test_cli_parse` (add `--generation 1` before
+     `--`); `tests/test_window_verified.py:50,169,173` and its CLI parse test
+     near 176 (add `--generation 1`); `tests/test_invariants.py:348` (pass the
+     grant's generation) and `:352` (pass that same, now-revoked generation so
+     it still fails with `not_owner`, not `ValueError`);
+     `tests/test_layer_typing.py:59` (expected keys become
+     `{'windows', 'layers', 'generation'}`).
    - New tests: each of the four without generation → `ValueError` naming
      the sources; with a stale one → `stale_generation`; `windows`,
      `a11y_tree`, `a11y_find` carry `generation` read before the walk (stub
@@ -191,6 +205,13 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
 8. **Verify everything.** Commands under Tests. Then live, under a grant:
    `tests/smoke.py`, and one `a11y-act` click and `set_text` against a GTK
    window showing `verified` and `states_after`.
+
+9. **Release note.** The PR description gets a "Breaking change" section:
+   `window`, `launch`, `a11y_act`/`a11y-act` and agent clipboard writes now
+   require `generation`; where to get one; `click` no longer falls back to an
+   element's first action. The repo has no CHANGELOG and releases are
+   version-bump commits, so the next release PR copies this section.
+   → verify by: the section is in the PR body.
 
 ## Execution
 
