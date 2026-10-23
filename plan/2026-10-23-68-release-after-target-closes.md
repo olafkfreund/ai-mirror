@@ -95,15 +95,24 @@ implementation; `master` merged in at `31eb954`). Line numbers as of
    `surface` keeps its value from the last successful check when rescued.
 
 3. **`src/ai_mirror/control.py`: the note (lines ~814-828).** In the
-   `if window is not None:` block, when `closed` is true set `result['closed']
-   = True` and use the closed wording from decision 5 instead of the
-   `surface` / "still had focus" wording. → verify by the unittest command.
+   `if window is not None:` block, branch first: when `closed` is true set
+   `result['closed'] = True` and assign `result['note']` the **whole** sentence
+   from decision 5; otherwise keep today's `where` / `f'delivered to {where}. …'`
+   code unchanged. (Do not feed the closed sentence through `where`, or it
+   reads "delivered to keys pressed in …".) → verify by the unittest command.
 
 4. **`tests/test_layer_typing.py`: tests.** Patch `host.layers`,
    `host.windows` and `host.focused_address` in every test (unstubbed reads
    reach the live compositor or fail in `nix flake check`). Use
    `FakeHelper` (from `test_invariants`, records `sent`, acks from a list) and
-   `self.granted` from `TypingIntoASurface.setUp`; pass `owners=`.
+   `self.granted` from `TypingIntoASurface.setUp`; pass `owners=`. Call
+   `control.run_batch(..., window=WINDOW, ...)` directly in the new tests --
+   `run_on` defaults to `target=PANEL`, a layer, where the old #52 skip would
+   send the release and make the old-code comparison below meaningless.
+   `host.layers()` is called more than once per line (`_require_target` and
+   `_refuse_new_surfaces`), so make failures and changes happen through a
+   callable or `FakeHelper(on_cmd=...)` after a given line, never a fixed
+   `side_effect` list.
    - New, in a class `ReleaseAfterTargetCloses(TypingIntoASurface)`:
      1. window closes on Enter-down (`['K 28 1','K 28 0']`, owners `[0,0]`,
         focus `WINDOW` then `'0xother'`, `host.windows` without `WINDOW`)
@@ -127,8 +136,9 @@ implementation; `master` merged in at `31eb954`). Line numbers as of
          refused.
      12. `unavailable` refusal (`host.focused_address` raising on the up) with
          the target gone → refused, not rescued.
-   → verify by the unittest command. Against the pre-step-2 `run_batch`
-   (check by temporarily reverting step 2 locally, not committed): tests 1 and
+   → verify by the unittest command. Against the old `run_batch` (check by
+   temporarily reverting steps 2 **and 3** together locally -- step 3 reads
+   `closed` -- not committed): tests 1 and
    11's first half (they assert a rescued send) must **fail**; the refusal
    tests (2-10, 11's second half, 12) pass on old code too -- they guard the
    new exemption from widening, not the fix.
