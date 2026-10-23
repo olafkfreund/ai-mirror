@@ -22,11 +22,15 @@ any release after a validated layer through without a check, matched or not.
 
 ### 2. Track what this action pressed
 
-A set `pressed` holds the press lines sent for the current action, keyed by
-their prefix (`'K 27'`, `'B 272'`). A line `K <code> 1` / `B <code> 1` adds its
-prefix after the helper acks it; the set is cleared whenever the line's owner
-(from `owners`) differs from the previous line's. With `owners` absent there
-is no action boundary, so nothing is ever exempt.
+A set `pressed` holds the keys and buttons this action has pressed and not yet
+released, keyed by prefix (`'K 27'`, `'B 272'`). After the helper acks
+`K <code> 1` / `B <code> 1` the prefix is added; after it acks `K <code> 0` /
+`B <code> 0` the prefix is removed, so a repeated code (`keys: ["A", "A"]`)
+cannot have a second, unmatched release rescued. The set is cleared whenever a
+line's owner (from `owners`) differs from the previous line's; modifier lines
+carry the owner of the action they belong to (`input.encode`), so a modifier
+is matched within its own action only. With `owners` absent there is no
+action boundary, so nothing is ever exempt.
 
 ### 3. The rescue, only on refusal
 
@@ -47,6 +51,18 @@ def _target_gone(window: str) -> bool:
   exactly as today.
 - Any exception → re-raise the original refusal (fail closed).
 
+Both refusal paths go through the existing `helper.cancel(); raise _partial(...)`
+in the `except MirrorError` block, so `C` is still sent; the rescue lives inside
+that block and only skips it when `_target_gone` returns `True`. `_target_gone`
+is called only from there, never inside `wait.poll` or any other catch-all.
+
+**Where the rescued key-up goes.** The helper is a virtual keyboard: a key-up
+goes to whatever has keyboard focus once the target is gone -- the next window
+on the workspace, or the window under a closed layer. That is a lone release
+of a key the batch pressed, which is exactly what `C` sends to the same place
+on today's failure path; it cannot type text or start a shortcut. This is an
+accepted limitation, not "nowhere to land".
+
 `_require_target` itself is not reused for "gone": it turns a failed layer
 query into "no layers" (`control.py:724-727`), and for a window it only knows
 what has focus (`_require_focus`), which cannot tell a closed window from one
@@ -56,16 +72,17 @@ that lost focus.
 
 `run_batch`'s success note (`control.py:814-828`) today says "`<window>`,
 which still had focus" or "the topmost surface on screen". When `closed` is
-set it says instead: "delivered to `<window>`, which closed after the
-keystroke; its key-up was still sent. Application acceptance and task
-completion are NOT verified -- observe before reporting the outcome." The
-result gains `closed: true`.
+set it says instead: "keys pressed in `<window>`, which then closed; the
+matching key-up was sent after it closed, to whatever has focus now.
+Application acceptance and task completion are NOT verified -- observe before
+reporting the outcome." The result gains `closed: true`.
 
 ### 5. Tests (`tests/test_layer_typing.py`, with `host` stubbed)
 
-1. A window that closes on Enter-down: `['K 28 1', 'K 28 0']`, the window in
-   `host.windows()` on the first check and gone on the second → both lines
-   sent, `closed: true`, note says it closed.
+1. A window that closes on Enter-down: `['K 28 1', 'K 28 0']`; focus is the
+   window for the first line's check and another window for the second, and
+   `host.windows()` (first called by the rescue) no longer lists it → both
+   lines sent, `closed: true`, note says it closed.
 2. A layer that closes on Escape-down → both sent (#52's existing test,
    unchanged expectation).
 3. The target still exists but another window took focus → the release is
@@ -75,12 +92,22 @@ result gains `closed: true`.
 5. `host.windows()` raising during the gone check → the original refusal, not
    a send.
 6. A release matched in a *previous* action is not exempt in the next one.
+7. A repeated code, `['K 30 1', 'K 30 0', 'K 30 0']` in one action with the
+   target gone after the first up → the second up is refused.
+8. `host.layers()` raising during the gone check → the original refusal.
+9. Control revoked just before a would-be rescued up → `stale_generation`, and
+   `C` sent.
+10. The rescued up gets a non-`OK` ack → `unavailable`, and `C` sent.
+11. `owners=None` → no rescue; the release is refused as today.
+12. A modifier: `['K 29 1', 'K 46 1', 'K 46 0', 'K 29 0']` (Ctrl+C) with the
+    target gone after `K 46 1` → both ups sent; the same lines split across two
+    owners → the Ctrl up in the second action is refused.
 
 ## Alternatives rejected
 
 - **Broad rule: send any matched release wherever focus is.** Covers a
   shortcut whose key-down opens something, but the intent decided narrow:
-  a release only skips the check when there is nowhere it could land wrongly.
+  a release only skips the check when its target has demonstrably gone.
 - **#52 as it is (layers only, unmatched).** Misses windows and exempts
   releases it never pressed.
 - **Treat "focus moved" as "gone".** A window closing on a workspace with
