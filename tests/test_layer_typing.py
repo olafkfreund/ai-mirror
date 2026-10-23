@@ -116,6 +116,7 @@ class TypingIntoASurface(Base):
             return OPEN if len(calls) == 1 else FURNITURE
 
         with patch.object(host, 'layers', side_effect=layers), \
+             patch.object(host, 'windows', return_value=[]), \
              patch.object(host, 'focused_address', return_value=WINDOW):
             control.run_batch(['K 27 1', 'K 27 0'], self.granted['generation'], helper,
                               window=PANEL, owners=[0, 0])

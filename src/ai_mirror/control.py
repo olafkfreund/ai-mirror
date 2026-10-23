@@ -782,9 +782,7 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
     ox, oy = helper.origin
     surface = None
     delivered = 0
-    target_validated = False
-    target_owner = None
-    target_is_layer = False
+    pressed, action, closed = set(), None, False
     for line in lines:
         state = read_state()
         if state.get('owner') != 'agent' or state.get('generation') != generation:
@@ -795,18 +793,24 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
             # Per line, for the same reason ownership is: a batch is not atomic
             # and the desktop moves underneath one.
             owner = owners[delivered] if owners and delivered < len(owners) else None
-            releasing = line.startswith(('K ', 'B ')) and line.endswith(' 0')
-            same_action = (target_is_layer and target_validated
-                           and (owners is None or owner == target_owner))
-            if not (releasing and same_action):
-                try:
-                    surface = _require_target(window)
-                except MirrorError as exc:
+            if owner != action:
+                pressed, action = set(), owner
+            try:
+                surface = _require_target(window)
+            except MirrorError as exc:
+                head, _, edge = line.rpartition(' ')
+                rescued = False
+                if (exc.code == 'wrong_target' and owners is not None and edge == '0'
+                        and line[:2] in ('K ', 'B ') and head in pressed):
+                    try:
+                        rescued = _target_gone(window)
+                    except (RuntimeError, ValueError, OSError, KeyError, TypeError,
+                            subprocess.SubprocessError):
+                        rescued = False
+                if not rescued:
                     helper.cancel()
                     raise _partial(exc, delivered, lines, owners) from None
-                target_validated = True
-                target_owner = owner
-                target_is_layer = surface is not None
+                closed = True
         if line.startswith('M ') and (ox or oy):
             x, y = map(int, line[2:].split())
             line = f'M {x - ox} {y - oy}'
@@ -820,6 +824,9 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
             helper.cancel()
             raise _partial(MirrorError('unavailable', f'helper {ack[:80]!r}'),
                            delivered, lines, owners)
+        if line[:2] in ('K ', 'B '):
+            head, _, edge = line.rpartition(' ')
+            (pressed.add if edge == '1' else pressed.discard)(head)
         delivered += 1
     result = {'ok': True, 'acked': len(lines), 'generation': generation}
     if window is not None:
