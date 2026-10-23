@@ -34,8 +34,11 @@ action boundary, so nothing is ever exempt.
 
 ### 3. The rescue, only on refusal
 
-When `_require_target(window)` raises `MirrorError` and the line is a release
-(`K <code> 0` / `B <code> 0`) whose prefix is in `pressed`:
+When `_require_target(window)` raises `MirrorError` **with code
+`wrong_target`** and the line is a release (`K <code> 0` / `B <code> 0`) whose
+prefix is in `pressed`. Any other code -- `unavailable` when focus or layers
+could not be read -- is refused as today: "could not tell" never becomes
+acting.
 
 ```python
 def _target_gone(window: str) -> bool:
@@ -83,8 +86,12 @@ reporting the outcome." The result gains `closed: true`.
    window for the first line's check and another window for the second, and
    `host.windows()` (first called by the rescue) no longer lists it → both
    lines sent, `closed: true`, note says it closed.
-2. A layer that closes on Escape-down → both sent (#52's existing test,
-   unchanged expectation).
+2. A layer that closes on Escape-down → both sent. #52's existing test
+   (`test_key_release_is_sent_when_surface_closes_on_keydown`) keeps its
+   expectation but must now also stub `host.windows` (return `[]`): the rescue
+   reads it, and an unstubbed read would query the live compositor, or fail in
+   the `nix flake check` sandbox. Every new test stubs `host.layers`,
+   `host.windows` and `host.focused_address`.
 3. The target still exists but another window took focus → the release is
    refused, `wrong_target`, as today.
 4. An unmatched release (`K 28 0` with no `K 28 1` earlier in the action) →
@@ -126,7 +133,9 @@ reporting the outcome." The result gains `closed: true`.
 
 ## Verification
 
-- `python3 -m unittest discover -s tests` green, with the six tests above.
+- `python3 -m unittest discover -s tests` green, with the twelve tests above,
+  plus one: a release refused with `unavailable` (focus unreadable) is not
+  rescued even when the target is gone.
 - `nix flake check` green.
 - Live, after #67 is merged into this branch: `tests/smoke.py` `main()` passes
   end to end under a grant.
