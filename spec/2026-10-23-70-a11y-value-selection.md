@@ -54,15 +54,19 @@ unnamed slider is content.
   them → `MirrorError('invalid', f'value must be within [{minimum}, {maximum}]')`,
   before any write. Missing or degenerate bounds (`minimum >= maximum`) mean no
   range check.
-- If the current value already equals `value` within tolerance → nothing is
+- **Tolerance** `tol = step / 2 if step > 0 else 1e-9 * max(1.0, abs(value))`.
+  Half a step accepts a toolkit snapping to the nearest representable value
+  but never the adjacent one (asking for 5 with step 1 while it stays at 4 is
+  not confirmed). It never reads the bounds, so missing bounds cannot break it.
+- If the current value already equals `value` within `tol` → nothing is
   written; result `verified: true, changed: false` (as `window` does for a
   state that holds).
 - `_write('set_current_value', lambda: iface.set_current_value(float(value)))`;
   falsy → `unavailable: the application refused the value`.
 - Read-back (`_read_back`, new branch): probe re-resolves, compares role, reads
-  `get_current_value()`; confirmed when `abs(current - value) <= tol`, where
-  `tol = step if step > 0 else 1e-6 * max(1.0, maximum - minimum)`. Not
-  confirmed → `not_confirmed` with `details={'value': current, 'wanted': value}`.
+  `get_current_value()`; confirmed when `abs(current - value) <= tol`. Not
+  confirmed (or the value unreadable) → `not_confirmed` with
+  `details={'value': current, 'wanted': value}`.
   The result carries `value_before` and `value_after`.
 
 ### 4. `select` (`a11y.py` `act`)
@@ -78,10 +82,14 @@ The caller names the **item's** node id. Node ids are child-index paths
   AT-SPI Selection`.
 - If `k > 1`, the selected child is the item's ancestor at that level (a row
   holding cells, say); the result says `selected_via: k`.
-- **Re-check before writing:** the item resolves and matches `expect` (role,
-  name) as today; additionally `container.get_child_at_index(index)` must be
-  the same object `resolve` reached on that path (compare role and name), so
-  the index still points at what the caller saw.
+- **What guards the target is `expect`, as for every other action.** The item
+  resolves and must match `expect` (role, name) when given. A node id is a
+  child-index path, and AT-SPI gives no identity beyond what a node reports,
+  so if a sibling has slid into the item's slot and shares its role and name,
+  nothing can tell them apart -- the description says so, and the result
+  names what was selected: `selected: {role, name}` of the item, and for
+  `k > 1` of the ancestor actually selected. No second lookup through the
+  container: it follows the same current index and proves nothing more.
 - Already selected (`'selected'` in the item's states, or
   `sel.is_child_selected(index)`) → nothing written, `verified: true,
   changed: false`.
@@ -119,9 +127,10 @@ The caller names the **item's** node id. Node ids are child-index paths
 
 - **`select_child` on some toolkits may also move focus or activate the item.**
   The measurement records it; the description says only what is measured.
-- **An id whose path shifted** between read and act could select a sibling:
-  the re-check compares the container's child at that index with the resolved
-  item, and `expect` checks role and name.
+- **An id whose path shifted** between read and act can select a sibling.
+  `expect` (role, name) refuses it unless the sibling matches both; when it
+  does, the wrong item is selected, and `selected` in the result shows which.
+  Same limit every `a11y_act` action has today.
 - **Selecting a row via an ancestor (`k > 1`)** selects more than the cell the
   caller named; the result says so with `selected_via`.
 
@@ -131,11 +140,14 @@ The caller names the **item's** node id. Node ids are child-index paths
   `value` in rows only for `Value` nodes; `_actionable` true for a value-only
   row; `_states` does not read values; `set_value` validation (bool, nan, str
   → `ValueError` before any write); out of sane range → `invalid`, no write;
-  degenerate bounds → written; already at value → no write; refusal →
-  `unavailable`; read-back within step → verified, outside → `not_confirmed`
-  with details; `select` direct parent, grandparent (`selected_via: 2`), none
-  within depth → `unsupported`; shifted index → refused before write; already
-  selected → no write; read-back confirmed via `is_child_selected`; a guarded
+  degenerate or unreadable bounds → written and read back without error;
+  already at value → no write; refusal → `unavailable`; read-back within half
+  a step → verified; the adjacent value (5 wanted, 4 read, step 1) →
+  `not_confirmed` with details, and not treated as "already set"; `select` direct parent, grandparent (`selected_via: 2`), none
+  within depth → `unsupported`; a shifted index -- the original observation
+  kept, the child list then shifted so the item's path holds a sibling with a
+  different name -- refused by `expect` before any write; already selected →
+  no write; read-back confirmed via `is_child_selected`; a guarded
   write in each new branch raises `guard.Blocked`.
 - `nix flake check` green.
 - Live, under a grant from the confirm dialog: one `set_value` and one
