@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 66
 author: olafkfreund
 ---
@@ -60,4 +60,4 @@ appears whenever such a workspace exists.
 1. Report id-less workspaces in the same lists (mixing ints and names) or in a
    separate key? Proposed: a separate `named` list of `{name, windows}`, so
    `workspaces` and `occupied` stay lists of ids, and the Markdown
-   "workspaces in use" line adds the occupied named ones after the ids.
+   "workspaces in use" line adds the occupied named ones after the ids. **Decided: as proposed.**
