@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 65
 intent: intent/2026-10-23-65-background-a11y-act.md
 ---
