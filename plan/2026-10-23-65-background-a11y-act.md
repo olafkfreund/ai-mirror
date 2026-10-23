@@ -280,6 +280,12 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
   works via `check` now); `focus` read-back reports the states that decided
   it; a read-back that fails after the write says the action was delivered
   (`details.delivered`) so it is not retried.
+- Deviation (step 6/8): `tests/smoke.py` had not named a typing target since
+  #24 (on `master` too): `check_wait`'s global shortcut now names the focused
+  window, and `main`'s frame input names the foot window it opened. Live:
+  `check_index` fails on #66 (screensaver workspace with no `id`), and
+  `check_wait`'s `nixarchy-pkg-menu` layer no longer exists on this host --
+  both outside #65.
 
 ## Execution
 

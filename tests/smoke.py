@@ -47,7 +47,7 @@ def main():
         frame = mcp.observe({'region': region, 'max_size': 640})
         meta = json.loads(frame[0]['text'])
         assert frame[1]['type'] == 'image' and meta['generation'] == gen
-        args = mcp.from_frame({'frame': meta['frame'], 'actions': [
+        args = mcp.from_frame({'frame': meta['frame'], 'window': window['address'], 'actions': [
             {'type': 'click', 'x': meta['width'] // 2, 'y': meta['height'] // 2},
             {'type': 'type', 'text': 'discard'}, {'type': 'key', 'keys': ['CTRL', 'U']},
             {'type': 'type', 'text': LONG + '\n'}]})
@@ -117,7 +117,7 @@ def check_wait():
     A happy-path-only check would not have caught the failure this came from,
     which is precisely a step that did not happen being treated as one that did.
     """
-    from ai_mirror import api, control, wait
+    from ai_mirror import api, control, host, wait
 
     take_control()
     try:
@@ -130,7 +130,8 @@ def check_wait():
         out = wait.until({'layer': 'nixarchy-pkg-menu', 'absent': True, 'timeout': 2})
         assert out['result'] == 'confirmed', out
 
-        api.run('input', {'generation': gen,
+        # A global shortcut still names a target since #24: the focused window it lands on.
+        api.run('input', {'generation': gen, 'window': host.focused_address(),
                           'actions': [{'type': 'key', 'keys': ['N'],
                                        'modifiers': ['SUPER', 'ALT']}]})
         out = wait.until({'layer': 'nixarchy-pkg-menu', 'timeout': 5})
