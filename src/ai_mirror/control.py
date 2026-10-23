@@ -804,8 +804,7 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
                         and line[:2] in ('K ', 'B ') and head in pressed):
                     try:
                         rescued = _target_gone(window)
-                    except (RuntimeError, ValueError, OSError, KeyError, TypeError,
-                            subprocess.SubprocessError):
+                    except Exception:  # noqa: BLE001 - any failure to look refuses, and still sends C
                         rescued = False
                 if not rescued:
                     helper.cancel()

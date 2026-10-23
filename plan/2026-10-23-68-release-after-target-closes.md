@@ -161,6 +161,15 @@ implementation; `master` merged in at `31eb954`). Line numbers as of
    Traps: smoke's `check_index` needs #66; `check_wait` needs a panel this host
    no longer has -- run `main()` only.
 
+**Review fixes (fresh Opus review: `matches_plan`, three low).**
+- `ReleaseAfterTargetCloses` derives from `Base` with its own grant, not
+  `TypingIntoASurface`, whose tests it was running a second time.
+- Test 6 now presses in action 0 and releases in action 1, so it fails if the
+  per-action reset is removed (checked by removing it); before, it passed
+  without it.
+- The rescue's `_target_gone` call catches any exception, not only the ones
+  `host` raises, so an unexpected failure still refuses and sends `C`.
+
 ## Execution
 
 Steps 1-4 edit one source file and one test file across four steps, so they go

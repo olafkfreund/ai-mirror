@@ -184,8 +184,14 @@ class TypingIntoASurface(Base):
         self.assertEqual([line for line in helper.sent if line != 'C'], [])
 
 
-class ReleaseAfterTargetCloses(TypingIntoASurface):
+class ReleaseAfterTargetCloses(Base):
     """#68: a key-up whose key-down landed may follow the target's closing."""
+
+    def setUp(self):
+        super().setUp()
+        # Not a TypingIntoASurface subclass: that would run its tests again here.
+        with patch.object(host, 'layers', return_value=FURNITURE):
+            self.granted = grant()
 
     def drive(self, lines, owners, gone_after=None, on_line=None, acks=None,
               windows_error=None, layers_error=None, focus_error=None, still_listed=False):
@@ -257,8 +263,9 @@ class ReleaseAfterTargetCloses(TypingIntoASurface):
         self.refused(helper, exc, ['K 28 1'])
 
     def test_a_release_matched_in_a_previous_action_is_refused(self):
-        helper, exc = self.drive(['K 28 1', 'K 28 0', 'K 28 0'], [0, 0, 1], gone_after=2)
-        self.refused(helper, exc, ['K 28 1', 'K 28 0'])
+        # Pressed in action 0, released in action 1: the reset is the only thing refusing it.
+        helper, exc = self.drive(['K 28 1', 'K 28 0'], [0, 1], gone_after=1)
+        self.refused(helper, exc, ['K 28 1'])
 
     def test_a_repeated_code_in_one_action_is_refused(self):
         helper, exc = self.drive(['K 30 1', 'K 30 0', 'K 30 0'], [0, 0, 0], gone_after=2)
