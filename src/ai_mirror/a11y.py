@@ -114,6 +114,12 @@ def _call(fn, default=None):
         return default
 
 
+def _write(seam: str, call):
+    """The one place a11y changes an application. Tests stub this."""
+    guard.check(f'a11y.act {seam}', 'a11y._write')
+    return call()
+
+
 def _node(acc, node_id: str, Atspi) -> dict:
     row = {'id': node_id, 'role': _call(acc.get_role_name, ''), 'name': (_call(acc.get_name, '') or '')[:120]}
     state_set = _call(acc.get_state_set)
@@ -361,7 +367,7 @@ def act(node_id: str, action: str, text: str | None = None, expect: dict | None 
     try:
         if action == 'focus':
             comp = acc.get_component_iface()
-            if comp is None or not comp.grab_focus():
+            if comp is None or not _write('grab_focus', comp.grab_focus):
                 raise MirrorError('unsupported', 'element cannot take focus')
         elif action == 'set_text':
             if not isinstance(text, str):
@@ -376,7 +382,7 @@ def act(node_id: str, action: str, text: str | None = None, expect: dict | None 
                                   'cannot be set directly (Chromium reports the editable state '
                                   'without the interface). Use a11y_act focus on it, then send '
                                   'keystrokes with input.')
-            if not editable.set_text_contents(text):
+            if not _write('set_text', lambda: editable.set_text_contents(text)):
                 raise MirrorError('unavailable', 'the application refused the text')
         else:
             iface = acc.get_action_iface()
@@ -385,8 +391,8 @@ def act(node_id: str, action: str, text: str | None = None, expect: dict | None 
             index = next((names.index(w) for w in wanted if w in names), 0 if action == 'click' and names else None)
             if index is None:
                 raise MirrorError('unsupported', f'element actions are {names}')
-            iface.do_action(index)
-    except MirrorError:
+            _write('do_action', lambda: iface.do_action(index))
+    except (MirrorError, guard.Blocked):
         raise
     except Exception as exc:  # GLib.Error
         raise MirrorError('unavailable', str(exc)[:300]) from None

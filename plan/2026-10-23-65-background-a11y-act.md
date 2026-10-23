@@ -115,6 +115,9 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
    Traps: the guard goes on the innermost call a test stubs (AGENTS.md);
    reads stay unguarded; check the test class arms the guard (`Base.setUp`
    does; a plain `TestCase` does not -- arm it explicitly if needed).
+   - Deviation: the test class `SetText` is a plain `unittest.TestCase`, so the new test calls `guard.arm()` itself, as the trap allowed.
+   - Deviation: one test covers `click`, `focus` and `set_text` with a `MagicMock` accessible, instead of three separate tests.
+   - Deviation: `guard.arm()` is never disarmed afterwards, so the guard stays armed for later plain `TestCase`s in the same process.
 
 3. **`a11y.py:384-388`: click semantics and refusal.**
    `wanted = ('click', 'press', 'activate', 'jump', *DEFAULT_CLICKS)` for

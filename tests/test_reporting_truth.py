@@ -306,6 +306,18 @@ class SetText(unittest.TestCase):
         self.assertIn('focus', str(error))
         self.assertIn('input', str(error))
 
+    def test_every_a11y_write_is_guarded(self):
+        from unittest.mock import MagicMock, patch
+        from ai_mirror import a11y, guard
+        guard.arm()
+        acc = MagicMock()
+        acc.get_action_iface().get_n_actions.return_value = 1
+        acc.get_action_iface().get_action_name.return_value = 'click'
+        with patch.object(a11y, 'resolve', return_value=(acc, None)):
+            for action in ('click', 'focus', 'set_text'):
+                with self.assertRaises(guard.Blocked):
+                    a11y.act('1.0.0', action, 'x')
+
 
 class Departed(unittest.TestCase):
     """#39: what left the baseline, so a returning surface reads differently from a new one."""
