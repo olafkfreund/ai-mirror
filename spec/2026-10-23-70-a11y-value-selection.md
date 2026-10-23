@@ -1,0 +1,142 @@
+---
+status: draft
+issue: 70
+intent: intent/2026-10-23-70-a11y-value-selection.md
+---
+
+# Spec: set values and select items without the pointer
+
+## Design
+
+Builds on #65's `a11y_act` (PR #67): the guarded `_write` seam, `_read_back`,
+`resolve()`'s privacy check, required `generation`. Two new actions,
+`set_value` and `select`, and one new field in tree/find rows.
+
+### 1. Measure first (no code)
+
+As #65's plan step 1: under a grant from the confirm dialog, on a scratch
+workspace, launch one window each of the installed apps (GTK4
+gnome-calculator / gnome-text-editor, Firefox, Chrome with
+`--force-renderer-accessibility` and a scratch profile) on a local page with
+`<input type="range">`, `<input type="number">`, `<select>` (closed and
+`size=4`), a tab list and a list box. For each control record: whether it
+implements `Value` / `Selection` (and on which node -- the item's parent, a
+grandparent, ...), its value and bounds, and, with another window focused,
+whether `set_current_value` / `select_child` changed the pointer, the active
+window, keyboard focus, or mapped a new surface. The table decides
+`SELECTION_DEPTH` (below) and whether closed `<select>` items are reachable.
+Its rows go into the **existing** measured table in `gotchas.md` (the index
+payload has under 1 KB left below its 22,000-byte cap).
+
+### 2. Reading a value (`a11y.py` `_node`, `_actionable`)
+
+`_node(acc, node_id, Atspi, value=True)` gains, when
+`acc.get_value_iface()` is not `None`:
+
+```python
+row['value'] = [current, minimum, maximum, step]   # floats; step 0.0 if none
+```
+
+each read with `_call`, and the field omitted if `current` is unreadable.
+`_states()` calls `_node(..., value=False)`, so `_read_back`'s per-probe cost
+does not grow. `_actionable` counts a row with `value` as actionable, so an
+unnamed slider is content.
+
+### 3. `set_value` (`a11y.py` `act`)
+
+`act(node_id, action, text=None, expect=None, timeout=None, value=None)`.
+
+- `value` must be an `int` or `float`, finite, not a `bool`; otherwise
+  `ValueError`, before anything else (same place `timeout` is validated).
+- `iface = acc.get_value_iface()`; `None` →
+  `unsupported: this element has no AT-SPI Value`.
+- Bounds read through `_call`. If `minimum < maximum` and `value` is outside
+  them → `MirrorError('invalid', f'value must be within [{minimum}, {maximum}]')`,
+  before any write. Missing or degenerate bounds (`minimum >= maximum`) mean no
+  range check.
+- If the current value already equals `value` within tolerance → nothing is
+  written; result `verified: true, changed: false` (as `window` does for a
+  state that holds).
+- `_write('set_current_value', lambda: iface.set_current_value(float(value)))`;
+  falsy → `unavailable: the application refused the value`.
+- Read-back (`_read_back`, new branch): probe re-resolves, compares role, reads
+  `get_current_value()`; confirmed when `abs(current - value) <= tol`, where
+  `tol = step if step > 0 else 1e-6 * max(1.0, maximum - minimum)`. Not
+  confirmed → `not_confirmed` with `details={'value': current, 'wanted': value}`.
+  The result carries `value_before` and `value_after`.
+
+### 4. `select` (`a11y.py` `act`)
+
+The caller names the **item's** node id. Node ids are child-index paths
+(`"3.0.2.5"`), so the container and the item's index come from the id itself:
+
+- For `k` in `1..SELECTION_DEPTH` (module constant, `2` unless the measurement
+  says otherwise): `container_id = parts[:-k]`, `index = parts[-k]`;
+  `container, _ = resolve(container_id)` (privacy re-checked); the first
+  container whose `get_selection_iface()` is not `None` is used.
+  None found → `unsupported: no ancestor within SELECTION_DEPTH implements
+  AT-SPI Selection`.
+- If `k > 1`, the selected child is the item's ancestor at that level (a row
+  holding cells, say); the result says `selected_via: k`.
+- **Re-check before writing:** the item resolves and matches `expect` (role,
+  name) as today; additionally `container.get_child_at_index(index)` must be
+  the same object `resolve` reached on that path (compare role and name), so
+  the index still points at what the caller saw.
+- Already selected (`'selected'` in the item's states, or
+  `sel.is_child_selected(index)`) → nothing written, `verified: true,
+  changed: false`.
+- `_write('select_child', lambda: sel.select_child(index))`; falsy →
+  `unavailable: the application refused the selection`.
+- Read-back: probe re-resolves the item, compares role, and confirms when
+  `sel.is_child_selected(index)` on a freshly resolved container, or
+  `'selected'` in the item's states. `states_before` / `states_after` show the
+  change; in a single-select container that is how a replaced choice shows.
+- Select only: no deselect, no clear (intent question 2).
+
+### 5. Wiring
+
+- `api.py:276`: pass `args.get('value')` to `a11y.act`.
+- `mcp.py:78`: schema gains `'value': {'type': 'number'}`; description adds
+  "set_value (value) on a slider or spin button; select on a list or tab
+  item -- both read back".
+- `cli.py:111`: `--value type=float`.
+- `docs/usage.md`: the two actions, `value` in rows, the new result fields.
+
+## Alternatives rejected
+
+- **Select by container id + index.** Every other id in the tool names the
+  element acted on; an index the caller computes is one more thing to get
+  wrong, and the item's own id already encodes it.
+- **Use the item's `click` action instead of `Selection`.** Already possible
+  today; it is what moves focus (measured in Chrome). `Selection` is the
+  interface that says "choose this" without activating anything.
+- **Exact-equality read-back for values.** Sliders snap to their step; it
+  would report `not_confirmed` for a value that landed.
+- **Clamp out-of-range values ourselves.** The caller asked for a value; quietly
+  setting another is the false-`ok` shape #65 removed.
+
+## Risks
+
+- **`select_child` on some toolkits may also move focus or activate the item.**
+  The measurement records it; the description says only what is measured.
+- **An id whose path shifted** between read and act could select a sibling:
+  the re-check compares the container's child at that index with the resolved
+  item, and `expect` checks role and name.
+- **Selecting a row via an ancestor (`k > 1`)** selects more than the cell the
+  caller named; the result says so with `selected_via`.
+
+## Verification
+
+- Unit tests (fake accessibles, `resolve` and `_write` stubbed, guard armed):
+  `value` in rows only for `Value` nodes; `_actionable` true for a value-only
+  row; `_states` does not read values; `set_value` validation (bool, nan, str
+  → `ValueError` before any write); out of sane range → `invalid`, no write;
+  degenerate bounds → written; already at value → no write; refusal →
+  `unavailable`; read-back within step → verified, outside → `not_confirmed`
+  with details; `select` direct parent, grandparent (`selected_via: 2`), none
+  within depth → `unsupported`; shifted index → refused before write; already
+  selected → no write; read-back confirmed via `is_child_selected`; a guarded
+  write in each new branch raises `guard.Blocked`.
+- `nix flake check` green.
+- Live, under a grant from the confirm dialog: one `set_value` and one
+  `select` in the measured apps, results matching the table.
