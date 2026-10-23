@@ -292,6 +292,11 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
   back as unreadable. After the fix, GTK4 calculator `set_text '6*7'` still
   reports `not_confirmed`; whether the app rewrites the text or the write does
   not land is unmeasured (the grant for that check was not given).
+- Live, generation 45: GTK4 calculator `set_text` of `42`, `6*7` and `hello`
+  all `not_confirmed`, and the entry's Text reads back `None` for each -- so
+  not normalisation; AT-SPI cannot read that entry's text. Whether the write
+  lands is unverified. The step 1 "ok" for this row was the old unverified
+  report; `gotchas.md` corrected to say it cannot be read back.
 - Live step 8 (generation 37): `a11y-act` without `--generation` refused;
   agent clipboard write with generation read back; `launch`/`window` with
   generation ok; `a11y_find` returned `generation`; GTK4 `click`

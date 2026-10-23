@@ -150,7 +150,7 @@ pointer. Re-measure on your host.
 | App | Element | Actions offered | Tried | Result |
 |---|---|---|---|---|
 | GTK4 calculator | button | `click` | click | ok |
-| GTK4 calculator | entry | `text.*`, `clipboard.*`, `menu.popup` | set_text | ok |
+| GTK4 calculator | entry | `text.*`, `clipboard.*`, `menu.popup` | set_text | the app accepts it, but the text cannot be read back, so `not_confirmed`: screenshot to check |
 | GTK4 calculator | button | `click` | focus | `atspi_error` (grab_focus unsupported) |
 | Chrome | button | `press` | click | ok, in-page focus moves |
 | Chrome | check box | `check` | click | ok (`check` counts as a click since #65) |
