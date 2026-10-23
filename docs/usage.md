@@ -94,7 +94,7 @@ ai-mirror control confirm ID | deny [ID]  # answer the waiting request (what the
 ai-mirror screenshot [--output DP-1|all] [--region x,y,w,h] [--max-size N] [--out file.png]
 ai-mirror windows
 ai-mirror input --generation N '[{"type":"click","x":300,"y":200,"modifiers":["CTRL"]}]'
-ai-mirror window focus|close|float|center|fullscreen|workspace|resize 0x55d1… [--mode maximized] [--workspace 3] [--w 800 --h 600] [--enabled|--no-enabled] [--timeout S]
+ai-mirror window --generation N focus|close|float|center|fullscreen|workspace|resize 0x55d1… [--mode maximized] [--workspace 3] [--w 800 --h 600] [--enabled|--no-enabled] [--timeout S]
 ai-mirror launch --generation N [--timeout S] -- uwsm-app -- firefox https://example.com
 ai-mirror clipboard read | ai-mirror clipboard write "text"
 ai-mirror a11y-tree [--app firefox] [--depth 12] [--max-nodes 400]

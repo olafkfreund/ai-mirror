@@ -374,6 +374,10 @@ def _states(acc, node_id: str, Atspi) -> list:
 
 def act(node_id: str, action: str, text: str | None = None, expect: dict | None = None,
         timeout: float | None = None) -> dict:
+    from . import wait
+    # Before any write: a bad timeout found afterwards reports an error for an
+    # action that already landed, and the retry does it twice.
+    timeout = wait._timeout(timeout, default=1.0)
     acc, Atspi = resolve(node_id)
     if expect:
         for key, getter in (('role', acc.get_role_name), ('name', acc.get_name)):
@@ -438,7 +442,7 @@ def _read_back(node_id, action, text, role, states_before, Atspi, timeout) -> di
             return after is not None and 'focused' in _states(after, node_id, Atspi)
         return True
 
-    result = wait.poll(probe, wait._timeout(timeout, default=1.0))
+    result = wait.poll(probe, timeout)
     if result['result'] == 'unavailable':
         raise MirrorError('unavailable', result['reason'])
     states_after = None if after is None else _states(after, node_id, Atspi)

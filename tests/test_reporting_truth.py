@@ -310,6 +310,7 @@ class SetText(unittest.TestCase):
         from unittest.mock import MagicMock, patch
         from ai_mirror import a11y, guard
         guard.arm()
+        self.addCleanup(guard.disarm)
         acc = MagicMock()
         acc.get_action_iface().get_n_actions.return_value = 1
         acc.get_action_iface().get_action_name.return_value = 'click'
@@ -387,6 +388,27 @@ class ReadBack(unittest.TestCase):
         out = self._act('click')
         self.assertIsNone(out['verified'])
         self.assertIn('note', out)
+
+    def test_focus_is_verified_by_the_focused_state(self):
+        from unittest.mock import patch
+        from ai_mirror import a11y
+        with patch.object(a11y, '_states', lambda acc, node_id, Atspi: ['focused']):
+            self.assertIs(self._act('focus')['verified'], True)
+        with patch.object(a11y, '_states', lambda acc, node_id, Atspi: []):
+            with self.assertRaises(MirrorError) as c:
+                self._act('focus')
+        self.assertEqual(c.exception.code, 'not_confirmed')
+
+    def test_a_bad_timeout_refuses_before_writing(self):
+        from unittest.mock import patch
+        from ai_mirror import a11y
+        writes = []
+        with patch.object(a11y, 'resolve', side_effect=AssertionError('resolved')), \
+                patch.object(a11y, '_write', lambda seam, call: writes.append(seam)):
+            for bad in (-1, float('nan')):
+                with self.assertRaises(ValueError):
+                    a11y.act('1.0.0', 'click', timeout=bad)
+        self.assertEqual(writes, [])
 
 
 class Departed(unittest.TestCase):

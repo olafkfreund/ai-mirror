@@ -267,6 +267,15 @@ Self-contained. Branch `fix/65-background-a11y-act`. Line numbers are as of
    version-bump commits, so the next release PR copies this section.
    → verify by: the section is in the PR body.
 
+**Review fixes (after step 7).**
+- Deviation (step 4): `act()` validates `timeout` with `wait._timeout` before
+  resolving or writing, not inside `_read_back`. Found by `codex review --base
+  master`: a CLI `--timeout -1` or `nan` ran the action and then raised, so a
+  corrected retry would repeat it. Test: `test_a_bad_timeout_refuses_before_writing`.
+- Opus review, low: `test_every_a11y_write_is_guarded` disarms the guard on
+  cleanup; a `focus` read-back test added; `docs/usage.md` `window` synopsis
+  shows `--generation`.
+
 ## Execution
 
 Step 1 is the session model's (it needs the human's grant). Steps 2-7 go to
