@@ -23,7 +23,11 @@ Self-contained. Branch `fix/66-index-workspace-without-id`. Line numbers as of
 
 ## Steps
 
-1. **`src/ai_mirror/index.py:70-84` `state()`.** Add `_holds` just above
+1. **Test first: `tests/test_invariants.py`, class `DesktopIndex` (line 376).**
+   Write step 2's test now and run it: it must fail with `_unavailable`
+   (`KeyError: 'id'`) on the current `state()`. Do not commit yet.
+
+2. **`src/ai_mirror/index.py:70-84` `state()`.** Add `_holds` just above
    `state()`. Replace the body after `version = ...`:
    ```python
    workspaces = [w for w in json.loads(sh('hyprctl', 'workspaces', '-j')) if isinstance(w, dict)]
@@ -37,21 +41,24 @@ Self-contained. Branch `fix/66-index-workspace-without-id`. Line numbers as of
    Traps: `index` is read-only and ungated; `_render_section` must still work
    for a `state` without `named` (use `.get`). Stdlib only.
 
-2. **`tests/test_invariants.py`, class `DesktopIndex` (line 376).** One test:
+   *(The test, written in step 1:)* one test in `DesktopIndex`:
    patch `index.sh` to return `'Hyprland 0.56.2 built from x\n'` for
    `('hyprctl','version')` and the fixture from the spec for
    `('hyprctl','workspaces','-j')`, and `host.monitors` to `[]`. Fixture:
    `[{"id": 1, "name": "1", "windows": 2}, {"name": "special:screensaver-HDMI-A-1", "windows": 1}, {"id": null, "name": "x"}, {"id": 3}, {"id": "4", "name": 7, "windows": "0"}, {"id": true}, "junk"]`.
    Assert: no `_unavailable`; `workspaces == [1, 3]`; `occupied == [1]`;
    `named` == screensaver (`True`), `x`, `7`, `?` (all `False`) in that order;
-   `index.render({'state': out})` contains `special:screensaver-HDMI-A-1` and
-   not `'x'`-only names. → verify by the unittest command; confirm it fails on
-   the old `state()` (KeyError) before step 1 is applied.
+   the `- workspaces in use:` line of `index.render({'state': out})` is exactly
+   `- workspaces in use: [1] and special:screensaver-HDMI-A-1` (assert the whole
+   line; a bare `assertNotIn('x', ...)` would match "index"). → verify by the
+   unittest command: green now, red before this step (seen in step 1).
    Traps: `sh` takes `*argv`; dispatch on the args tuple. Check how
    `index.render` expects its input (`index.build` output shape) before
    asserting on it.
 
-3. **Live.** `ai-mirror index --section state` on this desktop (screensaver
+3. **Commit** the test and `state()` together, naming plan steps 1-2.
+
+4. **Live.** `ai-mirror index --section state` on this desktop (screensaver
    workspace present) renders the section and names it. → verify by eye.
 
 ## Execution
