@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 66
 intent: intent/2026-10-23-66-index-workspace-without-id.md
 ---
