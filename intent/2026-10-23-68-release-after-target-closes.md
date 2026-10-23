@@ -40,7 +40,8 @@ other than what happened -- and the smoke test cannot pass while it stands.
   says "`<window>`, which still had focus" or "the topmost surface on screen"
   (`control.py:820-826`), which is false once the target closed; the note says
   the target closed after the keystroke instead.
-- `tests/smoke.py` `main()` passes end to end.
+- `tests/smoke.py` `main()` passes end to end (once PR #67, which fixes the
+  smoke test's #24 gaps, is merged into this branch).
 - PR #52 is this issue's implementation; its layer-only rule widens to cover
   windows.
 
@@ -65,9 +66,15 @@ other than what happened -- and the smoke test cannot pass while it stands.
   validated, may skip the target check. A release cannot type text. #52 today
   exempts any release after a validated layer, matched or not
   (`control.py:775-799`); this narrows it.
-- A target list that cannot be read is not evidence the target is gone: it
-  stays a refusal, as `_require_target` already treats a failed layer query
-  (`control.py:712-733`).
+- A target list that cannot be read is not evidence the target is gone; it
+  must stay a refusal. `_require_target` cannot be reused for this as it
+  stands: it turns a failed layer query into "no layers" (`control.py:724-727`),
+  which fails closed when asking "is the target present" but would fail
+  *open* when asking "is it gone". And for a window it never asks whether the
+  window exists, only what has focus (`_require_focus`): when a window closes
+  on a workspace with another window, focus moves there, which looks the same
+  as losing focus. "Gone" has to come from `host.windows()` /
+  `host.layers()` with their errors propagated.
 - Tests cover: a window that closes on the press, a layer that closes, a target
   that still exists but lost focus (still refused), an unmatched release
   (still checked), and an unreadable target list (still refused).
@@ -83,6 +90,14 @@ other than what happened -- and the smoke test cannot pass while it stands.
    closed, layer unmapped); if it still exists elsewhere, keep today's refusal.
    This is narrower than #52, and the helper's `C` releases the key on that
    path anyway.
+   **Trade-off:** it does not cover a key-down that *opens* something -- a
+   shortcut that maps a new window or panel before its key-up. The target
+   still exists, so the key-up is refused and the batch reports a partial
+   failure for a shortcut that worked, which is today's behaviour. The
+   alternative, "release any key this action pressed, wherever focus is",
+   covers that too, and sends nothing `C` would not have sent on the failure
+   path; it is #52's current rule, made to require a matching press. Your
+   call: narrow ("target gone") or broad ("matching press").
 2. Rewrite #52's layer rule to the same "target gone" test, or keep #52's
    broader layer rule and add the narrower window rule beside it? Proposed: one
    rule for both, "target gone", so there is a single behaviour to describe.
