@@ -445,6 +445,25 @@ o.bind("SUPER + SHIFT + S", nil, "omarchy-capture-screenshot")
                 items = index.plugins()['items']
         self.assertEqual(items[0]['opens_with'], 'SUPER + ALT + N')
 
+    def test_a_workspace_without_an_id_does_not_blank_state(self):
+        # #66: Omarchy's screensaver workspace comes back from Hyprland with no id.
+        spaces = [{'id': 1, 'name': '1', 'windows': 2},
+                  {'name': 'special:screensaver-HDMI-A-1', 'windows': 1},
+                  {'id': None, 'name': 'x'}, {'id': 3},
+                  {'id': '4', 'name': 7, 'windows': '0'}, {'id': True}, 'junk']
+
+        def sh(*argv, **kw):
+            return json.dumps(spaces) if argv[1:] == ('workspaces', '-j') else 'Hyprland 0.56.2 built from x\n'
+        with patch.object(index, 'sh', sh), patch.object(host, 'monitors', return_value=[]):
+            out = index.build({'section': ['state']})['state']
+        self.assertNotIn('_unavailable', out)
+        self.assertEqual((out['workspaces'], out['occupied']), ([1, 3], [1]))
+        self.assertEqual(out['named'], [{'name': 'special:screensaver-HDMI-A-1', 'windows': True},
+                                        {'name': 'x', 'windows': False}, {'name': '7', 'windows': False},
+                                        {'name': '?', 'windows': False}])
+        line = next(r for r in index.render({'state': out}).splitlines() if r.startswith('- workspaces in use:'))
+        self.assertEqual(line, '- workspaces in use: [1] and special:screensaver-HDMI-A-1')
+
     def test_a_broken_source_degrades_that_section_only(self):
         with patch.object(index, 'HYPR_DIR', Path('/nonexistent')), \
              patch.object(index, 'state', side_effect=RuntimeError('hyprctl gone')):
