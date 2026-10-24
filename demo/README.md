@@ -47,3 +47,17 @@ The calculator is floated to a fixed 500x700 before it is clicked: it is GTK4
 and exposes no buttons to accessibility, and its keypad is a centred column of
 fixed width, so coordinates measured against one window size miss against
 another.
+
+## Re-record the background showcase
+
+`background.sh` drives `background.html` in a scratch Chrome profile without
+touching the cursor or the focused window, prints `verified`, the cursor and the
+focused window after each step, and exits non-zero if any of them moved. Run it
+in a terminal on an empty workspace; the human presses A on the dialog.
+
+    REC=/tmp/raw.mp4 MON=<a monitor showing an empty workspace> demo/background.sh
+    ffmpeg -i /tmp/raw.mp4 -vf scale=1280:-2 -crf 26 -preset slow -movflags +faststart assets/demo-background.mp4
+    ffmpeg -i /tmp/raw.mp4 -vf "fps=10,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse" assets/demo-background.gif
+
+Limits: mp4 at most 10 MB, GIF at most 5 MB (cut to three steps if over).
+The poster is `ffmpeg -ss 11 -i /tmp/raw.mp4 -frames:v 1 -q:v 3 assets/demo-background-poster.jpg`.

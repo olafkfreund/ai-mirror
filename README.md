@@ -26,6 +26,15 @@ Actions, the herdr session menu, nixi, and a full re-theme. The narration is
 [nixarchy-voice](https://github.com/olafkfreund/nixarchy-voice) speaking through its own
 text-to-speech — the system describing itself, not a voiceover.</sub>
 
+[![An agent works in a window you are not using; the cursor never moves](assets/demo-background-poster.jpg)](assets/demo-background.mp4)
+
+<sub>**[▶ Watch it work in the background](assets/demo-background.mp4)** — Chrome sits beside a
+focused terminal and never gets focus while an agent sets a slider, picks a list item, ticks a box and presses Save through the
+accessibility tree. After every step `demo/background.sh` prints what was read back, the cursor
+position and the focused window; the run fails if either moved.</sub>
+
+![The same run as a GIF](assets/demo-background.gif)
+
 [![Eighty-four seconds: typing, clicking, and a web form driven end to end](assets/demo-desktop-poster.jpg)](assets/demo-desktop.mp4)
 
 <sub>**[▶ Watch the eighty-second version](assets/demo-desktop.mp4)** — the short one, and every
@@ -68,7 +77,7 @@ ai-mirror is that, with three rules:
 | **See** | `screenshot` any monitor, all monitors or a zoomed region · `windows` (titles, classes, geometry) · `status` |
 | **Act** | `input`: move, click (1–3×), drag along a path, scroll, type any Unicode, key combos, hold keys or buttons, shift-click / ctrl-drag via `modifiers` |
 | **Manage** | `window`: focus, close, float, center, fullscreen / maximize, move to workspace, resize · `launch` apps · `clipboard` read/write |
-| **Understand** | `a11y_tree` / `a11y_find` list buttons, fields and links by role and name · `a11y_act` clicks, focuses or fills them — no pixel guessing |
+| **Understand** | `a11y_tree` / `a11y_find` list buttons, fields and links by role and name · `a11y_act` clicks, fills, sets sliders and picks list items **without the pointer**, and reads values, text and selections back |
 | **Switch** | `control` on/off — the agent *asks*, you allow or deny in a dialog, and you can always take it away |
 
 Example requests:
@@ -77,6 +86,20 @@ Example requests:
 - *"In the Bitwarden desktop app, find the entry for the NAS and copy the username to the clipboard."*
 - *"Walk through the printer setup dialog with the defaults, then give control back."*
 - *"Arrange Slack on workspace 3, the terminal full-screen on DP-1, and Firefox maximised on DP-2."*
+
+## Work in a window you are not using
+
+`a11y_act` acts on the widget itself, so the agent can work in a window that does not have focus
+while your cursor and keyboard stay where you left them. The recording above shows it:
+a slider set, a list item picked, a box checked and a button pressed in Chrome, with the cursor
+position and the focused window printed after every step.
+
+Limits, measured and listed in [`src/ai_mirror/gotchas.md`](src/ai_mirror/gotchas.md):
+
+- It is still a grant: you answer the dialog, and the red mark shows while the agent works.
+- Page-owned ARIA state (`aria-selected`) and Chrome spin buttons answer `not_confirmed`.
+- GTK4 text cannot be read back, so a write there is `not_confirmed` too.
+- Firefox exposes no content on a workspace you cannot see.
 
 ## How it works
 
