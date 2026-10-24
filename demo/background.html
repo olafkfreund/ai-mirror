@@ -1,0 +1,14 @@
+<!doctype html><html><head><meta charset="utf-8"><title>ai-mirror background demo</title>
+<style>body{font-family:system-ui;background:#111;color:#eee;display:flex;min-height:100vh;align-items:center;justify-content:center}
+.card{background:#1b1b1b;padding:40px;border-radius:14px;width:520px}
+label{display:block;margin:16px 0 6px;font-size:16px;color:#9ad}
+select{width:100%;font-size:16px}button{margin-top:20px;padding:12px 22px;font-size:16px;border:0;border-radius:8px;background:#2e8b57;color:#fff}
+#out{margin-top:20px;padding:14px;border-radius:8px;background:#0d0d0d;min-height:24px;font-family:monospace;color:#7fd}</style></head>
+<body><div class="card"><h1>Settings</h1>
+<label>Volume <input type=range min=0 max=10 step=1 value=3></label>
+<label>Size <select size=4><option>Small</option><option selected>Medium</option><option>Large</option><option>Huge</option></select></label>
+<label><input type=checkbox> Notify</label>
+<button>Save</button>
+<output id=out aria-live=polite></output></div>
+<script>document.querySelector('button').onclick=()=>{
+out.textContent=`Saved: volume ${document.querySelector('input[type=range]').value}, size ${document.querySelector('select').value}, notify ${document.querySelector('input[type=checkbox]').checked?'on':'off'}`;};</script></body></html>
