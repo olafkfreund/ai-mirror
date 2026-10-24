@@ -126,6 +126,11 @@ and `toolkit-accessibility`; ai-mirror also sets the AT-SPI `IsEnabled` flag on 
   the refusal says whether a surface opened since the grant or was there, went and came back (#39).
 - `doctor` says `ok: false` with `compositor` and `unset` when the shell has no desktop session —
   the usual cause of every command failing at once over ssh (#32). `demo/rz` shows what to export.
+- Background use: `a11y_act` needs no pointer, so it can work in a window on a workspace you are not
+  looking at, and your cursor and focus stay put. Page-owned ARIA state (`aria-selected`) and
+  Chrome spin buttons answer `not_confirmed`: screenshot to check, and do not repeat the action.
+  Firefox exposes no content while its window is on a hidden workspace, so keep it visible.
+  Measured cases: `src/ai_mirror/gotchas.md`.
 - The middle mouse button works — `wev` sees `274 (middle)` and alacritty pastes the primary
   selection from it — but **Chrome ignores it** (a tab does not close, a link does not open in a
   background tab) while `left` and `right` work in the same window. GNOME applications do not paste
