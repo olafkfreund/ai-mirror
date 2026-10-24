@@ -519,6 +519,15 @@ o.bind("SUPER + SHIFT + S", nil, "omarchy-capture-screenshot")
                 rendered = index.render(index.build({}))
         self.assertLess(len(rendered), 22000, f'default payload is {len(rendered)} bytes')
 
+    def test_the_measured_table_is_opt_in(self):
+        with patch.object(index, 'state', side_effect=RuntimeError('no compositor')), \
+             patch.object(index, 'nav', side_effect=RuntimeError('no bus')):
+            self.assertNotIn('measured', index.build({}))
+            rendered = index.render(index.build({'section': ['measured']}))
+        self.assertIn('set_value', rendered)
+        for line in index.gotchas()['text'].splitlines():
+            self.assertFalse(line.startswith('| Chrome'), line)
+
     def test_a_commented_out_bind_is_not_reported_as_live(self):
         # The exact failure this feature exists to prevent: an agent pressing a
         # key the index promised, that nothing is bound to.
