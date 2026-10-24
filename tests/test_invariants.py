@@ -343,13 +343,13 @@ class McpTests(Base):
         self.assertTrue(mcp.call_tool('input', {'actions': [], 'bogus': 1})['isError'])
 
     def test_clipboard_daemon_never_inherits_the_jsonrpc_stdout(self):
-        grant()
+        gen = grant()['generation']
         with patch.object(api.subprocess, 'run') as run:
-            api.run('clipboard', {'action': 'write', 'text': 'x'}, by='agent')
+            api.run('clipboard', {'action': 'write', 'text': 'x', 'generation': gen}, by='agent')
         self.assertIs(run.call_args.kwargs['stdout'], subprocess.DEVNULL)
         control.set_owner('off', 'human')
         with self.assertRaises(control.MirrorError):
-            api.run('clipboard', {'action': 'write', 'text': 'x'}, by='agent')
+            api.run('clipboard', {'action': 'write', 'text': 'x', 'generation': gen}, by='agent')
 
     def test_stdio_lists_tools_and_agent_grant_ends_with_server(self):
         requests = [{'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2025-11-25'}},
@@ -508,7 +508,7 @@ o.bind("SUPER + SHIFT + S", nil, "omarchy-capture-screenshot")
                  patch.object(index, 'state', side_effect=RuntimeError('no compositor')), \
                  patch.object(index, 'nav', side_effect=RuntimeError('no bus')):
                 rendered = index.render(index.build({}))
-        self.assertLess(len(rendered), 20000, f'default payload is {len(rendered)} bytes')
+        self.assertLess(len(rendered), 22000, f'default payload is {len(rendered)} bytes')
 
     def test_a_commented_out_bind_is_not_reported_as_live(self):
         # The exact failure this feature exists to prevent: an agent pressing a

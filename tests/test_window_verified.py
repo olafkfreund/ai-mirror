@@ -44,10 +44,10 @@ class WindowVerified(Base):
             p = patch.object(host, name, fake)
             p.start()
             self.addCleanup(p.stop)
-        grant()
+        self.gen = grant()['generation']
 
     def win(self, **args):
-        return api.run('window', {'address': ADDR, 'timeout': 0.1, **args}, by='agent')
+        return api.run('window', {'address': ADDR, 'timeout': 0.1, 'generation': self.gen, **args}, by='agent')
 
     def confirmed(self, args, rows, effect):
         self.world(rows, None, effect)
@@ -167,14 +167,15 @@ class WindowVerified(Base):
     def test_the_mcp_failure_carries_the_code(self):
         self.world([row()])
         got = mcp.call_tool('window', {'action': 'workspace', 'address': ADDR,
-                                       'workspace': '3', 'timeout': 0.1})
+                                       'workspace': '3', 'timeout': 0.1,
+                                       'generation': self.gen})
         self.assertTrue(got['isError'])
         self.assertEqual(json.loads(got['content'][0]['text'])['code'], 'not_confirmed')
-        bad = mcp.call_tool('window', {'action': 'float', 'address': ADDR, 'timeout': float('nan')})
+        bad = mcp.call_tool('window', {'action': 'float', 'address': ADDR, 'generation': self.gen, 'timeout': float('nan')})
         self.assertTrue(bad['isError'])
 
     def test_the_cli_keeps_false_and_takes_a_timeout(self):
-        got = cli.build_parser().parse_args(['window', 'float', '0x1', '--no-enabled', '--timeout', '2'])
+        got = cli.build_parser().parse_args(['window', 'float', '0x1', '--generation', '1', '--no-enabled', '--timeout', '2'])
         self.assertIs(got.enabled, False)
         self.assertEqual(got.timeout, 2.0)
 

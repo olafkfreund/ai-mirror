@@ -306,6 +306,139 @@ class SetText(unittest.TestCase):
         self.assertIn('focus', str(error))
         self.assertIn('input', str(error))
 
+    def test_every_a11y_write_is_guarded(self):
+        from unittest.mock import MagicMock, patch
+        from ai_mirror import a11y, guard
+        guard.arm()
+        self.addCleanup(guard.disarm)
+        acc = MagicMock()
+        acc.get_action_iface().get_n_actions.return_value = 1
+        acc.get_action_iface().get_action_name.return_value = 'click'
+        with patch.object(a11y, 'resolve', return_value=(acc, None)):
+            for action in ('click', 'focus', 'set_text'):
+                with self.assertRaises(guard.Blocked):
+                    a11y.act('1.0.0', action, 'x')
+
+
+class ClickSemantics(unittest.TestCase):
+    """#65: click names a real default action or refuses; no first-action fallback."""
+
+    def _run(self, names, do_action=True):
+        from unittest.mock import MagicMock, patch
+        from ai_mirror import a11y
+        acc = MagicMock()
+        acc.get_action_iface().get_n_actions.return_value = len(names)
+        acc.get_action_iface().get_action_name.side_effect = lambda i: names[i]
+        write = MagicMock(side_effect=lambda seam, call: call())
+        acc.get_action_iface().do_action.return_value = do_action
+        with patch.object(a11y, 'resolve', return_value=(acc, None)), patch.object(a11y, '_write', write):
+            try:
+                return a11y.act('1.0.0', 'click'), write, acc, None
+            except MirrorError as exc:
+                return None, write, acc, exc
+
+    def test_unknown_action_is_unsupported_and_not_written(self):
+        _, write, _, exc = self._run(['showContextMenu'])
+        self.assertEqual(exc.code, 'unsupported')
+        write.assert_not_called()
+
+    def test_default_click_name_runs(self):
+        _, _, acc, exc = self._run(['doDefault'])
+        self.assertIsNone(exc)
+        acc.get_action_iface().do_action.assert_called_with(0)
+
+    def test_refusal_is_unavailable(self):
+        _, _, _, exc = self._run(['press'], do_action=False)
+        self.assertEqual(exc.code, 'unavailable')
+
+
+class ReadBack(unittest.TestCase):
+    """#65: act() looks again after writing and says what it saw."""
+
+    def _act(self, action, text=None, after_text='x', after_role='entry', **kw):
+        from unittest.mock import MagicMock, patch
+        from ai_mirror import a11y
+        before, after = MagicMock(), MagicMock()
+        before.get_role_name.return_value = 'entry'
+        after.get_role_name.return_value = after_role
+        after.get_text_iface().get_text.return_value = after_text
+        iface = before.get_action_iface()
+        iface.get_n_actions.return_value = 1
+        iface.get_action_name.return_value = 'press'
+        resolved = iter([(before, None)] + [(after, None)] * 50)
+        with patch.object(a11y, 'resolve', side_effect=lambda n: next(resolved)), \
+                patch.object(a11y, '_write', lambda seam, call: True):
+            return a11y.act('1.0.0', action, text, timeout=0.1, **kw)
+
+    def test_set_text_mismatch_is_not_confirmed_and_truncated(self):
+        with self.assertRaises(MirrorError) as c:
+            self._act('set_text', 'want', after_text='y' * 500)
+        self.assertEqual(c.exception.code, 'not_confirmed')
+        self.assertEqual(len(c.exception.details['text']), 120)
+        self.assertEqual(c.exception.details['length'], 500)
+
+    def test_read_back_asks_for_an_explicit_end(self):
+        from unittest.mock import MagicMock
+        from ai_mirror import a11y
+        acc = MagicMock()
+        acc.get_text_iface().get_character_count.return_value = 3
+        acc.get_text_iface().get_text.side_effect = lambda start, end: 'abc' if end == 3 else ''
+        self.assertEqual(a11y._full_text(acc), 'abc')
+
+    def test_set_text_match_is_verified(self):
+        self.assertIs(self._act('set_text', 'want', after_text='want')['verified'], True)
+
+    def test_different_role_means_no_states_after(self):
+        out = self._act('click', after_role='dialog')
+        self.assertIsNone(out['states_after'])
+
+    def test_click_is_not_verified_and_carries_a_note(self):
+        out = self._act('click')
+        self.assertIsNone(out['verified'])
+        self.assertIn('note', out)
+
+    def test_focus_is_verified_by_the_focused_state(self):
+        from unittest.mock import patch
+        from ai_mirror import a11y
+        with patch.object(a11y, '_states', lambda acc, node_id, Atspi: ['focused']):
+            self.assertIs(self._act('focus')['verified'], True)
+        with patch.object(a11y, '_states', lambda acc, node_id, Atspi: []):
+            with self.assertRaises(MirrorError) as c:
+                self._act('focus')
+        self.assertEqual(c.exception.code, 'not_confirmed')
+
+    def test_a_failed_read_back_says_the_action_landed(self):
+        from unittest.mock import MagicMock, patch
+        from ai_mirror import a11y
+        before = MagicMock()
+        before.get_role_name.return_value = 'push button'
+        before.get_action_iface().get_n_actions.return_value = 1
+        before.get_action_iface().get_action_name.return_value = 'press'
+        calls = iter([(before, None)])
+
+        def resolve(node_id):
+            try:
+                return next(calls)
+            except StopIteration:
+                raise MirrorError('sensitive', 'now inside a password manager') from None
+        with patch.object(a11y, 'resolve', resolve), patch.object(a11y, '_write', lambda seam, call: True):
+            with self.assertRaises(MirrorError) as c:
+                a11y.act('1.0.0', 'click', timeout=0.1)
+        self.assertEqual(c.exception.code, 'unavailable')
+        self.assertTrue(c.exception.details['delivered'])
+        self.assertIn('do not repeat', str(c.exception))
+
+    def test_a_bad_timeout_refuses_before_writing(self):
+        from unittest.mock import patch
+        from ai_mirror import a11y
+        writes = []
+        with patch.object(a11y, 'resolve', side_effect=AssertionError('resolved')), \
+                patch.object(a11y, '_write', lambda seam, call: writes.append(seam)):
+            for bad in (-1, float('nan')):
+                with self.assertRaises(ValueError):
+                    a11y.act('1.0.0', 'click', timeout=bad)
+        self.assertEqual(writes, [])
+
 
 class Departed(unittest.TestCase):
     """#39: what left the baseline, so a returning surface reads differently from a new one."""

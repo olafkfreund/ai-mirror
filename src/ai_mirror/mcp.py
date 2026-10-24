@@ -63,20 +63,21 @@ TOOLS = [
     tool('window', 'Window management by address from windows: focus, close, float (toggle), center, fullscreen (mode fullscreen|maximized), workspace (move to "3" or "special:name"), resize (w, h). float sets floating to enabled when given, toggles otherwise. The result is checked against the compositor: verified, or error not_confirmed (it may still land -- call windows before retrying). resize/center need a floating window.',
          {'action': {'type': 'string', 'enum': ['focus', 'close', 'float', 'center', 'fullscreen', 'workspace', 'resize']},
           'address': STR, 'workspace': STR, 'mode': {'type': 'string', 'enum': ['fullscreen', 'maximized']},
-          'w': INT, 'h': INT, 'enabled': {'type': 'boolean'},
-          'timeout': {'type': 'number', 'minimum': 0.1, 'maximum': 30}}, ['action', 'address']),
+          'w': INT, 'h': INT, 'enabled': {'type': 'boolean'}, 'generation': INT,
+          'timeout': {'type': 'number', 'minimum': 0.1, 'maximum': 30}}, ['action', 'address', 'generation']),
     tool('launch', 'Start an installed program, e.g. ["firefox", "https://example.com"]. No shell. Returns window (address, class, title of the new window) when exactly one appeared within timeout (default 5 s, 0 = look once), candidates when several did, a note when none did: never launch again because of a note. Launch desktop apps as ["uwsm-app", "--", …] so they outlive this server; see index gotchas.',
          {'argv': {'type': 'array', 'items': STR, 'minItems': 1},
-          'timeout': {'type': 'number', 'minimum': 0, 'maximum': 30}}, ['argv']),
+          'timeout': {'type': 'number', 'minimum': 0, 'maximum': 30}, 'generation': INT}, ['argv', 'generation']),
     tool('clipboard', 'Read or write the Wayland clipboard as text. Writing needs agent control.',
-         {'action': {'type': 'string', 'enum': ['read', 'write']}, 'text': STR}, ['action']),
+         {'action': {'type': 'string', 'enum': ['read', 'write']}, 'text': STR, 'generation': INT}, ['action']),
     tool('a11y_tree', 'Accessibility tree (roles, names, states, bounds, actions) — cheaper and more exact than pixels. Filter with app (name substring).',
          {'app': STR, 'depth': {'type': 'integer', 'minimum': 1, 'maximum': 64},
           'max_nodes': {'type': 'integer', 'minimum': 1, 'maximum': 2000}}),
     tool('a11y_find', 'Find accessible elements by name substring and/or exact role (e.g. "push button", "entry", "link").',
          {'name': STR, 'role': STR, 'app': STR, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200}}),
-    tool('a11y_act', 'Act on an element id from a11y_tree/a11y_find: click, focus, set_text (text), or a named action. expect {role,name} guards against a changed UI.',
-         {'node': STR, 'action': STR, 'text': STR, 'expect': {'type': 'object'}}, ['node', 'action']),
+    tool('a11y_act', 'Act on an element id from a11y_tree/a11y_find: click, focus, set_text (text), or a named action. focus takes keyboard focus; set_text and named actions never move the pointer; see index gotchas for which ones activate their window. expect {role,name} guards against a changed UI. Pass generation.',
+         {'node': STR, 'action': STR, 'text': STR, 'expect': {'type': 'object'}, 'generation': INT,
+          'timeout': {'type': 'number', 'minimum': 0.1, 'maximum': 30}}, ['node', 'action', 'generation']),
 ]
 SPECS = {t['name']: t for t in TOOLS}
 TYPES = {'string': str, 'array': list, 'object': dict}
@@ -91,6 +92,8 @@ INSTRUCTIONS = ('This server drives the user\'s REAL desktop. Control is theirs 
                 'focus, or a surface is in the way: observe and aim again. An input error carrying '
                 'delivered/of counts means part of the batch already landed, so observe before retrying '
                 'or you will type the delivered prefix twice. '
+                'window, launch, a11y_act and clipboard write take the generation from status, windows, '
+                'a11y_find/a11y_tree or a screenshot. '
                 'Call index first on an unfamiliar host: it gives you the keybinding for each '
                 'panel, so you press the key the user presses instead of hunting for pixels. '
                 'After an action that should open a panel or a window, confirm it with wait '

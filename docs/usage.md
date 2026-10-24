@@ -50,12 +50,12 @@
 | `screenshot` | `output` (monitor name or `all`, default focused), `region [x,y,w,h]` global px, `max_size` 320–3840 (default 1280), `image` |
 | `windows` | address, class, title, `at`, `size`, monitor, workspace, floating, fullscreen, pid |
 | `input` | `frame` (image px) or `generation` (global px), `actions[1..16]`, `screenshot`, `wait_ms` |
-| `window` | `action: focus\|close\|float\|center\|fullscreen\|workspace\|resize`, `address`, `mode`, `workspace`, `w`, `h`, `enabled` (float: set, else toggle), `timeout` 0.1–30 (default 1.5). Checked against the compositor: `{changed, verified, before, after}`, or `no_such_window`, `not_confirmed` (may still land: `windows` before retrying), `unavailable`. resize/center need a floating window |
-| `launch` | `argv` — no shell; `timeout` 0–30 (default 5). Returns `pid`, plus `window`/`class`/`title` for one new window, or `candidates` for several, or `note` if none appeared (never an error after the start: call `windows`, do not launch again) |
-| `clipboard` | `action: read\|write`, `text` |
+| `window` | `action: focus\|close\|float\|center\|fullscreen\|workspace\|resize`, `address`, `generation`, `mode`, `workspace`, `w`, `h`, `enabled` (float: set, else toggle), `timeout` 0.1–30 (default 1.5). Checked against the compositor: `{changed, verified, before, after}`, or `no_such_window`, `not_confirmed` (may still land: `windows` before retrying), `unavailable`. resize/center need a floating window |
+| `launch` | `argv` — no shell; `generation`; `timeout` 0–30 (default 5). Returns `pid`, plus `window`/`class`/`title` for one new window, or `candidates` for several, or `note` if none appeared (never an error after the start: call `windows`, do not launch again) |
+| `clipboard` | `action: read\|write`, `text`, `generation` (required to write as an agent) |
 | `a11y_tree` | `app`, `depth`, `max_nodes` |
 | `a11y_find` | `name` (substring), `role` (exact, e.g. `push button`, `entry`, `link`), `app`, `limit` |
-| `a11y_act` | `node`, `action: click\|focus\|set_text\|<action name>`, `text`, `expect {role,name}` |
+| `a11y_act` | `node`, `action: click\|focus\|set_text\|<action name>`, `text`, `expect {role,name}`, `generation` (required), `timeout` 0.1–30 (read-back poll, default 1). Returns `verified` (`true` for `set_text`/`focus` once read back; `null` plus a note for `click` and named actions), `states_before`, `states_after` (`null` if the element is gone or changed role). `click` runs only a named default action (`click`, `press`, `jump`, `doDefault`, `check`, `uncheck`, ...), else `unsupported: element actions are [...]`; `set_text`/`focus` that cannot be read back give `not_confirmed` |
 
 ### Input actions
 
@@ -94,12 +94,12 @@ ai-mirror control confirm ID | deny [ID]  # answer the waiting request (what the
 ai-mirror screenshot [--output DP-1|all] [--region x,y,w,h] [--max-size N] [--out file.png]
 ai-mirror windows
 ai-mirror input --generation N '[{"type":"click","x":300,"y":200,"modifiers":["CTRL"]}]'
-ai-mirror window focus|close|float|center|fullscreen|workspace|resize 0x55d1… [--mode maximized] [--workspace 3] [--w 800 --h 600] [--enabled|--no-enabled] [--timeout S]
-ai-mirror launch [--timeout S] -- uwsm-app -- firefox https://example.com
+ai-mirror window --generation N focus|close|float|center|fullscreen|workspace|resize 0x55d1… [--mode maximized] [--workspace 3] [--w 800 --h 600] [--enabled|--no-enabled] [--timeout S]
+ai-mirror launch --generation N [--timeout S] -- uwsm-app -- firefox https://example.com
 ai-mirror clipboard read | ai-mirror clipboard write "text"
 ai-mirror a11y-tree [--app firefox] [--depth 12] [--max-nodes 400]
 ai-mirror a11y-find --name Save [--role "push button"]
-ai-mirror a11y-act 3.0.2.1 click | ai-mirror a11y-act 3.0.2.4 set_text --text hello
+ai-mirror a11y-act --generation N 3.0.2.1 click | ai-mirror a11y-act --generation N 3.0.2.4 set_text --text hello [--expect '{"role":"entry"}'] [--timeout S]
 ai-mirror doctor
 ai-mirror mcp
 ```
