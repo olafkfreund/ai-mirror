@@ -117,30 +117,72 @@ def check_wait():
     A happy-path-only check would not have caught the failure this came from,
     which is precisely a step that did not happen being treated as one that did.
     """
-    from ai_mirror import api, control, host, wait
+    from ai_mirror import api, control, host, index, wait
+
+    # Any panel this host has will do; the check is of wait, not of one plugin.
+    candidates = sorted(
+        (p for p in index.plugins()['items']
+         if p.get('enabled') is True and p.get('opens_with')
+         and {'menu', 'panel'} & set(p.get('kinds') or [])
+         and p['id'] != 'olafkfreund.ai-mirror'),
+        key=lambda p: p['id'])
+    if not candidates:
+        print('SKIP: check_wait -- no enabled plugin opens a panel from a key on this host')
+        return
 
     take_control()
+    chosen = None
     try:
         gen = control.read_state()['generation']
         subprocess.run(['hyprctl', 'dispatch', 'hl.dsp.focus({ monitor = "DP-1" })'],
                        capture_output=True)
         time.sleep(0.4)
 
-        # Nothing is open: the absent form must confirm immediately.
-        out = wait.until({'layer': 'nixarchy-pkg-menu', 'absent': True, 'timeout': 2})
+        def press(keys):
+            # A global shortcut still names a target since #24: the focused window it lands on.
+            *rest, last = keys.split(' + ')
+            api.run('input', {'generation': gen, 'window': host.focused_address(),
+                              'actions': [{'type': 'key', 'keys': [last],
+                                           'modifiers': rest}]})
+
+        def hide(plugin_id):
+            subprocess.run(['omarchy-shell', '-q', 'shell', 'hide', plugin_id],
+                           capture_output=True)
+
+        # Discover the layer namespace: press the key, see what appeared.
+        # Never type into a discovered panel; some write configuration.
+        ns = None
+        for p in candidates:
+            before = {l['namespace'] for l in host.layers()}
+            try:
+                press(p['opens_with'])
+                deadline = time.monotonic() + 5
+                while ns is None and time.monotonic() < deadline:
+                    new = {l['namespace'] for l in host.layers()} - before
+                    if new:
+                        ns = sorted(new)[0]
+                    else:
+                        time.sleep(0.1)
+            finally:
+                hide(p['id'])
+            if ns:
+                chosen = p
+                break
+        if not chosen:
+            ids = [p['id'] for p in candidates]
+            raise AssertionError(f'no panel appeared for {ids}')
+
+        # It is already closing from discovery.
+        out = wait.until({'layer': ns, 'absent': True, 'timeout': 5})
         assert out['result'] == 'confirmed', out
 
-        # A global shortcut still names a target since #24: the focused window it lands on.
-        api.run('input', {'generation': gen, 'window': host.focused_address(),
-                          'actions': [{'type': 'key', 'keys': ['N'],
-                                       'modifiers': ['SUPER', 'ALT']}]})
-        out = wait.until({'layer': 'nixarchy-pkg-menu', 'timeout': 5})
+        press(chosen['opens_with'])
+        out = wait.until({'layer': ns, 'timeout': 5})
         assert out['result'] == 'confirmed', f'panel never appeared: {out}'
         opened_ms = out['waited_ms']
 
-        subprocess.run(['omarchy-shell', '-q', 'shell', 'hide', 'nixarchy.pkg'],
-                       capture_output=True)
-        out = wait.until({'layer': 'nixarchy-pkg-menu', 'absent': True, 'timeout': 5})
+        hide(chosen['id'])
+        out = wait.until({'layer': ns, 'absent': True, 'timeout': 5})
         assert out['result'] == 'confirmed', f'panel never closed: {out}'
 
         # The negative: a prerequisite that will never hold must stop the
@@ -152,11 +194,12 @@ def check_wait():
         assert out['result'] == 'not_confirmed', out
         assert 900 < out['waited_ms'] < 2000, out
 
-        print(f'PASS: wait -- panel confirmed in {opened_ms} ms, close confirmed, '
-              f'absent layer correctly not_confirmed')
+        print(f"PASS: wait -- {chosen['id']} ({ns}) confirmed in {opened_ms} ms, "
+              f'close confirmed, absent layer correctly not_confirmed')
     finally:
-        subprocess.run(['omarchy-shell', '-q', 'shell', 'hide', 'nixarchy.pkg'],
-                       capture_output=True)
+        if chosen:
+            subprocess.run(['omarchy-shell', '-q', 'shell', 'hide', chosen['id']],
+                           capture_output=True)
         control.set_owner('off', 'human')
         control.HELPER.stop()
 

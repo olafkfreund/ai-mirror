@@ -153,6 +153,10 @@ Self-contained. Branch `fix/74-smoke-on-this-host` from master `77df700`.
    - The PASS line names the plugin id and `ns`.
    → verify by `python3 -c "import ast;ast.parse(open('tests/smoke.py').read())"`
    and the unit tests (smoke is not part of them). The live run is step 6.
+   **Deviation (step 5):** discovery hides the plugin in a `try/finally`,
+   so it is hidden even if the press raises. If more than one namespace
+   appears, the first sorted name wins. `index` is imported inside
+   `check_wait`. `press` and `hide` are local helpers.
    Traps:
    - Re-read the generation after `take_control()`, as today.
    - Keep focus on `DP-1`: panels render on the focused monitor.
