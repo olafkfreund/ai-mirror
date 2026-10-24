@@ -112,6 +112,7 @@ def build_parser():
     p.add_argument('node')
     p.add_argument('action')
     p.add_argument('--text')
+    p.add_argument('--value', type=float)
     p.add_argument('--generation', type=int, required=True)
     p.add_argument('--expect', type=json.loads)
     p.add_argument('--timeout', type=float)

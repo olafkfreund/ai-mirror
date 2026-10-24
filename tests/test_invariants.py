@@ -336,6 +336,15 @@ class McpTests(Base):
         self.assertEqual(result['error']['code'], -32603)
         self.assertEqual(mcp.handle('{"jsonrpc":"2.0","id":3,"method":"missing"}')['error']['code'], -32601)
 
+    def test_a11y_act_value_schema_and_cli(self):
+        base = {'node': '1.0', 'action': 'set_value', 'generation': 1}
+        mcp.validate('a11y_act', {**base, 'value': 3.5})
+        with self.assertRaises(ValueError):
+            mcp.validate('a11y_act', {**base, 'value': 'x'})
+        from ai_mirror import cli
+        got = cli.build_parser().parse_args(['a11y-act', '1.0', 'set_value', '--value', '3.5', '--generation', '1'])
+        self.assertEqual(got.value, 3.5)
+
     def test_input_needs_agent_control(self):
         result = mcp.call_tool('input', {'generation': 0, 'actions': [{'type': 'key', 'keys': ['A']}]})
         self.assertTrue(result['isError'])
