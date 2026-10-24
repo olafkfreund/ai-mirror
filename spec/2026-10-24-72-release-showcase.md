@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 72
 intent: intent/2026-10-24-72-release-showcase.md
 ---
