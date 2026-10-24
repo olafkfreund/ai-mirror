@@ -96,7 +96,6 @@ Self-contained. Branch `docs/72-release-showcase` from master `6b133c6`.
    presses A). Confirm `control` is `off` afterwards.
    Traps:
    - Never `hyprctl dispatch` a free-form string; use the CLI's `window`.
-   - Child processes get no inherited stdout trouble here (plain script).
    - Chrome's `click` moves in-page focus (measured); that is fine and
      not window focus.
 
