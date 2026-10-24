@@ -6,6 +6,7 @@ re-resolves the path and refuses if role or name changed since it was read.
 """
 from __future__ import annotations
 
+import math
 import subprocess
 
 from . import guard
@@ -14,6 +15,8 @@ from .control import MirrorError
 
 STATES = ('enabled', 'focused', 'focusable', 'editable', 'checked', 'selected',
           'expanded', 'collapsed', 'pressed', 'sensitive', 'multi-line')
+# Item -> list -> (maybe) its wrapper. Measured (#70): every list, tab bar and menu was the direct parent; 2 leaves room for a row of cells.
+SELECTION_DEPTH = 2
 QUIET_ROLES = ('filler', 'panel', 'section', 'redundant object', 'unknown')
 VISIT_CAP = 20000
 A11Y_STATUS = ('org.a11y.Bus', '/org/a11y/bus', 'org.a11y.Status')
@@ -124,7 +127,11 @@ def _write(seam: str, call):
     return call()
 
 
-def _node(acc, node_id: str, Atspi) -> dict:
+def _finite(x):
+    return type(x) in (int, float) and math.isfinite(x)
+
+
+def _node(acc, node_id: str, Atspi, value: bool = True) -> dict:
     row = {'id': node_id, 'role': _call(acc.get_role_name, ''), 'name': (_call(acc.get_name, '') or '')[:120]}
     state_set = _call(acc.get_state_set)
     if state_set is not None:
@@ -143,6 +150,11 @@ def _node(acc, node_id: str, Atspi) -> dict:
         count = _call(text.get_character_count, 0)
         if count:
             row['text'] = _call(lambda: text.get_text(0, min(count, 120)), '')
+    if value and (v := _call(acc.get_value_iface)) is not None:
+        current = _call(v.get_current_value)
+        if _finite(current):
+            lo, hi, step = (_call(f) for f in (v.get_minimum_value, v.get_maximum_value, v.get_minimum_increment))
+            row['value'] = [current] + [x if _finite(x) else None for x in (lo, hi, step)]
     return row
 
 
@@ -209,7 +221,7 @@ def _actionable(row: dict, level: int) -> bool:
     and finds nothing to target. A node counts when it carries a name to match
     on, an action to invoke, or text to read.
     """
-    return level >= CONTENT_DEPTH and bool(row.get('name') or row.get('actions') or row.get('text'))
+    return level >= CONTENT_DEPTH and bool(row.get('name') or row.get('actions') or row.get('text') or row.get('value'))
 
 
 NOTHING_ACTIONABLE = ('this desktop exposed a tree with no named or actionable nodes under any '
@@ -253,7 +265,7 @@ def tree(app: str | None = None, depth: int = 12, max_nodes: int = 400,
             continue
         row = _node(acc, node_id, Atspi)
         actionable = actionable or _actionable(row, level)
-        if level and not row['name'] and row['role'] in QUIET_ROLES and 'text' not in row:
+        if level and not row['name'] and row['role'] in QUIET_ROLES and 'text' not in row and 'value' not in row:
             continue
         if len(nodes) >= max_nodes:
             truncated = True
@@ -371,15 +383,17 @@ def _full_text(acc):
 
 
 def _states(acc, node_id: str, Atspi) -> list:
-    return _call(lambda: _node(acc, node_id, Atspi).get('states', []), [])
+    return _call(lambda: _node(acc, node_id, Atspi, value=False).get('states', []), [])
 
 
 def act(node_id: str, action: str, text: str | None = None, expect: dict | None = None,
-        timeout: float | None = None) -> dict:
+        timeout: float | None = None, value=None) -> dict:
     from . import wait
     # Before any write: a bad timeout found afterwards reports an error for an
     # action that already landed, and the retry does it twice.
     timeout = wait._timeout(timeout, default=1.0)
+    if action == 'set_value' and not _finite(value):
+        raise ValueError('set_value needs a finite number value')
     acc, Atspi = resolve(node_id)
     if expect:
         for key, getter in (('role', acc.get_role_name), ('name', acc.get_name)):
@@ -388,6 +402,10 @@ def act(node_id: str, action: str, text: str | None = None, expect: dict | None 
     role = _call(acc.get_role_name, '')
     states_before = _states(acc, node_id, Atspi)
     try:
+        if action == 'set_value':
+            return _set_value(acc, node_id, role, states_before, value, Atspi, timeout)
+        if action == 'select':
+            return _select(node_id, Atspi, timeout)
         if action == 'focus':
             comp = acc.get_component_iface()
             if comp is None or not _write('grab_focus', comp.grab_focus):
@@ -466,3 +484,108 @@ def _read_back(node_id, action, text, role, states_before, Atspi, timeout) -> di
     if out['verified'] is None:
         out['note'] = 'invoked; the effect is not visible to accessibility -- observe before reporting it'
     return out
+
+
+def _num(x):
+    """JSON-safe: nan and inf never leave this module."""
+    return x if _finite(x) else None
+
+
+def _set_value(acc, node_id, role, states_before, value, Atspi, timeout) -> dict:
+    """#70: write through the Value interface, then read the number back."""
+    from . import wait
+    iface = acc.get_value_iface()
+    if iface is None:
+        raise MirrorError('unsupported', 'element does not expose AT-SPI Value')
+    lo, hi, step = (_call(f) for f in (iface.get_minimum_value, iface.get_maximum_value,
+                                       iface.get_minimum_increment))
+    if _finite(lo) and _finite(hi) and lo < hi and not lo <= value <= hi:
+        raise MirrorError('invalid', f'value {value} is outside the range {lo}..{hi}')
+    before = _call(iface.get_current_value)
+    eps = 1e-5 * max(1.0, abs(value))
+    tol = max(step / 2, eps) if _finite(step) and step > 0 else eps
+    out = {'ok': True, 'node': node_id, 'action': 'set_value', 'verified': True,
+           'states_before': states_before, 'value_before': _num(before)}
+    if _finite(before) and abs(before - value) <= eps:
+        return {**out, 'changed': False, 'states_after': states_before,
+                'value_after': _num(before), 'waited_ms': 0}
+    if not _write('set_current_value', lambda: iface.set_current_value(float(value))):
+        raise MirrorError('unavailable', 'the application refused the value')
+    seen = states_after = None
+
+    def probe(budget):
+        nonlocal seen, states_after
+        try:
+            node, _ = resolve(node_id)
+        except MirrorError as exc:
+            if exc.code != 'stale_node':
+                raise
+            node = None
+        seen = states_after = None
+        if node is not None and _call(node.get_role_name, '') == role:
+            v = _call(node.get_value_iface)
+            seen = None if v is None else _call(v.get_current_value)
+            states_after = _states(node, node_id, Atspi)
+        return _finite(seen) and abs(seen - value) <= tol
+
+    result = wait.poll(probe, timeout)
+    if result['result'] == 'unavailable':
+        raise MirrorError('unavailable', f"the set_value was delivered, but reading it back failed "
+                                         f"({result['reason']}); do not repeat it -- observe first",
+                          {'delivered': True})
+    if result['result'] == 'not_confirmed':
+        raise MirrorError('not_confirmed', 'set_value was written but could not be read back',
+                          {'value': _num(seen), 'wanted': value})
+    return {**out, 'changed': True, 'states_after': states_after, 'value_after': _num(seen),
+            'waited_ms': result['waited_ms']}
+
+
+def _select(node_id, Atspi, timeout) -> dict:
+    """#70: select the item through its container's Selection interface."""
+    from . import wait
+    parts = node_id.split('.')
+    for k in range(1, min(SELECTION_DEPTH, len(parts) - 1) + 1):
+        container, _ = resolve('.'.join(parts[:-k]))
+        sel = _call(container.get_selection_iface)
+        if sel is not None:
+            break
+    else:
+        raise MirrorError('unsupported', 'no enclosing list, tab bar or menu exposes AT-SPI Selection')
+    index, target_id = int(parts[-k]), '.'.join(parts[:len(parts) - k + 1])
+    target, _ = resolve(target_id)
+    role = _call(target.get_role_name, '')
+    chosen = {'role': role, 'name': (_call(target.get_name, '') or '')[:120]}
+    states_before = _states(target, target_id, Atspi)
+    out = {'ok': True, 'node': node_id, 'action': 'select', 'verified': True,
+           'states_before': states_before, 'selected': chosen, 'selected_via': k}
+    if 'selected' in states_before or _call(lambda: sel.is_child_selected(index)):
+        return {**out, 'changed': False, 'states_after': states_before, 'waited_ms': 0}
+    if not _write('select_child', lambda: sel.select_child(index)):
+        raise MirrorError('unavailable', 'the application refused the selection')
+    states_after = None
+
+    def probe(budget):
+        nonlocal states_after
+        states_after = None
+        try:
+            node, _ = resolve(target_id)
+            box, _ = resolve('.'.join(parts[:-k]))
+        except MirrorError as exc:
+            if exc.code != 'stale_node':
+                raise
+            return False
+        if _call(node.get_role_name, '') != role:
+            return False
+        states_after = _states(node, target_id, Atspi)
+        live = _call(box.get_selection_iface)
+        return 'selected' in states_after or bool(live and _call(lambda: live.is_child_selected(index)))
+
+    result = wait.poll(probe, timeout)
+    if result['result'] == 'unavailable':
+        raise MirrorError('unavailable', f"the select was delivered, but reading it back failed "
+                                         f"({result['reason']}); do not repeat it -- observe first",
+                          {'delivered': True})
+    if result['result'] == 'not_confirmed':
+        raise MirrorError('not_confirmed', 'select was written but could not be read back',
+                          {'states_after': states_after})
+    return {**out, 'changed': True, 'states_after': states_after, 'waited_ms': result['waited_ms']}
