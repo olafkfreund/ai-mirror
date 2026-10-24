@@ -114,6 +114,16 @@ def _call(fn, default=None):
         return default
 
 
+# #65: measured default-click names; Chrome/Firefox check boxes offer `check`, not a click name.
+DEFAULT_CLICKS = ('doDefault', 'check', 'uncheck')
+
+
+def _write(seam: str, call):
+    """The one place a11y changes an application. Tests stub this."""
+    guard.check(f'a11y.act {seam}', 'a11y._write')
+    return call()
+
+
 def _node(acc, node_id: str, Atspi) -> dict:
     row = {'id': node_id, 'role': _call(acc.get_role_name, ''), 'name': (_call(acc.get_name, '') or '')[:120]}
     state_set = _call(acc.get_state_set)
@@ -352,16 +362,35 @@ def resolve(node_id: str):
     return acc, Atspi
 
 
-def act(node_id: str, action: str, text: str | None = None, expect: dict | None = None) -> dict:
+def _full_text(acc):
+    """The whole text, or None when it cannot be read (never '' by default)."""
+    text = _call(acc.get_text_iface)
+    # An explicit end offset: GTK4 returns nothing for get_text(0, -1) (#65, live).
+    count = None if text is None else _call(text.get_character_count)
+    return None if count is None else _call(lambda: text.get_text(0, count))
+
+
+def _states(acc, node_id: str, Atspi) -> list:
+    return _call(lambda: _node(acc, node_id, Atspi).get('states', []), [])
+
+
+def act(node_id: str, action: str, text: str | None = None, expect: dict | None = None,
+        timeout: float | None = None) -> dict:
+    from . import wait
+    # Before any write: a bad timeout found afterwards reports an error for an
+    # action that already landed, and the retry does it twice.
+    timeout = wait._timeout(timeout, default=1.0)
     acc, Atspi = resolve(node_id)
     if expect:
         for key, getter in (('role', acc.get_role_name), ('name', acc.get_name)):
             if key in expect and (_call(getter, '') or '')[:120] != expect[key]:
                 raise MirrorError('stale_node', f'{key} changed; read the tree again')
+    role = _call(acc.get_role_name, '')
+    states_before = _states(acc, node_id, Atspi)
     try:
         if action == 'focus':
             comp = acc.get_component_iface()
-            if comp is None or not comp.grab_focus():
+            if comp is None or not _write('grab_focus', comp.grab_focus):
                 raise MirrorError('unsupported', 'element cannot take focus')
         elif action == 'set_text':
             if not isinstance(text, str):
@@ -376,18 +405,64 @@ def act(node_id: str, action: str, text: str | None = None, expect: dict | None 
                                   'cannot be set directly (Chromium reports the editable state '
                                   'without the interface). Use a11y_act focus on it, then send '
                                   'keystrokes with input.')
-            if not editable.set_text_contents(text):
+            if not _write('set_text', lambda: editable.set_text_contents(text)):
                 raise MirrorError('unavailable', 'the application refused the text')
         else:
             iface = acc.get_action_iface()
             names = [iface.get_action_name(i) for i in range(iface.get_n_actions())] if iface else []
-            wanted = ('click', 'press', 'activate', 'jump') if action == 'click' else (action,)
-            index = next((names.index(w) for w in wanted if w in names), 0 if action == 'click' and names else None)
+            wanted = ('click', 'press', 'activate', 'jump', *DEFAULT_CLICKS) if action == 'click' else (action,)
+            index = next((names.index(w) for w in wanted if w in names), None)
             if index is None:
                 raise MirrorError('unsupported', f'element actions are {names}')
-            iface.do_action(index)
-    except MirrorError:
+            if not _write('do_action', lambda: iface.do_action(index)):
+                raise MirrorError('unavailable', f'the application refused {names[index]}')
+    except (MirrorError, guard.Blocked):
         raise
     except Exception as exc:  # GLib.Error
         raise MirrorError('unavailable', str(exc)[:300]) from None
-    return {'ok': True, 'node': node_id, 'action': action}
+    return _read_back(node_id, action, text, role, states_before, Atspi, timeout)
+
+
+def _read_back(node_id, action, text, role, states_before, Atspi, timeout) -> dict:
+    """Look again after the write. Reads only: a probe must never call _write."""
+    from . import wait
+    after = got = states_after = None
+
+    def probe(budget):
+        nonlocal after, got, states_after
+        try:
+            node, _ = resolve(node_id)
+        except MirrorError as exc:
+            if exc.code != 'stale_node':
+                raise
+            node = None
+        after = node if node is not None and _call(node.get_role_name, '') == role else None
+        got = _full_text(after) if action == 'set_text' and after is not None else None
+        # The states reported are the ones that decided the result, not a later read.
+        states_after = None if after is None else _states(after, node_id, Atspi)
+        if action == 'set_text':
+            return got is not None and got == text
+        if action == 'focus':
+            return states_after is not None and 'focused' in states_after
+        return True
+
+    result = wait.poll(probe, timeout)
+    if result['result'] == 'unavailable':
+        # The write already landed; only the look afterwards failed.
+        raise MirrorError('unavailable', f"the {action} was delivered, but reading it back failed "
+                                         f"({result['reason']}); do not repeat it -- observe first",
+                          {'delivered': True})
+    if result['result'] == 'not_confirmed':
+        if action == 'set_text':
+            details = ({'text': got[:120], 'length': len(got)} if isinstance(got, str) else
+                       {'text': None, 'length': None, 'reason': 'node gone or text unreadable'})
+        else:
+            details = {'states_after': states_after}
+        raise MirrorError('not_confirmed', f'{action} was written but could not be read back', details)
+    out = {'ok': True, 'node': node_id, 'action': action,
+           'verified': True if action in ('set_text', 'focus') else None,
+           'states_before': states_before, 'states_after': states_after,
+           'waited_ms': result['waited_ms']}
+    if out['verified'] is None:
+        out['note'] = 'invoked; the effect is not visible to accessibility -- observe before reporting it'
+    return out

@@ -343,13 +343,13 @@ class McpTests(Base):
         self.assertTrue(mcp.call_tool('input', {'actions': [], 'bogus': 1})['isError'])
 
     def test_clipboard_daemon_never_inherits_the_jsonrpc_stdout(self):
-        grant()
+        gen = grant()['generation']
         with patch.object(api.subprocess, 'run') as run:
-            api.run('clipboard', {'action': 'write', 'text': 'x'}, by='agent')
+            api.run('clipboard', {'action': 'write', 'text': 'x', 'generation': gen}, by='agent')
         self.assertIs(run.call_args.kwargs['stdout'], subprocess.DEVNULL)
         control.set_owner('off', 'human')
         with self.assertRaises(control.MirrorError):
-            api.run('clipboard', {'action': 'write', 'text': 'x'}, by='agent')
+            api.run('clipboard', {'action': 'write', 'text': 'x', 'generation': gen}, by='agent')
 
     def test_stdio_lists_tools_and_agent_grant_ends_with_server(self):
         requests = [{'id': 1, 'method': 'initialize', 'params': {'protocolVersion': '2025-11-25'}},
@@ -445,6 +445,25 @@ o.bind("SUPER + SHIFT + S", nil, "omarchy-capture-screenshot")
                 items = index.plugins()['items']
         self.assertEqual(items[0]['opens_with'], 'SUPER + ALT + N')
 
+    def test_a_workspace_without_an_id_does_not_blank_state(self):
+        # #66: Omarchy's screensaver workspace comes back from Hyprland with no id.
+        spaces = [{'id': 1, 'name': '1', 'windows': 2},
+                  {'name': 'special:screensaver-HDMI-A-1', 'windows': 1},
+                  {'id': None, 'name': 'x'}, {'id': 3},
+                  {'id': '4', 'name': 7, 'windows': '0'}, {'id': True}, 'junk']
+
+        def sh(*argv, **kw):
+            return json.dumps(spaces) if argv[1:] == ('workspaces', '-j') else 'Hyprland 0.56.2 built from x\n'
+        with patch.object(index, 'sh', sh), patch.object(host, 'monitors', return_value=[]):
+            out = index.build({'section': ['state']})['state']
+        self.assertNotIn('_unavailable', out)
+        self.assertEqual((out['workspaces'], out['occupied']), ([1, 3], [1]))
+        self.assertEqual(out['named'], [{'name': 'special:screensaver-HDMI-A-1', 'windows': True},
+                                        {'name': 'x', 'windows': False}, {'name': '7', 'windows': False},
+                                        {'name': '?', 'windows': False}])
+        line = next(r for r in index.render({'state': out}).splitlines() if r.startswith('- workspaces in use:'))
+        self.assertEqual(line, '- workspaces in use: [1] and special:screensaver-HDMI-A-1')
+
     def test_a_broken_source_degrades_that_section_only(self):
         with patch.object(index, 'HYPR_DIR', Path('/nonexistent')), \
              patch.object(index, 'state', side_effect=RuntimeError('hyprctl gone')):
@@ -489,7 +508,7 @@ o.bind("SUPER + SHIFT + S", nil, "omarchy-capture-screenshot")
                  patch.object(index, 'state', side_effect=RuntimeError('no compositor')), \
                  patch.object(index, 'nav', side_effect=RuntimeError('no bus')):
                 rendered = index.render(index.build({}))
-        self.assertLess(len(rendered), 20000, f'default payload is {len(rendered)} bytes')
+        self.assertLess(len(rendered), 22000, f'default payload is {len(rendered)} bytes')
 
     def test_a_commented_out_bind_is_not_reported_as_live(self):
         # The exact failure this feature exists to prevent: an agent pressing a

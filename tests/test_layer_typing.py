@@ -56,7 +56,7 @@ class Layers(Base):
     def test_windows_op_lists_both(self):
         with patch.object(host, 'windows', return_value=[]), patch.object(host, 'layers', return_value=OPEN):
             out = api.run('windows', {})
-        self.assertEqual(set(out), {'windows', 'layers'})
+        self.assertEqual(set(out), {'windows', 'layers', 'generation'})
         self.assertEqual(out['layers'], OPEN)
 
 

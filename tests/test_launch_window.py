@@ -13,9 +13,9 @@ from test_invariants import Base, grant
 
 class LaunchGuard(Base):
     def test_unstubbed_launch_is_blocked(self):
-        grant()
+        gen = grant()['generation']
         with patch.object(host, 'windows', lambda timeout=10: []), self.assertRaises(guard.Blocked):
-            api.run('launch', {'argv': ['true']}, by='agent')
+            api.run('launch', {'argv': ['true'], 'generation': gen}, by='agent')
 
 
 def row(addr, **over):
@@ -25,7 +25,7 @@ def row(addr, **over):
 class Launch(Base):
     def run_launch(self, seq, args=None, spawn=True):
         """seq: scripted host.windows results (an Exception is raised); the last repeats."""
-        grant()
+        gen = grant()['generation']
         self.spawns, self.budgets, calls = 0, [], iter(seq)
         last = []
 
@@ -42,7 +42,7 @@ class Launch(Base):
             return 4242
 
         with patch.object(host, 'windows', windows), patch.object(api, '_spawn', spawn_):
-            return api.run('launch', {'argv': ['foot'], **(args or {})}, by='agent')
+            return api.run('launch', {'argv': ['foot'], 'generation': gen, **(args or {})}, by='agent')
 
     def test_one_new_window(self):
         r = self.run_launch([[row('0x1')], [row('0x1'), row('0x2', **{'class': 'x', 'title': 'y'})]])
@@ -94,13 +94,13 @@ class Launch(Base):
         self.assertTrue(all(b <= 0.1 for b in self.budgets[1:]), self.budgets)
 
     def test_mcp_timeout_schema(self):
-        mcp.validate('launch', {'argv': ['a'], 'timeout': 0})
+        mcp.validate('launch', {'argv': ['a'], 'generation': 1, 'timeout': 0})
         for bad in (31, float('nan')):
             with self.assertRaises(ValueError):
-                mcp.validate('launch', {'argv': ['a'], 'timeout': bad})
+                mcp.validate('launch', {'argv': ['a'], 'generation': 1, 'timeout': bad})
 
     def test_cli_parse(self):
-        a = cli.build_parser().parse_args(['launch', '--timeout', '2', '--', 'foot'])
+        a = cli.build_parser().parse_args(['launch', '--generation', '1', '--timeout', '2', '--', 'foot'])
         self.assertEqual((a.timeout, a.argv), (2.0, ['--', 'foot']))
 
 
