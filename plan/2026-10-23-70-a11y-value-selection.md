@@ -67,6 +67,10 @@ by the quoted text if they drift.
    `... sel.select_child(i)` (the guarded seam); record before/after
    `hyprctl cursorpos`, `activewindow`, focused node and new layers. `control off` after. → verify by: a row per app ×
    control in the PR description, and `SELECTION_DEPTH` decided.
+   **Deviation (order):** steps 2-5 were built before step 1, because the
+   grant was not given in time; `SELECTION_DEPTH = 2` is the default and the
+   `gotchas.md` rows from step 5 wait for this measurement. The PR stays
+   unmerged until steps 1 and 6 run.
    Traps: silence notifications first and restore them; close every test
    window; a GTK4 `set_text`-style read that returns nothing is a finding,
    not a failure.
@@ -155,6 +159,8 @@ by the quoted text if they drift.
    → `unavailable`; `resolve` raising `sensitive` after the write →
    `unavailable` with `details.delivered`; guard armed → `guard.Blocked`.
    → verify by the unittest command.
+   **Deviation:** each container's `get_selection_iface` is read through
+   `_call`, so one that raises is skipped and the next level is tried.
 
 5. **Wiring and words.** `api.py:276`: pass `value=args.get('value')`.
    `mcp.py:78`: add `'value': {'type': 'number'}` to `a11y_act`'s properties;

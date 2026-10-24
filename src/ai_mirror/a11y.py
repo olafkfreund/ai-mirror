@@ -546,7 +546,7 @@ def _select(node_id, Atspi, timeout) -> dict:
     parts = node_id.split('.')
     for k in range(1, min(SELECTION_DEPTH, len(parts) - 1) + 1):
         container, _ = resolve('.'.join(parts[:-k]))
-        sel = container.get_selection_iface()
+        sel = _call(container.get_selection_iface)
         if sel is not None:
             break
     else:
