@@ -733,6 +733,16 @@ def _require_target(window: str) -> dict | None:
     return None
 
 
+def _target_gone(window: str) -> bool:
+    """True only if `window` is in neither the layer list nor the window list.
+
+    "Could not ask" is not "gone": read errors propagate and the caller refuses.
+    """
+    if any(layer['address'] == window for layer in host.layers()):
+        return False
+    return not any(w['address'] == window for w in host.windows())
+
+
 def _partial(exc: MirrorError, delivered: int, lines: list[str],
              owners: list[int] | None) -> MirrorError:
     """Restate a mid-batch refusal in terms of what already landed (#30).
@@ -772,6 +782,7 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
     ox, oy = helper.origin
     surface = None
     delivered = 0
+    pressed, action, closed = set(), None, False
     for line in lines:
         state = read_state()
         if state.get('owner') != 'agent' or state.get('generation') != generation:
@@ -781,11 +792,24 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
         if window is not None:
             # Per line, for the same reason ownership is: a batch is not atomic
             # and the desktop moves underneath one.
+            owner = owners[delivered] if owners and delivered < len(owners) else None
+            if owner != action:
+                pressed, action = set(), owner
             try:
                 surface = _require_target(window)
             except MirrorError as exc:
-                helper.cancel()
-                raise _partial(exc, delivered, lines, owners) from None
+                head, _, edge = line.rpartition(' ')
+                rescued = False
+                if (exc.code == 'wrong_target' and owners is not None and edge == '0'
+                        and line[:2] in ('K ', 'B ') and head in pressed):
+                    try:
+                        rescued = _target_gone(window)
+                    except Exception:  # noqa: BLE001 - any failure to look refuses, and still sends C
+                        rescued = False
+                if not rescued:
+                    helper.cancel()
+                    raise _partial(exc, delivered, lines, owners) from None
+                closed = True
         if line.startswith('M ') and (ox or oy):
             x, y = map(int, line[2:].split())
             line = f'M {x - ox} {y - oy}'
@@ -799,10 +823,20 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
             helper.cancel()
             raise _partial(MirrorError('unavailable', f'helper {ack[:80]!r}'),
                            delivered, lines, owners)
+        if line[:2] in ('K ', 'B '):
+            head, _, edge = line.rpartition(' ')
+            (pressed.add if edge == '1' else pressed.discard)(head)
         delivered += 1
     result = {'ok': True, 'acked': len(lines), 'generation': generation}
     if window is not None:
         result['window'] = window
+        if closed:
+            result['closed'] = True
+            result['note'] = (f'keys pressed in {window}, which then closed; the matching key-up '
+                              'was sent after it closed, to whatever has focus now. Application '
+                              'acceptance and task completion are NOT verified -- observe before '
+                              'reporting the outcome.')
+            return result
         # Delivered is not accepted, and accepted is not done. The helper acked
         # the keystrokes; whether the application took them, and whether the
         # task happened, are things only a fresh observation can say.

@@ -1,0 +1,199 @@
+---
+status: approved
+issue: 68
+spec: spec/2026-10-23-68-release-after-target-closes.md
+---
+
+# Plan: a key-up after its target closes does not fail the batch
+
+Self-contained. Branch `fix/layer-release-input` (PR #52, which becomes #68's
+implementation; `master` merged in at `31eb954`). Line numbers as of
+`3f6e6e5`; re-find by the quoted text if they drift.
+
+## Approved decisions (from the spec)
+
+1. **Normal path unchanged.** `_require_target(window)` before every line;
+   owner + generation re-read first; every failure calls `helper.cancel()`
+   (sends `C`) then raises `_partial(...)`. #52's `target_validated` /
+   `target_owner` / `target_is_layer` skip is **removed**.
+2. **`pressed`**: the set of `'K <code>'` / `'B <code>'` prefixes pressed and
+   not yet released in the current action. Add after the helper acks a
+   `… 1` line; remove after it acks a `… 0` line; clear when a line's owner
+   differs from the previous line's. `owners is None` → never exempt.
+3. **Rescue**, only inside the existing `except MirrorError` around
+   `_require_target`, only when `exc.code == 'wrong_target'`, the line is a
+   release `K <code> 0` / `B <code> 0`, its prefix is in `pressed`, and
+   `_target_gone(window)` returns `True`. Then send the line and set
+   `closed = True`. Otherwise `helper.cancel(); raise _partial(exc, ...)` as
+   today. `_target_gone` raising → treated as not gone (original refusal).
+4. **`_target_gone(window)`**: `False` if any `host.layers()` entry has that
+   address; else `not any(w['address'] == window for w in host.windows())`.
+   Errors propagate to the caller (which refuses).
+5. **Note**: when `closed`, the success note reads "keys pressed in
+   `<window>`, which then closed; the matching key-up was sent after it
+   closed, to whatever has focus now. Application acceptance and task
+   completion are NOT verified -- observe before reporting the outcome." and
+   the result gains `closed: True`.
+6. A rescued key-up goes to the new focus, the same place `C` sends it on the
+   failure path today: an accepted limitation, stated in the note.
+
+## Steps
+
+1. **`src/ai_mirror/control.py`: `_target_gone`.** Add after `_require_target`
+   (ends ~line 733), with a docstring saying "could not ask" is not "gone":
+   ```python
+   def _target_gone(window: str) -> bool:
+       if any(layer['address'] == window for layer in host.layers()):
+           return False
+       return not any(w['address'] == window for w in host.windows())
+   ```
+   → verify by `python3 -m unittest discover -s tests` (still green; unused yet).
+   Traps: do NOT wrap the reads in try/except here; the caller decides.
+
+2. **`src/ai_mirror/control.py` `run_batch` (lines ~775-812): the rescue.**
+   Replace the `target_validated` / `target_owner` / `target_is_layer`
+   variables and the `releasing` / `same_action` / `if not (...)` block with:
+   ```python
+   pressed, action, closed = set(), None, False
+   ...
+       owner = owners[delivered] if owners and delivered < len(owners) else None
+       if owner != action:
+           pressed, action = set(), owner
+       if window is not None:
+           try:
+               surface = _require_target(window)
+           except MirrorError as exc:
+               head, _, edge = line.rpartition(' ')
+               rescued = False
+               if (exc.code == 'wrong_target' and owners is not None and edge == '0'
+                       and line[:2] in ('K ', 'B ') and head in pressed):
+                   try:
+                       rescued = _target_gone(window)
+                   except (RuntimeError, ValueError, OSError, KeyError, TypeError,
+                           subprocess.SubprocessError):
+                       rescued = False
+               if not rescued:
+                   helper.cancel()
+                   raise _partial(exc, delivered, lines, owners) from None
+               closed = True
+   ```
+   After a successful `OK` ack (just before `delivered += 1`):
+   ```python
+   if line[:2] in ('K ', 'B '):
+       head, _, edge = line.rpartition(' ')
+       (pressed.add if edge == '1' else pressed.discard)(head)
+   ```
+   Keep the ownership check (`read_state()`) as the first thing in the loop,
+   untouched. **In the same step**, add `patch.object(host, 'windows',
+   return_value=[])` to the existing
+   `test_key_release_is_sent_when_surface_closes_on_keydown` in
+   `tests/test_layer_typing.py`: the rescue now reads `host.windows()`, and an
+   unstubbed read reaches the live compositor or fails in `nix flake check`.
+   → verify by the unittest command.
+   Traps: AGENTS.md "run_batch re-reads the state before every helper line and
+   sends C on every failure path" -- the rescue must not move or skip either.
+   `surface` keeps its value from the last successful check when rescued.
+
+3. **`src/ai_mirror/control.py`: the note (lines ~814-828).** In the
+   `if window is not None:` block, branch first: when `closed` is true set
+   `result['closed'] = True` and assign `result['note']` the **whole** sentence
+   from decision 5; otherwise keep today's `where` / `f'delivered to {where}. …'`
+   code unchanged. (Do not feed the closed sentence through `where`, or it
+   reads "delivered to keys pressed in …".) → verify by the unittest command.
+   - Deviation (step 3): Used an early return inside the closed branch instead of an if/else around the existing note code. The existing where/note code is untouched and the behaviour is identical.
+
+4. **`tests/test_layer_typing.py`: tests.** Patch `host.layers`,
+   `host.windows` and `host.focused_address` in every test (unstubbed reads
+   reach the live compositor or fail in `nix flake check`). Use
+   `FakeHelper` (from `test_invariants`, records `sent`, acks from a list) and
+   `self.granted` from `TypingIntoASurface.setUp`; pass `owners=`. Call
+   `control.run_batch(..., window=WINDOW, ...)` directly in the new tests --
+   `run_on` defaults to `target=PANEL`, a layer, where the old #52 skip would
+   send the release and make the old-code comparison below meaningless.
+   `host.layers()` is called more than once per line (`_require_target` and
+   `_refuse_new_surfaces`), so make failures and changes happen through a
+   callable or `FakeHelper(on_cmd=...)` after a given line, never a fixed
+   `side_effect` list.
+   - New, in a class `ReleaseAfterTargetCloses(TypingIntoASurface)`:
+     1. window closes on Enter-down (`['K 28 1','K 28 0']`, owners `[0,0]`,
+        focus `WINDOW` then `'0xother'`, `host.windows` without `WINDOW`)
+        → both sent, `result['closed'] is True`, note contains "then closed".
+     2. target still in `host.windows()`, focus moved → `wrong_target`, only
+        `'K 28 1'` and `'C'` sent.
+     3. unmatched release (`['K 28 0']`, target gone) → refused.
+     4. `host.windows` raising during the gone check → refused, `C` sent.
+     5. `host.layers` raising during the gone check → refused.
+     6. matched in a previous action (`['K 28 1','K 28 0','K 28 0']`, owners
+        `[0,0,1]`, gone before line 3) → line 3 refused.
+     7. repeated code in one action (`['K 30 1','K 30 0','K 30 0']`, owners
+        `[0,0,0]`, gone after line 2) → line 3 refused.
+     8. revoked before the would-be rescued up (`set_owner('off','human')`
+        from `on_cmd` after `'K 28 1'`) → `stale_generation`, `C` sent.
+     9. rescued up acked `'ERR'` (`FakeHelper(acks=['OK','ERR'])`) →
+        `unavailable`, `C` sent.
+     10. `owners=None` → refused.
+     11. modifier: `['K 29 1','K 46 1','K 46 0','K 29 0']`, owners `[0]*4`,
+         gone after line 2 → all four sent; with owners `[0,0,0,1]` → line 4
+         refused.
+     12. `unavailable` refusal (`host.focused_address` raising on the up) with
+         the target gone → refused, not rescued.
+   → verify by the unittest command. Against the old `run_batch` (check by
+   temporarily reverting steps 2 **and 3** together locally -- step 3 reads
+   `closed` -- not committed): tests 1 and
+   11's first half (they assert a rescued send) must **fail**; the refusal
+   tests (2-10, 11's second half, 12) pass on old code too -- they guard the
+   new exemption from widening, not the fix.
+   Traps: `FakeHelper.cmd` raises when an ack in its list is an Exception;
+   `typed(helper)` strips `'C'`.
+   - Deviation (step 4): Plan test 9 (helper acks 'ERR') also fails on the old code. On old code the up-line is skipped or errors differently, so the assertion on the rescued send does not hold. Three tests fail on old code, not the two the plan predicted (1 and 11's first half): test 1, test 11 (one test method holds both halves) and test 9.
+   - Deviation (step 4): The 12 new tests share one helper, drive(), instead of each building its own mocks. The plan's `on_cmd`/callable guidance is followed inside it. host.layers, host.windows and host.focused_address are patched in every new test through drive(). I did not touch the older tests.
+
+5. **Merge PR #67 into this branch once #67 is merged to `master`**, resolving
+   `tests/test_layer_typing.py::test_windows_op_lists_both`, where #67 adds
+   `'generation'` to the expected keys. Then live:
+   `nix develop -c python3 -c "import sys; sys.path.insert(0,'tests'); import smoke; smoke.main()"`
+   passes. → verify by its `PASS:` line.
+   **`smoke.main()` grants itself control** (`take_control()` calls
+   `confirm_request` directly, also in its `finally`): it is the human's own
+   script. The human runs it, or the session model runs it only with the
+   human's explicit approval for that run -- never under a dialog grant given
+   for something else.
+   Traps: smoke's `check_index` needs #66; `check_wait` needs a panel this host
+   no longer has -- run `main()` only.
+
+**Review fixes (fresh Opus review: `matches_plan`, three low).**
+- `ReleaseAfterTargetCloses` derives from `Base` with its own grant, not
+  `TypingIntoASurface`, whose tests it was running a second time.
+- Test 6 now presses in action 0 and releases in action 1, so it fails if the
+  per-action reset is removed (checked by removing it); before, it passed
+  without it.
+- The rescue's `_target_gone` call catches any exception, not only the ones
+  `host` raises, so an unexpected failure still refuses and sends `C`.
+
+**Step 5 result.** Deviation: #67 is not yet merged to `master`, so instead of
+merging it into this branch, a throwaway local branch merged
+`fix/65-background-a11y-act` into this one (clean merge, 255 tests OK; not
+pushed, deleted after). On it, with the human's explicit approval for this
+self-granting run: `smoke.main()` printed
+`PASS: launch, windows, focus, frame input, Unicode typing, clipboard, kill switch`
+-- the final Enter key-up, sent after `foot` closed, is what used to fail.
+
+## Execution
+
+Steps 1-4 edit one source file and one test file across four steps, so they go
+to one `coder` agent, step by step, each verified by `codex review
+--uncommitted` (no custom prompt -- it is rejected) and agy (read-only, single
+commands), then committed naming the step. A fresh Opus review checks
+`git diff master...HEAD` against this plan. Step 5 is the session model's.
+
+## Tests
+
+```sh
+python3 -m unittest discover -s tests -v   # green, 12 new + 1 updated
+nix flake check                             # green
+```
+
+## Rollback
+
+Revert the step commits; the branch returns to PR #52's original layer-only
+rule. No state, config or plugin changes.
