@@ -47,7 +47,7 @@ TOOLS = [
          {'layer': STR, 'window_class': STR, 'window_title': STR, 'workspace': STR,
           'monitor': STR, 'layout': STR, 'absent': {'type': 'boolean'},
           'timeout': {'type': 'number', 'minimum': 0.1, 'maximum': 30}}),
-    tool('index', 'What this host looks like: keybindings with their labels, shell plugins and the key that opens each, monitors and workspaces, which apps expose accessibility and which are keyboard-only, and the gotchas that bite. Read-only, no control needed. section=apps adds declared apps/services; find=<query> searches the omarchy-* commands instead.',
+    tool('index', 'What this host looks like: keybindings with their labels, shell plugins and the key that opens each, monitors and workspaces, which apps expose accessibility and which are keyboard-only, and the gotchas that bite. Read-only, no control needed. section=apps adds declared apps/services, section=measured what each a11y_act did per app; find=<query> searches the omarchy-* commands instead.',
          {'section': {'type': 'array', 'items': STR}, 'find': STR}),
     tool('status', 'Control owner (agent/pending/off), generation, and monitor layout in global pixels.'),
     tool('control', 'mode=agent ASKS the person at the keyboard for keyboard/mouse control: a dialog opens on their desktop and status shows owner=pending. Poll status until owner is agent (they said yes; the mark in the bar turns red) or off (they said no, or the request lapsed after 30s). Only they can answer. mode=off hands control back. A grant unused for ten minutes ends by itself.',

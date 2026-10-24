@@ -31,6 +31,7 @@ Full reference: `docs/usage.md`.
 | `src/ai_mirror/wait.py` | Polls Hyprland state until one named prerequisite holds or a deadline passes. No events: a prerequisite that already holds never transitions |
 | `src/ai_mirror/index.py` | What this host looks like: keys from `~/.config/hypr/*.lua`, plugins, nav strategy, gotchas. Derived per call, never cached, never written to disk |
 | `src/ai_mirror/gotchas.md` | The hand-written half of the index. Read only; nothing generates it |
+| `src/ai_mirror/measured.md` | Per-app a11y_act results; served only by `index --section measured` |
 | `src/ai_mirror/a11y.py` | AT-SPI via `gi.repository.Atspi`: tree, find, act |
 | `src/ai_mirror_input/ai_mirror_input.c` | Persistent wlr virtual pointer + virtual keyboard; `C` releases all; stdin EOF releases and exits |
 | `plugin/AgentConfirmDialog.qml` | The human's half of the gate: layer-shell dialog over everything, exclusive keyboard focus, keys in the first second deny; after that `A` allows (`ConfirmKeys.js`) |
