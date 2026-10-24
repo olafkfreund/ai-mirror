@@ -94,6 +94,12 @@ Self-contained. Branch `docs/72-release-showcase` from master `6b133c6`.
    → verify by `bash -n demo/background.sh`, and a run with control off
    and no answer exiting 1 with "no grant" (the dialog appears; nobody
    presses A). Confirm `control` is `off` afterwards.
+   **Deviation (verify):** the no-grant path was checked with a stub CLI
+   (`AI_MIRROR=<stub>`, status always `off`): "no grant", exit 1, one
+   `control agent`, one `control off`, nothing launched -- no dialog put on
+   the human's screen for a check that only reads `status`. Step 4 runs with
+   `AI_MIRROR=bin/ai-mirror` under `nix develop`: the installed CLI is still
+   2.1.0 and has no `set_value`.
    Traps:
    - Never `hyprctl dispatch` a free-form string; use the CLI's `window`.
    - Chrome's `click` moves in-page focus (measured); that is fine and
