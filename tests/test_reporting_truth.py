@@ -633,7 +633,7 @@ class SetValue(Base):
 
         def stub_write(seam, call):
             writes.append(seam)
-            return call() is not None and write
+            return bool(call()) and write
         with patch.object(a11y, 'resolve', first_then_reads), patch.object(a11y, '_write', stub_write):
             try:
                 return a11y.act('1.0.0', 'set_value', timeout=0.1, value=wanted), writes
@@ -727,3 +727,159 @@ class SetValue(Base):
         with patch.object(a11y, 'resolve', return_value=(self._acc(), None)):
             with self.assertRaises(guard.Blocked):
                 a11y.act('1.0.0', 'set_value', value=5)
+
+
+class Select(Base):
+    """#70: select goes through the nearest container's Selection interface."""
+
+    def _acc(self, role='list item', name='b', selected=False, sel=None):
+        from unittest.mock import MagicMock
+        acc = MagicMock()
+        acc.get_role_name.return_value = role
+        acc.get_name.return_value = name
+        acc.get_state_set.return_value = None
+        acc.get_selection_iface.return_value = sel
+        return acc
+
+    def _sel(self, chosen=(), select=True):
+        """`chosen`: selected from the start. Otherwise selecting is what selects."""
+        from unittest.mock import MagicMock
+        sel = MagicMock(spec=['select_child', 'is_child_selected'])
+        done = set(chosen)
+
+        def pick(i):
+            done.add(i)
+            return select
+        sel.is_child_selected.side_effect = lambda i: i in done
+        sel.select_child.side_effect = pick
+        return sel
+
+    def _run(self, node_id='1.0.3.2', nodes=None, expect=None, write=True, states=None, timeout=0.1):
+        """`nodes`: id -> accessible, or a callable for later probes; unknown ids are stale."""
+        from unittest.mock import patch
+        from ai_mirror import a11y
+        writes = []
+
+        def resolve(i):
+            n = nodes(i) if callable(nodes) else nodes.get(i)
+            if n is None:
+                raise MirrorError('stale_node', 'gone')
+            return n, None
+
+        def stub_write(seam, call):
+            writes.append(seam)
+            return bool(call()) and write
+        with patch.object(a11y, 'resolve', resolve), patch.object(a11y, '_write', stub_write), \
+                patch.object(a11y, '_states', lambda acc, i, At: list(states(i, bool(writes)) if states else [])):
+            try:
+                return a11y.act(node_id, 'select', expect=expect, timeout=timeout), writes
+            except Exception as exc:
+                exc.writes = writes
+                raise
+
+    def test_direct_parent(self):
+        sel = self._sel()
+        out, writes = self._run(nodes={'1.0.3': self._acc(sel=sel), '1.0.3.2': self._acc()})
+        self.assertEqual((out['selected_via'], writes), (1, ['select_child']))
+        sel.select_child.assert_called_once_with(2)
+        self.assertIs(out['changed'], True)
+
+    def test_grandparent_uses_the_selected_nodes_own_states(self):
+        sel = self._sel()
+        nodes = {'1.0.3.2': self._acc(), '1.0.3': self._acc(role='list item', name='row'),
+                 '1.0': self._acc(sel=sel)}
+        out, _ = self._run(nodes=nodes, states=lambda i, wrote: ['focusable'] if i == '1.0.3' else ['editable'])
+        self.assertEqual(out['selected_via'], 2)
+        self.assertEqual(out['selected'], {'role': 'list item', 'name': 'row'})
+        self.assertEqual((out['states_before'], out['states_after']), (['focusable'], ['focusable']))
+        sel.select_child.assert_called_once_with(3)
+
+    def test_nothing_within_depth_is_unsupported(self):
+        nodes = {i: self._acc() for i in ('1.0.3.2', '1.0.3', '1.0', '1')}
+        with self.assertRaises(MirrorError) as c:
+            self._run(nodes=nodes)
+        self.assertEqual((c.exception.code, c.exception.writes), ('unsupported', []))
+
+    def test_an_id_near_the_application_does_not_run_off_the_path(self):
+        with self.assertRaises(MirrorError) as c:
+            self._run(node_id='3.0', nodes={'3': self._acc(), '3.0': self._acc()})
+        self.assertEqual(c.exception.code, 'unsupported')
+
+    def test_a_shifted_list_is_stale_and_not_written(self):
+        sel = self._sel()
+        nodes = {'1.0.3': self._acc(sel=sel), '1.0.3.2': self._acc(name='other')}
+        with self.assertRaises(MirrorError) as c:
+            self._run(nodes=nodes, expect={'name': 'b'})
+        self.assertEqual((c.exception.code, c.exception.writes), ('stale_node', []))
+
+    def test_already_selected_is_not_written(self):
+        sel = self._sel(chosen=[2])
+        out, writes = self._run(nodes={'1.0.3': self._acc(sel=sel), '1.0.3.2': self._acc()},
+                                states=lambda i, wrote: ['selected'])
+        self.assertEqual((writes, out['changed'], out['waited_ms']), ([], False, 0))
+
+    def test_confirmed_by_is_child_selected(self):
+        sel = self._sel()
+        out, writes = self._run(nodes={'1.0.3': self._acc(sel=sel), '1.0.3.2': self._acc()})
+        self.assertEqual((out['verified'], writes, out['states_after']), (True, ['select_child'], []))
+
+    def test_confirmed_by_the_selected_state(self):
+        sel = self._sel()
+        sel.is_child_selected.side_effect = lambda i: False
+        out, _ = self._run(nodes={'1.0.3': self._acc(sel=sel), '1.0.3.2': self._acc()},
+                           states=lambda i, wrote: ['selected'] if wrote else [])
+        self.assertEqual((out['changed'], out['states_after']), (True, ['selected']))
+
+    def test_a_stale_container_on_the_first_probe_is_not_yet(self):
+        sel = self._sel()
+        calls = {'n': 0}
+
+        def nodes(i):
+            if i == '1.0.3':
+                calls['n'] += 1
+                return None if calls['n'] == 2 else self._acc(sel=sel)  # _select, probe 1
+            return self._acc()
+        out, _ = self._run(nodes=nodes, states=lambda i, wrote: ['selected'] if wrote else [])
+        self.assertEqual((out['changed'], calls['n']), (True, 3))
+
+    def test_a_vanished_item_is_not_confirmed(self):
+        sel = self._sel()
+        seen = {'n': 0}
+
+        def nodes(i):
+            if i == '1.0.3.2':
+                seen['n'] += 1
+                return self._acc() if seen['n'] <= 2 else None
+            return self._acc(sel=sel)
+        with self.assertRaises(MirrorError) as c:
+            self._run(nodes=nodes)
+        self.assertEqual(c.exception.code, 'not_confirmed')
+
+    def test_a_refused_write_is_unavailable(self):
+        sel = self._sel(select=False)
+        with self.assertRaises(MirrorError) as c:
+            self._run(nodes={'1.0.3': self._acc(sel=sel), '1.0.3.2': self._acc()}, write=False)
+        self.assertEqual(c.exception.code, 'unavailable')
+
+    def test_a_failed_read_back_says_it_was_delivered(self):
+        sel = self._sel()
+        seen = {'n': 0}
+
+        def nodes(i):
+            seen['n'] += 1
+            if seen['n'] > 3:
+                raise MirrorError('sensitive', 'now inside a password manager')
+            return self._acc(sel=sel)
+        with self.assertRaises(MirrorError) as c:
+            self._run(nodes=nodes)
+        self.assertEqual(c.exception.code, 'unavailable')
+        self.assertTrue(c.exception.details['delivered'])
+
+    def test_the_guard_blocks_an_unpatched_write(self):
+        from unittest.mock import patch
+        from ai_mirror import a11y, guard
+        sel = self._sel()
+        nodes = {'1.0.3': self._acc(sel=sel), '1.0.3.2': self._acc()}
+        with patch.object(a11y, 'resolve', lambda i: (nodes[i], None)):
+            with self.assertRaises(guard.Blocked):
+                a11y.act('1.0.3.2', 'select')

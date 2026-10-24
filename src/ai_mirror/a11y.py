@@ -15,6 +15,8 @@ from .control import MirrorError
 
 STATES = ('enabled', 'focused', 'focusable', 'editable', 'checked', 'selected',
           'expanded', 'collapsed', 'pressed', 'sensitive', 'multi-line')
+# Item -> list -> (maybe) its wrapper. Default pending the #70 step 1 measurement.
+SELECTION_DEPTH = 2
 QUIET_ROLES = ('filler', 'panel', 'section', 'redundant object', 'unknown')
 VISIT_CAP = 20000
 A11Y_STATUS = ('org.a11y.Bus', '/org/a11y/bus', 'org.a11y.Status')
@@ -402,6 +404,8 @@ def act(node_id: str, action: str, text: str | None = None, expect: dict | None 
     try:
         if action == 'set_value':
             return _set_value(acc, node_id, role, states_before, value, Atspi, timeout)
+        if action == 'select':
+            return _select(node_id, Atspi, timeout)
         if action == 'focus':
             comp = acc.get_component_iface()
             if comp is None or not _write('grab_focus', comp.grab_focus):
@@ -534,3 +538,54 @@ def _set_value(acc, node_id, role, states_before, value, Atspi, timeout) -> dict
                           {'value': _num(seen), 'wanted': value})
     return {**out, 'changed': True, 'states_after': states_after, 'value_after': _num(seen),
             'waited_ms': result['waited_ms']}
+
+
+def _select(node_id, Atspi, timeout) -> dict:
+    """#70: select the item through its container's Selection interface."""
+    from . import wait
+    parts = node_id.split('.')
+    for k in range(1, min(SELECTION_DEPTH, len(parts) - 1) + 1):
+        container, _ = resolve('.'.join(parts[:-k]))
+        sel = container.get_selection_iface()
+        if sel is not None:
+            break
+    else:
+        raise MirrorError('unsupported', 'no enclosing list, tab bar or menu exposes AT-SPI Selection')
+    index, target_id = int(parts[-k]), '.'.join(parts[:len(parts) - k + 1])
+    target, _ = resolve(target_id)
+    role = _call(target.get_role_name, '')
+    chosen = {'role': role, 'name': (_call(target.get_name, '') or '')[:120]}
+    states_before = _states(target, target_id, Atspi)
+    out = {'ok': True, 'node': node_id, 'action': 'select', 'verified': True,
+           'states_before': states_before, 'selected': chosen, 'selected_via': k}
+    if 'selected' in states_before or _call(lambda: sel.is_child_selected(index)):
+        return {**out, 'changed': False, 'states_after': states_before, 'waited_ms': 0}
+    if not _write('select_child', lambda: sel.select_child(index)):
+        raise MirrorError('unavailable', 'the application refused the selection')
+    states_after = None
+
+    def probe(budget):
+        nonlocal states_after
+        states_after = None
+        try:
+            node, _ = resolve(target_id)
+            box, _ = resolve('.'.join(parts[:-k]))
+        except MirrorError as exc:
+            if exc.code != 'stale_node':
+                raise
+            return False
+        if _call(node.get_role_name, '') != role:
+            return False
+        states_after = _states(node, target_id, Atspi)
+        live = _call(box.get_selection_iface)
+        return 'selected' in states_after or bool(live and _call(lambda: live.is_child_selected(index)))
+
+    result = wait.poll(probe, timeout)
+    if result['result'] == 'unavailable':
+        raise MirrorError('unavailable', f"the select was delivered, but reading it back failed "
+                                         f"({result['reason']}); do not repeat it -- observe first",
+                          {'delivered': True})
+    if result['result'] == 'not_confirmed':
+        raise MirrorError('not_confirmed', 'select was written but could not be read back',
+                          {'states_after': states_after})
+    return {**out, 'changed': True, 'states_after': states_after, 'waited_ms': result['waited_ms']}
