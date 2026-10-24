@@ -15,7 +15,7 @@ from .control import MirrorError
 
 STATES = ('enabled', 'focused', 'focusable', 'editable', 'checked', 'selected',
           'expanded', 'collapsed', 'pressed', 'sensitive', 'multi-line')
-# Item -> list -> (maybe) its wrapper. Default pending the #70 step 1 measurement.
+# Item -> list -> (maybe) its wrapper. Measured (#70): every list, tab bar and menu was the direct parent; 2 leaves room for a row of cells.
 SELECTION_DEPTH = 2
 QUIET_ROLES = ('filler', 'panel', 'section', 'redundant object', 'unknown')
 VISIT_CAP = 20000

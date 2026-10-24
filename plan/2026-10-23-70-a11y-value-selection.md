@@ -71,6 +71,16 @@ by the quoted text if they drift.
    grant was not given in time; `SELECTION_DEPTH = 2` is the default and the
    `gotchas.md` rows from step 5 wait for this measurement. The PR stays
    unmerged until steps 1 and 6 run.
+   **Result (2026-10-24, Chrome and Firefox; GTK4 calculator exposes no Value
+   and an empty Selection list):** sliders and spin buttons expose Value;
+   every Selection container (list box, ARIA list box, tab list, Firefox's
+   closed-`<select>` menu, the browser tab bar) is the item's direct parent,
+   so `SELECTION_DEPTH` stays 2. No write changed the active window or mapped
+   a surface; Chrome's pointer never moved, and Firefox runs saw the cursor
+   move while the human was at the desk (unattributed). Chrome accepted a
+   spin-button value without applying it; ARIA `aria-selected` widgets are
+   page-owned and do not change; selecting in Firefox's tab bar switches the
+   browser tab. Rows in `gotchas.md`.
    Traps: silence notifications first and restore them; close every test
    window; a GTK4 `set_text`-style read that returns nothing is a finding,
    not a failure.
@@ -177,6 +187,10 @@ by the quoted text if they drift.
 6. **Live (session model).** Under a grant from the confirm dialog: one
    `set_value` and one `select` per measured app that supports them; results
    match the table (`verified`, `changed`, states). `control off` after.
+   **Result (2026-10-24):** Chrome and Firefox: slider `set_value` 3 → 7
+   verified, `changed: true`; again → `changed: false`, `waited_ms: 0`;
+   `select` on a native `<select size=4>` item verified, `selected_via: 1`;
+   on an ARIA option `not_confirmed` (matches the table).
 
 ## Execution
 

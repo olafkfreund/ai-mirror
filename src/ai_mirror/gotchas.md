@@ -160,6 +160,13 @@ pointer. Re-measure on your host.
 | Firefox | button, link | `press`, `jump` | click | ok |
 | Firefox | check box | `check` | click | ok (`check` counts as a click since #65) |
 | Firefox | entry | `activate` | set_text, focus | ok |
+| Chrome, Firefox | slider | Value | set_value | ok, read back (#70) |
+| Chrome | spin button | Value | set_value | value unchanged: `not_confirmed` |
+| Firefox | spin button | Value | set_value | ok |
+| Chrome, Firefox | `<select size=4>` item | Selection on parent | select | ok, read back |
+| Chrome, Firefox | ARIA `role=option` | Selection on parent | select | `not_confirmed`: the page owns `aria-selected` |
+| Chrome | ARIA tab | Selection on parent | select | `unavailable` |
+| Firefox | browser tab | Selection on tab bar | select | switches the tab |
 
 Firefox exposes no content while its window is on a hidden workspace; Chrome
 and GTK4 do.
