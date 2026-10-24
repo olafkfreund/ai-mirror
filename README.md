@@ -94,7 +94,7 @@ while your cursor and keyboard stay where you left them. The recording above sho
 a slider set, a list item picked, a box checked and a button pressed in Chrome, with the cursor
 position and the focused window printed after every step.
 
-Limits, measured and listed in [`src/ai_mirror/gotchas.md`](src/ai_mirror/gotchas.md):
+Limits (per-app results in [`src/ai_mirror/measured.md`](src/ai_mirror/measured.md)):
 
 - It is still a grant: you answer the dialog, and the red mark shows while the agent works.
 - Page-owned ARIA state (`aria-selected`) and Chrome spin buttons answer `not_confirmed`.

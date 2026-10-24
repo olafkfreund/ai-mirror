@@ -43,34 +43,32 @@ pointer off the bar between clicks and re-measure after any hover.
 
 ## `Return` in the package panel writes to your configuration
 
-`nixarchy.pkg` queues a change by editing `~/.config/nixarchy/apps.nix` or
-`services.nix` immediately. `Return` on a boolean row toggles it; there is no
-confirmation step, and "queued" looks like a UI state rather than a file write.
+`nixarchy.pkg` edits `~/.config/nixarchy/apps.nix` or `services.nix` at once.
+`Return` on a boolean row toggles it with no confirmation, and "queued" looks
+like UI state, not a file write. Two edits landed in one session:
+`chrome.enable = true` and a *removal* of `azure-cli`. Neither was applied;
+both had to be found and undone.
 
-Two edits landed this way during one session: `chrome.enable = true`, and a
-*removal* of `azure-cli`. Neither was applied, both had to be found and undone.
-
-**Do:** check `nixarchy-pkg pending` before and after. Snapshot those two files
-around any scripted run and restore them if they changed. Prefer a path option,
-whose editor cancels on Escape, over a boolean, which toggles on `Return`.
+**Do:** check `nixarchy-pkg pending` before and after; snapshot those two files
+around a scripted run and restore them if changed. Prefer a path option (its
+editor cancels on Escape) over a boolean (toggles on `Return`).
 
 ## `input` returning does not mean anything happened
 
-It reports that the keystroke was delivered, nothing more. Measured here: the
-call returned at 164 ms and the panel it opened did not exist until 225 ms. A
+It reports the keystroke was delivered, nothing more. Measured: the call
+returned at 164 ms and the panel it opened did not exist until 225 ms. A
 sequence that types in that window types into whatever was behind.
 
-**Do:** `ai-mirror wait --layer nixarchy-pkg-menu` after pressing the key, and
-only continue on `confirmed`. Use `--absent` to wait for a panel to close
-before opening the next, since panels do not stack.
+**Do:** `ai-mirror wait --layer nixarchy-pkg-menu` after the key; continue only
+on `confirmed`. `--absent` waits for a panel to close before opening the next,
+since panels do not stack.
 
-`not_confirmed` means it did not hold before the deadline — **not** that the
-action failed. It may still land. Retrying on it can toggle shut the panel that
-had just opened. `unavailable` is a third thing again: the state could not be
-read, so nothing was learned either way.
+`not_confirmed` means it did not hold before the deadline, **not** that the
+action failed: it may still land, and retrying can toggle shut the panel that
+just opened. `unavailable` means the state could not be read: nothing learned.
 
-It confirms a state, not a cause. Another agent or the human can satisfy the
-same predicate, and a confirmed state can stop holding before the next action.
+It confirms a state, not a cause: another agent or the human can satisfy the
+same predicate, and it can stop holding before your next action.
 
 ## Navigating the package panel
 
@@ -108,18 +106,18 @@ olafkfreund/nixarchy#749.
 
 ## Captures are refused over password managers and credential prompts
 
-`screenshot` raises `sensitive` when a password manager, a credential prompt, a private
-browsing window or a banking page is visible anywhere in the rectangle being captured --
-not just when it has focus. The refusal names the kind and never the window title.
+`screenshot` raises `sensitive` when a password manager, credential prompt,
+private browsing window or banking page is visible anywhere in the captured
+rectangle, not just when focused. The refusal names the kind, never the title.
 
-The accessibility tools are guarded the same way: `a11y_tree` reports such a window as
-`withheld` with no name and does not read inside it, `a11y_find` cannot match there and says
-so, and `a11y_act` refuses an id within one. A tree is machine-readable text, so reaching for
-`a11y_find` is not a way round a refused screenshot.
+The accessibility tools are guarded the same way: `a11y_tree` reports such a
+window as `withheld` with no name and does not read inside it, `a11y_find`
+cannot match there and says so, `a11y_act` refuses an id within one. A tree is machine-readable text, so
+`a11y_find` is no way round a refused screenshot.
 
-**Do:** capture a narrower region that excludes it, or ask the user to close it. Treat this
-as best-effort: it matches on window class and title, so it misses things and it misfires.
-It does not make a screen safe to photograph.
+**Do:** capture a narrower region that excludes it, or ask the user to close
+it. Best-effort: it matches on window class and title, so it misses things and
+misfires. It does not make a screen safe to photograph.
 
 ## `doctor` and a shell with no desktop session
 
@@ -143,33 +141,7 @@ AT-SPI EditableText interface, which Chromium does not implement even where
 it reports the `editable` state: focus the node, then send keystrokes. Keybindings
 for anything the shell draws. Never assume a11y covers the desktop itself.
 
-**Measured examples, not a toolkit rule** (Hyprland, 2026-10-23, target window
-unfocused): no action below changed the active window, the workspace or the
-pointer. Re-measure on your host.
-
-| App | Element | Actions offered | Tried | Result |
-|---|---|---|---|---|
-| GTK4 calculator | button | `click` | click | ok |
-| GTK4 calculator | entry | `text.*`, `clipboard.*`, `menu.popup` | set_text | the app accepts it, but the text cannot be read back, so `not_confirmed`: screenshot to check |
-| GTK4 calculator | button | `click` | focus | `atspi_error` (grab_focus unsupported) |
-| Chrome | button | `press` | click | ok, in-page focus moves |
-| Chrome | check box | `check` | click | ok (`check` counts as a click since #65) |
-| Chrome | entry | `activate` | set_text | `unsupported` (no EditableText) |
-| Chrome | entry | `activate` | focus | ok, in-page focus moves |
-| Chrome | link | `jump` | click | ok |
-| Firefox | button, link | `press`, `jump` | click | ok |
-| Firefox | check box | `check` | click | ok (`check` counts as a click since #65) |
-| Firefox | entry | `activate` | set_text, focus | ok |
-| Chrome, Firefox | slider | Value | set_value | ok, read back (#70) |
-| Chrome | spin button | Value | set_value | value unchanged: `not_confirmed` |
-| Firefox | spin button | Value | set_value | ok |
-| Chrome, Firefox | `<select size=4>` item | Selection on parent | select | ok, read back |
-| Chrome, Firefox | ARIA `role=option` | Selection on parent | select | `not_confirmed`: the page owns `aria-selected` |
-| Chrome | ARIA tab | Selection on parent | select | `unavailable` |
-| Firefox | browser tab | Selection on tab bar | select | switches the tab |
-
-Firefox exposes no content while its window is on a hidden workspace; Chrome
-and GTK4 do.
+Per-app results (what each action did in GTK4, Chrome, Firefox): `index --section measured`.
 
 ## Panels render on the focused monitor
 
@@ -219,51 +191,29 @@ command line.
 
 ## Typing into a menu, panel or launcher
 
-These are layer surfaces, not windows. Hyprland cannot say which surface holds
-the keyboard — measured on 0.56.0, `layers -j` carries only `address, alpha,
-h, namespace, pid, w, x, y` — and `activewindow` keeps naming the window
-*underneath* an overlay that has taken the keys. So nothing can be asked; it
-can only be inferred from what is mapped (#29).
+Layer surfaces, not windows. Hyprland 0.56.0 cannot say which holds the
+keyboard (`layers -j`: `address, alpha, h, namespace, pid, w, x, y`), and
+`activewindow` names the window *underneath*, so it is inferred from what is
+mapped (#29).
 
-**Do:** open it, call `windows`, and pass the surface's address from `layers`
-as `window`. It is accepted when that surface is the topmost thing mapped, on
-any monitor. A window that still holds focus no longer refuses the call: it is
-named in the result note instead, because if the surface does not take the
-keyboard, that window is where the keys went.
+**Do:** open it, call `windows`, pass its address from `layers` as `window`.
+Accepted when it is topmost, on any monitor; a still-focused window is named in
+the note, since keys go there if the surface does not take them. Refused while
+another surface is at the same level or above (a notification over a menu):
+wait and retry.
 
-It is refused while another surface is open at the same level or above (a
-notification over a menu, say): the message names it. Wait for it to go,
-observe again, and retry.
+**Typing at a *window*** is refused while a level 2+ surface outside the exempt
+set is up: it may hold the keyboard, and naming the window as destination then
+is the failure this guards. The set starts as what was mapped at the grant and
+**shrinks whenever a check finds one gone**: the confirm dialog and notifications
+are surfaces too (#39). Checks run only on window-addressed calls, so a quick
+leave-and-return goes unseen. The refusal says "opened since control was
+granted" or "went away and came back".
 
-**And the other way round:** typing at a *window* is refused while a surface
-at level 2 or above is up that is **not part of the desktop as far as this
-grant is concerned**. That surface may hold the keyboard, and reporting the
-window as the destination when the keys went elsewhere is the failure this
-guard exists to prevent. Wait for it to go, or address the surface directly.
-
-The exempt set starts as whatever was mapped when control was granted, and
-**shrinks whenever a check finds one of those surfaces gone**. That matters
-because the dialog the person clicks to confirm is itself a surface, and so is
-any notification that happens to be up: without the shrinking, either would be
-treated as furniture for the life of the grant, which exempts exactly what the
-guard is for (#39).
-
-It is "gone when we looked", not "continuously mapped" — the check only runs
-on a window-addressed call, so a surface that leaves and returns between two
-calls is never observed leaving. The refusal tells you which shape you have:
-
-- *"nixi (0x…) opened since control was granted"* — new since the grant.
-- *"notification (0x…) went away and came back since control was granted"* —
-  it was part of the desktop, left, and returned, so it no longer counts as
-  furniture.
-
-**A restarted shell usually passes unnoticed.** Measured on razer: after
-`omarchy-restart-shell`, window-addressed input was accepted, because no check
-ran while the bar was down and its absence was never seen. If a check does
-land in that gap, the bar leaves the exempt set and returns as the second case
-above, and input is refused until control is re-taken. That is the deliberate
-part: admitting anything that returns would reopen the hole for anything that
-can be made to flicker.
+A shell restart (`omarchy-restart-shell`) usually passes unnoticed (measured on
+razer). If a check lands while the bar is down, it returns as "came back" and
+input is refused until control is re-taken. Deliberate: admitting whatever
+returns would reopen the hole for anything that can be made to flicker.
 
 ## A refusal can mean part of the batch already landed
 
@@ -288,24 +238,12 @@ new grant was made. Stop and ask again.
 
 ## Chrome ignores the middle mouse button
 
-The button itself works. Measured with `wev`, a middle click arrives exactly as
-the others do — `button: 274 (middle)`, press and release 5 ms apart, framed —
-and a middle click pastes the primary selection into alacritty. What does not
-respond is **Chrome**: middle-clicking a tab does not close it and
-middle-clicking a link does not open a background tab, while `left` and `right`
-at the same coordinates work in the same window (#37).
+Delivered fine: `wev` shows `button: 274 (middle)`, press/release 5 ms apart,
+and alacritty pastes the primary selection. Chrome ignores it on tabs and links
+while `left`/`right` work (#37). GNOME apps never paste on middle click
+(`gtk-enable-primary-paste = false`). `input` says `ok` either way: delivered.
 
-Two things that look like this bug and are not:
-
-- **GNOME applications never paste on middle click**, because GNOME ships
-  `gtk-enable-primary-paste = false`. That is the desktop's setting, not a
-  missing event.
-- **`input` reports `ok` either way.** It says the button was delivered, which
-  is true; whether the application acted on it is a separate question, and one
-  only an observation answers.
-
-**Do:** in Chrome, use the keyboard — `CTRL+W` for a tab, `CTRL+click` for a
-link in a background tab. Elsewhere, middle click normally.
+**Do:** in Chrome, `CTRL+W` for a tab, `CTRL+click` for a background tab.
 
 ## What you launch dies with your terminal
 
