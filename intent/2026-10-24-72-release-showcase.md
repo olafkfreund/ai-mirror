@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 72
 author: olafkfreund
 ---
@@ -57,3 +57,5 @@ pins ai-mirror (nixarchy#1436 follows this release).
 2. Showcase form: a recording of about 40 s with no voice, kept under the
    10 MB GitHub embed limit, plus a GIF for the README? I propose both: the
    mp4 as the asset and a GIF cut from it.
+
+**Decided: as proposed** (3.0.0; mp4 plus a GIF cut from it).
