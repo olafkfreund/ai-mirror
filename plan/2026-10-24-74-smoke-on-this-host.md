@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 74
 spec: spec/2026-10-24-74-smoke-on-this-host.md
 ---
