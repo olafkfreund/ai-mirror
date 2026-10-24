@@ -195,6 +195,20 @@ Self-contained. Branch `fix/74-smoke-on-this-host` from master `77df700`.
    and saying which steps the coder did. Merge when CI is green, and close
    #74.
 
+**Review fixes (Opus review, after step 6):**
+- `press` now accepts the refusal only when `exc.code == 'wrong_target'` and
+  `details['delivered'] > 0`. A refusal at line 0 sent nothing, so it is
+  re-raised.
+- "Typing into a menu" was rewritten to put back the three reasons the trim
+  had lost (why a focused window is named, why the guard refuses, why a
+  surface that returns stays refused). It is now 1,481 bytes. The default
+  index is 21,287 bytes (CLI) and 21,676 bytes (smoke's `check_index`).
+- The MCP and CLI text now says `section` *replaces* the default sections.
+  This was wrong before #74 too.
+- README's limits line no longer claims every limit is in `measured.md`.
+- Not done: a key that opens a window instead of a layer is not tracked or
+  closed. On this host every candidate is a shell panel, so this is latent.
+
 ## Execution
 
 Steps 1-5 edit eight files, so one `coder` does them in order. It cannot
@@ -206,7 +220,7 @@ session model's.
 ```sh
 python3 -m unittest discover -s tests -v
 nix flake check
-python3 -m ai_mirror index | wc -c        # ≤ 20500
+python3 -m ai_mirror index | wc -c        # < 22000 (21,325 here; see step 2)
 python3 -m ai_mirror index --section measured | grep -c set_value   # ≥ 1
 ```
 

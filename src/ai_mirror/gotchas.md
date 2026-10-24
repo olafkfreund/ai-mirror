@@ -191,27 +191,29 @@ command line.
 
 ## Typing into a menu, panel or launcher
 
-These are layer surfaces, not windows. Hyprland 0.56.0 cannot say which holds
-the keyboard (`layers -j`: `address, alpha, h, namespace, pid, w, x, y`) and `activewindow` keeps naming the window *underneath* an overlay that
-took the keys, so it can only be inferred from what is mapped (#29).
+Layer surfaces, not windows. Hyprland 0.56.0 cannot say which holds the
+keyboard (`layers -j`: `address, alpha, h, namespace, pid, w, x, y`), and
+`activewindow` names the window *underneath*, so it is inferred from what is
+mapped (#29).
 
-**Do:** open it, call `windows`, pass the surface's address from `layers` as
-`window`. Accepted when it is the topmost thing mapped, on any monitor. A focused
-window is named in the result note, not refused. Refused while
-another surface is open at the same level or above (a notification over a menu):
-the message names it; wait, observe, retry.
+**Do:** open it, call `windows`, pass its address from `layers` as `window`.
+Accepted when it is topmost, on any monitor; a still-focused window is named in
+the note, since keys go there if the surface does not take them. Refused while
+another surface is at the same level or above (a notification over a menu):
+wait and retry.
 
-**Typing at a *window*** is refused while a level 2+ surface is up that was not
-part of the desktop when control was granted. The exempt set starts as what was
-mapped at the grant and **shrinks whenever a check finds one gone**: the confirm dialog and any
-notification up at the grant are surfaces too, and must not stay exempt (#39). The
-check runs only on window-addressed calls, so a surface that leaves and returns
-between two calls is never seen leaving. The refusal says which: "opened since
-control was granted" or "went away and came back".
+**Typing at a *window*** is refused while a level 2+ surface outside the exempt
+set is up: it may hold the keyboard, and naming the window as destination then
+is the failure this guards. The set starts as what was mapped at the grant and
+**shrinks whenever a check finds one gone**: the confirm dialog and notifications
+are surfaces too (#39). Checks run only on window-addressed calls, so a quick
+leave-and-return goes unseen. The refusal says "opened since control was
+granted" or "went away and came back".
 
-A shell restart (`omarchy-restart-shell`) usually passes unnoticed (measured on razer): no check ran
-while the bar was down. If one lands in that gap, the bar returns as "came back"
-and input is refused until control is re-taken.
+A shell restart (`omarchy-restart-shell`) usually passes unnoticed (measured on
+razer). If a check lands while the bar is down, it returns as "came back" and
+input is refused until control is re-taken. Deliberate: admitting whatever
+returns would reopen the hole for anything that can be made to flicker.
 
 ## A refusal can mean part of the batch already landed
 

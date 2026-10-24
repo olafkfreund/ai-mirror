@@ -130,7 +130,7 @@ def build_parser():
     p.add_argument('--timeout', type=float)
     p = commands.add_parser('index', help='what this host looks like: keys, plugins, gotchas')
     p.add_argument('--section', action='append',
-                   help='add a section (repeatable: apps, measured); default is state, keys, plugins, nav, gotchas')
+                   help='show this section instead of the default (repeatable; also apps, measured); default is state, keys, plugins, nav, gotchas')
     p.add_argument('--find', help='search the omarchy-* command summaries')
     p.add_argument('--json', action='store_true', help='JSON instead of Markdown')
     return parser

@@ -148,7 +148,8 @@ def check_wait():
             except control.MirrorError as exc:
                 # A fast panel maps between key-down and key-up: the guard then
                 # refuses the release and releases held keys itself. The key fired.
-                if 'opened since control was granted' not in str(exc):
+                # At line 0 nothing was sent, so that refusal is real.
+                if exc.code != 'wrong_target' or not exc.details.get('delivered'):
                     raise
 
         def hide(plugin_id):
