@@ -1,3 +1,3 @@
 """ai-mirror — let an AI agent drive your Hyprland desktop, with a kill switch."""
 
-__version__ = "2.1.0"
+__version__ = "3.0.0"
