@@ -6,6 +6,9 @@ set -u
 S="$(cd "$(dirname "$0")" && pwd)"; AI="${AI_MIRROR:-ai-mirror}"
 TMP="$(mktemp -d)"; FAIL=0; G=""; CH=""; RECPID=""
 j(){ python3 -c "import sys,json;d=json.load(sys.stdin);print($1)"; }
+# A terminal older than the running Hyprland (herdr, tmux) keeps a dead signature.
+hyprctl activewindow -j >/dev/null 2>&1 || export HYPRLAND_INSTANCE_SIGNATURE=$(hyprctl instances -j | j 'd[0]["instance"]')
+hyprctl activewindow -j | j 'd["address"]' >/dev/null 2>&1 || { echo "cannot reach Hyprland"; exit 1; }
 
 cleanup(){
   omarchy-toggle-notification-silencing >/dev/null 2>&1   # toggles back
