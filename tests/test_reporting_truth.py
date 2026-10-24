@@ -525,3 +525,68 @@ class ContinuousPresence(Base):
         brand_new = self._check_with(['omarchy-background', 'omarchy-bar', 'nixi'], generation)
         self.assertIn('opened since control was granted', str(brand_new))
         self.assertNotIn('went away and came back', str(brand_new))
+
+
+class ValueRows(unittest.TestCase):
+    """#70: a slider or spin button reports its value, and never as nan."""
+
+    NAN = float('nan')
+
+    def _acc(self, iface='unset'):
+        from unittest.mock import MagicMock
+        acc = MagicMock()
+        acc.get_role_name.return_value = 'slider'
+        acc.get_name.return_value = 'Volume'
+        acc.get_state_set.return_value = None
+        acc.get_component_iface.return_value = None
+        acc.get_action_iface.return_value = None
+        acc.get_text_iface.return_value = None
+        acc.get_value_iface.return_value = iface if iface != 'unset' else None
+        return acc
+
+    def _value(self, current, lo=0.0, hi=10.0, step=1.0):
+        from unittest.mock import MagicMock
+        # spec: a guessed method name raises instead of passing on a mock
+        v = MagicMock(spec=['get_current_value', 'get_minimum_value', 'get_maximum_value',
+                            'get_minimum_increment', 'set_current_value'])
+        v.get_current_value.return_value = current
+        v.get_minimum_value.return_value = lo
+        v.get_maximum_value.return_value = hi
+        v.get_minimum_increment.return_value = step
+        return v
+
+    def test_value_only_when_the_iface_is_there(self):
+        from ai_mirror import a11y
+        self.assertNotIn('value', a11y._node(self._acc(), '1.0.0', None))
+        row = a11y._node(self._acc(self._value(4.0)), '1.0.0', None)
+        self.assertEqual(row['value'], [4.0, 0.0, 10.0, 1.0])
+
+    def test_nan_bound_becomes_none(self):
+        from ai_mirror import a11y
+        row = a11y._node(self._acc(self._value(4.0, self.NAN, 10.0, self.NAN)), '1.0.0', None)
+        self.assertEqual(row['value'], [4.0, None, 10.0, None])
+
+    def test_nan_current_omits_the_field(self):
+        from ai_mirror import a11y
+        self.assertNotIn('value', a11y._node(self._acc(self._value(self.NAN)), '1.0.0', None))
+
+    def test_states_never_read_the_value(self):
+        from ai_mirror import a11y
+        acc = self._acc(self._value(4.0))
+        a11y._states(acc, '1.0.0', None)
+        acc.get_value_iface.assert_not_called()
+
+    def test_value_alone_is_content(self):
+        from ai_mirror import a11y
+        row = {'role': 'slider', 'name': '', 'value': [4.0, 0.0, 10.0, 1.0]}
+        self.assertTrue(a11y._actionable(row, a11y.CONTENT_DEPTH))
+
+    def test_tree_keeps_a_quiet_role_row_with_a_value(self):
+        from unittest.mock import patch
+        from ai_mirror import a11y
+        acc = self._acc(self._value(4.0))
+        acc.get_role_name.return_value = 'filler'
+        acc.get_name.return_value = ''
+        with patch.object(a11y, '_walk', return_value=iter([('1.0.0', acc, 2, None, None)])):
+            nodes = a11y.tree()['nodes']
+        self.assertEqual([n['id'] for n in nodes], ['1.0.0'])

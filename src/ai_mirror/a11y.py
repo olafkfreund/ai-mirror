@@ -6,6 +6,7 @@ re-resolves the path and refuses if role or name changed since it was read.
 """
 from __future__ import annotations
 
+import math
 import subprocess
 
 from . import guard
@@ -124,7 +125,11 @@ def _write(seam: str, call):
     return call()
 
 
-def _node(acc, node_id: str, Atspi) -> dict:
+def _finite(x):
+    return type(x) in (int, float) and math.isfinite(x)
+
+
+def _node(acc, node_id: str, Atspi, value: bool = True) -> dict:
     row = {'id': node_id, 'role': _call(acc.get_role_name, ''), 'name': (_call(acc.get_name, '') or '')[:120]}
     state_set = _call(acc.get_state_set)
     if state_set is not None:
@@ -143,6 +148,11 @@ def _node(acc, node_id: str, Atspi) -> dict:
         count = _call(text.get_character_count, 0)
         if count:
             row['text'] = _call(lambda: text.get_text(0, min(count, 120)), '')
+    if value and (v := _call(acc.get_value_iface)) is not None:
+        current = _call(v.get_current_value)
+        if _finite(current):
+            lo, hi, step = (_call(f) for f in (v.get_minimum_value, v.get_maximum_value, v.get_minimum_increment))
+            row['value'] = [current] + [x if _finite(x) else None for x in (lo, hi, step)]
     return row
 
 
@@ -209,7 +219,7 @@ def _actionable(row: dict, level: int) -> bool:
     and finds nothing to target. A node counts when it carries a name to match
     on, an action to invoke, or text to read.
     """
-    return level >= CONTENT_DEPTH and bool(row.get('name') or row.get('actions') or row.get('text'))
+    return level >= CONTENT_DEPTH and bool(row.get('name') or row.get('actions') or row.get('text') or row.get('value'))
 
 
 NOTHING_ACTIONABLE = ('this desktop exposed a tree with no named or actionable nodes under any '
@@ -253,7 +263,7 @@ def tree(app: str | None = None, depth: int = 12, max_nodes: int = 400,
             continue
         row = _node(acc, node_id, Atspi)
         actionable = actionable or _actionable(row, level)
-        if level and not row['name'] and row['role'] in QUIET_ROLES and 'text' not in row:
+        if level and not row['name'] and row['role'] in QUIET_ROLES and 'text' not in row and 'value' not in row:
             continue
         if len(nodes) >= max_nodes:
             truncated = True
@@ -371,7 +381,7 @@ def _full_text(acc):
 
 
 def _states(acc, node_id: str, Atspi) -> list:
-    return _call(lambda: _node(acc, node_id, Atspi).get('states', []), [])
+    return _call(lambda: _node(acc, node_id, Atspi, value=False).get('states', []), [])
 
 
 def act(node_id: str, action: str, text: str | None = None, expect: dict | None = None,
