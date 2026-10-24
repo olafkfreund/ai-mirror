@@ -136,6 +136,13 @@ Self-contained. Branch `docs/72-release-showcase` from master `6b133c6`.
    - `ls -l assets/demo-background.*` within the limits
    - watching the mp4: the cursor line is constant and the page ends
      "Saved: volume 7, size Large, notify on"
+   **Deviation (2026-10-24):** workspace 25 opened on DP-3, not HDMI-A-1,
+   so DP-3 was recorded (empty workspace, 2560x1440, scaled to 1280x720).
+   The terminal was started by the session model at the human's request
+   (`hl.dsp.exec_cmd` kitty), and the poster is the frame at 11 s (the
+   saved state), not 6 s. Result: exit 0, cursor `3215,733` on every step,
+   focus on kitty throughout, page "Saved: volume 7, size Large, notify
+   on"; mp4 69 KB, GIF 200 KB, poster 46 KB.
    Traps:
    - Silence notifications (the script does).
    - A fresh scratch Chrome profile, never the real one.
