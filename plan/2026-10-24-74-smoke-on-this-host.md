@@ -157,6 +157,12 @@ Self-contained. Branch `fix/74-smoke-on-this-host` from master `77df700`.
    so it is hidden even if the press raises. If more than one namespace
    appears, the first sorted name wins. `index` is imported inside
    `check_wait`. `press` and `hide` are local helpers.
+   **Deviation (step 6 finding):** `nixarchy-herdr-menu` maps between
+   key-down and key-up, so the input guard refuses the release lines
+   (`wrong_target: partial ... opened since control was granted`) and sends
+   `C`. The key had fired. `press` accepts that one refusal and re-raises
+   anything else. `nixarchy.pkg`'s panel (225 ms) was slow enough not to
+   hit this.
    Traps:
    - Re-read the generation after `take_control()`, as today.
    - Keep focus on `DP-1`: panels render on the focused monitor.
@@ -174,6 +180,15 @@ Self-contained. Branch `fix/74-smoke-on-this-host` from master `77df700`.
    - `ai-mirror status` showing `owner: off`
    - `hyprctl layers` showing no plugin panel left open
    Record the measured bytes, the plugin and the namespace here.
+   **Result (2026-10-24):** exit 0. These lines passed:
+   - `index -- 44 keys, 39 plugins, 7 joined to a key, 21714 bytes` (smoke
+     renders `state` live, so it is larger than the CLI's 21,325)
+   - `wait -- nixarchy.herdr (nixarchy-herdr-menu) confirmed in 17 ms`
+   - `launch, windows, focus, frame input, Unicode typing, clipboard, kill
+     switch`
+   Afterwards `owner: off` and only the bar, dock, background, notification
+   and accent-hold layers were mapped. The first run failed on the press
+   refusal recorded under step 5.
 
 7. **PR (session model).** Run the fresh Opus review against this plan and
    `git diff master...HEAD`. Then open a PR linking intent, spec and plan

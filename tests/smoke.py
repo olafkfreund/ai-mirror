@@ -141,9 +141,15 @@ def check_wait():
         def press(keys):
             # A global shortcut still names a target since #24: the focused window it lands on.
             *rest, last = keys.split(' + ')
-            api.run('input', {'generation': gen, 'window': host.focused_address(),
-                              'actions': [{'type': 'key', 'keys': [last],
-                                           'modifiers': rest}]})
+            try:
+                api.run('input', {'generation': gen, 'window': host.focused_address(),
+                                  'actions': [{'type': 'key', 'keys': [last],
+                                               'modifiers': rest}]})
+            except control.MirrorError as exc:
+                # A fast panel maps between key-down and key-up: the guard then
+                # refuses the release and releases held keys itself. The key fired.
+                if 'opened since control was granted' not in str(exc):
+                    raise
 
         def hide(plugin_id):
             subprocess.run(['omarchy-shell', '-q', 'shell', 'hide', plugin_id],
