@@ -107,6 +107,21 @@ class TypingIntoASurface(Base):
         helper, _ = self.run_on(OPEN, None)
         self.assertEqual(helper.sent, ['T hi'])
 
+    def test_key_release_is_sent_when_surface_closes_on_keydown(self):
+        helper = FakeHelper()
+        calls = []
+
+        def layers():
+            calls.append(1)
+            return OPEN if len(calls) == 1 else FURNITURE
+
+        with patch.object(host, 'layers', side_effect=layers), \
+             patch.object(host, 'windows', return_value=[]), \
+             patch.object(host, 'focused_address', return_value=WINDOW):
+            control.run_batch(['K 27 1', 'K 27 0'], self.granted['generation'], helper,
+                              window=PANEL, owners=[0, 0])
+        self.assertEqual(helper.sent, ['K 27 1', 'K 27 0'])
+
     def test_a_closed_surface_is_refused(self):
         without = [l for l in OPEN if l['address'] != PANEL]
         with self.assertRaises(MirrorError):
@@ -167,6 +182,125 @@ class TypingIntoASurface(Base):
         self.assertEqual(caught.exception.code, 'wrong_target')
         self.assertIn('nixarchy-pkg-menu', str(caught.exception))
         self.assertEqual([line for line in helper.sent if line != 'C'], [])
+
+
+class ReleaseAfterTargetCloses(Base):
+    """#68: a key-up whose key-down landed may follow the target's closing."""
+
+    def setUp(self):
+        super().setUp()
+        # Not a TypingIntoASurface subclass: that would run its tests again here.
+        with patch.object(host, 'layers', return_value=FURNITURE):
+            self.granted = grant()
+
+    def drive(self, lines, owners, gone_after=None, on_line=None, acks=None,
+              windows_error=None, layers_error=None, focus_error=None, still_listed=False):
+        """Run WINDOW-targeted lines; after `gone_after` lines are sent the window closes."""
+        sent = []
+        gone = [1] if gone_after == 0 else []
+
+        def on_cmd(line):
+            sent.append(line)
+            if gone_after is not None and len(sent) >= gone_after:
+                gone.append(1)
+            if on_line:
+                on_line(line)
+
+        def windows():
+            if windows_error and gone:
+                raise windows_error
+            return [{'address': WINDOW}] if (not gone or still_listed) else []
+
+        def layers():
+            if layers_error and gone:
+                raise layers_error
+            return FURNITURE
+
+        def focused():
+            if focus_error and gone:
+                raise focus_error
+            return '0xother' if gone else WINDOW
+
+        helper = FakeHelper(acks=acks, on_cmd=on_cmd)
+        with patch.object(host, 'layers', side_effect=layers), \
+             patch.object(host, 'windows', side_effect=windows), \
+             patch.object(host, 'focused_address', side_effect=focused):
+            try:
+                result = control.run_batch(lines, self.granted['generation'], helper,
+                                           window=WINDOW, owners=owners)
+            except MirrorError as exc:
+                return helper, exc
+        return helper, result
+
+    def refused(self, helper, exc, sent, code='wrong_target'):
+        self.assertIsInstance(exc, MirrorError)
+        self.assertEqual(exc.code, code)
+        self.assertEqual(typed(helper), sent)
+        self.assertEqual(helper.sent[-1], 'C')
+
+    def test_release_after_the_window_closes_is_sent(self):
+        helper, result = self.drive(['K 28 1', 'K 28 0'], [0, 0], gone_after=1)
+        self.assertEqual(helper.sent, ['K 28 1', 'K 28 0'])
+        self.assertIs(result['closed'], True)
+        self.assertIn('then closed', result['note'])
+
+    def test_a_window_still_listed_is_refused(self):
+        helper, exc = self.drive(['K 28 1', 'K 28 0'], [0, 0], gone_after=1, still_listed=True)
+        self.refused(helper, exc, ['K 28 1'])
+
+    def test_an_unmatched_release_is_refused(self):
+        helper, exc = self.drive(['K 28 0'], [0], gone_after=0)
+        self.refused(helper, exc, [])
+
+    def test_a_windows_read_error_is_refused(self):
+        helper, exc = self.drive(['K 28 1', 'K 28 0'], [0, 0], gone_after=1,
+                                 windows_error=RuntimeError('boom'))
+        self.refused(helper, exc, ['K 28 1'])
+
+    def test_a_layers_read_error_is_refused(self):
+        helper, exc = self.drive(['K 28 1', 'K 28 0'], [0, 0], gone_after=1,
+                                 layers_error=RuntimeError('boom'))
+        self.refused(helper, exc, ['K 28 1'])
+
+    def test_a_release_matched_in_a_previous_action_is_refused(self):
+        # Pressed in action 0, released in action 1: the reset is the only thing refusing it.
+        helper, exc = self.drive(['K 28 1', 'K 28 0'], [0, 1], gone_after=1)
+        self.refused(helper, exc, ['K 28 1'])
+
+    def test_a_repeated_code_in_one_action_is_refused(self):
+        helper, exc = self.drive(['K 30 1', 'K 30 0', 'K 30 0'], [0, 0, 0], gone_after=2)
+        self.refused(helper, exc, ['K 30 1', 'K 30 0'])
+
+    def test_revoked_before_the_release_is_stale(self):
+        def revoke(line):
+            if line == 'K 28 1':
+                control.set_owner('off', 'human')
+
+        helper, exc = self.drive(['K 28 1', 'K 28 0'], [0, 0], gone_after=1, on_line=revoke)
+        self.refused(helper, exc, ['K 28 1'], code='stale_generation')
+
+    def test_a_rescued_release_the_helper_rejects_is_unavailable(self):
+        helper, exc = self.drive(['K 28 1', 'K 28 0'], [0, 0], gone_after=1, acks=['OK', 'ERR'])
+        self.assertIsInstance(exc, MirrorError)
+        self.assertEqual(exc.code, 'unavailable')
+        self.assertEqual(helper.sent, ['K 28 1', 'K 28 0', 'C'])
+
+    def test_without_owners_nothing_is_rescued(self):
+        helper, exc = self.drive(['K 28 1', 'K 28 0'], None, gone_after=1)
+        self.refused(helper, exc, ['K 28 1'])
+
+    def test_a_modifier_released_after_the_close_is_sent_only_within_its_action(self):
+        lines = ['K 29 1', 'K 46 1', 'K 46 0', 'K 29 0']
+        helper, result = self.drive(lines, [0] * 4, gone_after=2)
+        self.assertEqual(helper.sent, lines)
+        self.assertIs(result['closed'], True)
+        helper, exc = self.drive(lines, [0, 0, 0, 1], gone_after=2)
+        self.refused(helper, exc, lines[:3])
+
+    def test_an_unreadable_focus_is_not_rescued(self):
+        helper, exc = self.drive(['K 28 1', 'K 28 0'], [0, 0], gone_after=1,
+                                 focus_error=RuntimeError('boom'))
+        self.refused(helper, exc, ['K 28 1'], code='unavailable')
 
 
 class CliCanType(Base):
