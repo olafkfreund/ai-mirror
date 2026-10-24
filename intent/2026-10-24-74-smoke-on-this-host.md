@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 74
 author: olafkfreund
 ---
@@ -64,3 +64,5 @@ MCP tools changes.
    - **(b)** Pick the first enabled plugin that `index` joins to a key and
      that opens a layer, and skip with a reason if there is none. That
      keeps the check host-derived, like the rest of the index.
+
+**Decided: as proposed** (1b: move the measured table out of the default payload and trim; 2b: host-derived panel, skip with a reason).
