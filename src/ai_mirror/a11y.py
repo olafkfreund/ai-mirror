@@ -385,11 +385,13 @@ def _states(acc, node_id: str, Atspi) -> list:
 
 
 def act(node_id: str, action: str, text: str | None = None, expect: dict | None = None,
-        timeout: float | None = None) -> dict:
+        timeout: float | None = None, value=None) -> dict:
     from . import wait
     # Before any write: a bad timeout found afterwards reports an error for an
     # action that already landed, and the retry does it twice.
     timeout = wait._timeout(timeout, default=1.0)
+    if action == 'set_value' and not _finite(value):
+        raise ValueError('set_value needs a finite number value')
     acc, Atspi = resolve(node_id)
     if expect:
         for key, getter in (('role', acc.get_role_name), ('name', acc.get_name)):
@@ -398,6 +400,8 @@ def act(node_id: str, action: str, text: str | None = None, expect: dict | None 
     role = _call(acc.get_role_name, '')
     states_before = _states(acc, node_id, Atspi)
     try:
+        if action == 'set_value':
+            return _set_value(acc, node_id, role, states_before, value, Atspi, timeout)
         if action == 'focus':
             comp = acc.get_component_iface()
             if comp is None or not _write('grab_focus', comp.grab_focus):
@@ -476,3 +480,57 @@ def _read_back(node_id, action, text, role, states_before, Atspi, timeout) -> di
     if out['verified'] is None:
         out['note'] = 'invoked; the effect is not visible to accessibility -- observe before reporting it'
     return out
+
+
+def _num(x):
+    """JSON-safe: nan and inf never leave this module."""
+    return x if _finite(x) else None
+
+
+def _set_value(acc, node_id, role, states_before, value, Atspi, timeout) -> dict:
+    """#70: write through the Value interface, then read the number back."""
+    from . import wait
+    iface = acc.get_value_iface()
+    if iface is None:
+        raise MirrorError('unsupported', 'element does not expose AT-SPI Value')
+    lo, hi, step = (_call(f) for f in (iface.get_minimum_value, iface.get_maximum_value,
+                                       iface.get_minimum_increment))
+    if _finite(lo) and _finite(hi) and lo < hi and not lo <= value <= hi:
+        raise MirrorError('invalid', f'value {value} is outside the range {lo}..{hi}')
+    before = _call(iface.get_current_value)
+    eps = 1e-5 * max(1.0, abs(value))
+    tol = max(step / 2, eps) if _finite(step) and step > 0 else eps
+    out = {'ok': True, 'node': node_id, 'action': 'set_value', 'verified': True,
+           'states_before': states_before, 'value_before': _num(before)}
+    if _finite(before) and abs(before - value) <= eps:
+        return {**out, 'changed': False, 'states_after': states_before,
+                'value_after': _num(before), 'waited_ms': 0}
+    if not _write('set_current_value', lambda: iface.set_current_value(float(value))):
+        raise MirrorError('unavailable', 'the application refused the value')
+    seen = states_after = None
+
+    def probe(budget):
+        nonlocal seen, states_after
+        try:
+            node, _ = resolve(node_id)
+        except MirrorError as exc:
+            if exc.code != 'stale_node':
+                raise
+            node = None
+        seen = states_after = None
+        if node is not None and _call(node.get_role_name, '') == role:
+            v = _call(node.get_value_iface)
+            seen = None if v is None else _call(v.get_current_value)
+            states_after = _states(node, node_id, Atspi)
+        return _finite(seen) and abs(seen - value) <= tol
+
+    result = wait.poll(probe, timeout)
+    if result['result'] == 'unavailable':
+        raise MirrorError('unavailable', f"the set_value was delivered, but reading it back failed "
+                                         f"({result['reason']}); do not repeat it -- observe first",
+                          {'delivered': True})
+    if result['result'] == 'not_confirmed':
+        raise MirrorError('not_confirmed', 'set_value was written but could not be read back',
+                          {'value': _num(seen), 'wanted': value})
+    return {**out, 'changed': True, 'states_after': states_after, 'value_after': _num(seen),
+            'waited_ms': result['waited_ms']}

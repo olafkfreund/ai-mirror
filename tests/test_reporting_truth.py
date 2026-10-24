@@ -590,3 +590,140 @@ class ValueRows(unittest.TestCase):
         with patch.object(a11y, '_walk', return_value=iter([('1.0.0', acc, 2, None, None)])):
             nodes = a11y.tree()['nodes']
         self.assertEqual([n['id'] for n in nodes], ['1.0.0'])
+
+
+class SetValue(Base):
+    """#70: set_value validates first, writes once, and reads the number back."""
+
+    NAN = float('nan')
+
+    def _acc(self, current=4.0, lo=0.0, hi=10.0, step=1.0):
+        from unittest.mock import MagicMock
+        acc = MagicMock()
+        acc.get_role_name.return_value = 'slider'
+        acc.get_state_set.return_value = None
+        v = MagicMock(spec=['get_current_value', 'get_minimum_value', 'get_maximum_value',
+                            'get_minimum_increment', 'set_current_value'])
+        v.get_current_value.return_value = current
+        v.get_minimum_value.return_value = lo
+        v.get_maximum_value.return_value = hi
+        v.get_minimum_increment.return_value = step
+        acc.get_value_iface.return_value = v
+        return acc
+
+    def _set(self, wanted, read=(), write=True, resolve=None, **kw):
+        """`read`: what each probe sees (a number, or None for a stale node)."""
+        from unittest.mock import patch
+        from ai_mirror import a11y
+        before, writes = self._acc(**kw), []
+        reads = iter(read)
+
+        def default_resolve(node_id):
+            seen = next(reads, read[-1] if read else None)
+            if seen is None:
+                raise MirrorError('stale_node', 'gone')
+            return self._acc(current=seen), None
+        calls = iter([(before, None)])
+
+        def first_then_reads(node_id):
+            try:
+                return next(calls)
+            except StopIteration:
+                return (resolve or default_resolve)(node_id)
+
+        def stub_write(seam, call):
+            writes.append(seam)
+            return call() is not None and write
+        with patch.object(a11y, 'resolve', first_then_reads), patch.object(a11y, '_write', stub_write):
+            try:
+                return a11y.act('1.0.0', 'set_value', timeout=0.1, value=wanted), writes
+            except Exception as exc:
+                exc.writes = writes
+                raise
+
+    def test_a_bad_value_refuses_before_anything(self):
+        from unittest.mock import patch
+        from ai_mirror import a11y
+        with patch.object(a11y, 'resolve', side_effect=AssertionError('resolved')), \
+                patch.object(a11y, '_write', side_effect=AssertionError('written')):
+            for bad in (True, self.NAN, '3', None, float('inf')):
+                with self.assertRaises(ValueError):
+                    a11y.act('1.0.0', 'set_value', value=bad)
+
+    def test_no_value_iface_is_unsupported(self):
+        from unittest.mock import patch
+        from ai_mirror import a11y
+        acc = self._acc()
+        acc.get_value_iface.return_value = None
+        with patch.object(a11y, 'resolve', return_value=(acc, None)):
+            with self.assertRaises(MirrorError) as c:
+                a11y.act('1.0.0', 'set_value', value=1)
+        self.assertEqual(c.exception.code, 'unsupported')
+
+    def test_out_of_range_is_invalid_and_not_written(self):
+        with self.assertRaises(MirrorError) as c:
+            self._set(11)
+        self.assertEqual(c.exception.code, 'invalid')
+        self.assertEqual(c.exception.writes, [])
+
+    def test_degenerate_or_unknown_bounds_are_not_a_range(self):
+        for lo, hi in ((0.0, 0.0), (None, None), (self.NAN, 10.0)):
+            out, writes = self._set(50, read=[50], lo=lo, hi=hi)
+            self.assertTrue(out['verified'])
+            self.assertEqual(writes, ['set_current_value'])
+
+    def test_already_set_is_not_written(self):
+        out, writes = self._set(4)
+        self.assertEqual(writes, [])
+        self.assertIs(out['changed'], False)
+        self.assertEqual(out['waited_ms'], 0)
+
+    def test_within_a_step_is_still_a_change(self):
+        out, writes = self._set(4.4, read=[4.4])
+        self.assertEqual(writes, ['set_current_value'])
+        self.assertIs(out['changed'], True)
+
+    def test_read_back_matches_is_verified(self):
+        out, _ = self._set(5, read=[5.0])
+        self.assertIs(out['verified'], True)
+        self.assertEqual((out['value_before'], out['value_after']), (4.0, 5.0))
+
+    def test_read_back_mismatch_is_not_confirmed(self):
+        with self.assertRaises(MirrorError) as c:
+            self._set(5, read=[4.0])
+        self.assertEqual(c.exception.code, 'not_confirmed')
+        self.assertEqual(c.exception.details, {'value': 4.0, 'wanted': 5})
+
+    def test_float32_rounding_is_within_tolerance(self):
+        out, _ = self._set(0.7, read=[0.6999999880], step=0.0)
+        self.assertTrue(out['verified'])
+
+    def test_a_stale_node_on_the_first_probe_is_not_yet(self):
+        out, _ = self._set(5, read=[None, 5.0])
+        self.assertTrue(out['verified'])
+
+    def test_nan_read_back_is_not_confirmed_without_nan(self):
+        with self.assertRaises(MirrorError) as c:
+            self._set(5, read=[self.NAN])
+        self.assertEqual(c.exception.code, 'not_confirmed')
+        self.assertIsNone(c.exception.details['value'])
+
+    def test_a_failed_read_back_says_it_was_delivered(self):
+        def gone(node_id):
+            raise MirrorError('sensitive', 'now inside a password manager')
+        with self.assertRaises(MirrorError) as c:
+            self._set(5, resolve=gone)
+        self.assertEqual(c.exception.code, 'unavailable')
+        self.assertTrue(c.exception.details['delivered'])
+
+    def test_a_refused_write_is_unavailable(self):
+        with self.assertRaises(MirrorError) as c:
+            self._set(5, write=False)
+        self.assertEqual(c.exception.code, 'unavailable')
+
+    def test_the_guard_blocks_an_unpatched_write(self):
+        from unittest.mock import patch
+        from ai_mirror import a11y, guard
+        with patch.object(a11y, 'resolve', return_value=(self._acc(), None)):
+            with self.assertRaises(guard.Blocked):
+                a11y.act('1.0.0', 'set_value', value=5)
