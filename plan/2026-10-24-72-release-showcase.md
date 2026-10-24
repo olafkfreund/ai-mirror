@@ -100,6 +100,19 @@ Self-contained. Branch `docs/72-release-showcase` from master `6b133c6`.
    the human's screen for a check that only reads `status`. Step 4 runs with
    `AI_MIRROR=bin/ai-mirror` under `nix develop`: the installed CLI is still
    2.1.0 and has no `set_value`.
+   **Deviation (after review):** the script also
+   - recovers a stale `HYPRLAND_INSTANCE_SIGNATURE` by trying each live
+     instance (a terminal older than Hyprland, as in the first step 4 run),
+   - sets its EXIT trap before asking, so an interrupted wait releases it,
+   - silences notifications only if `omarchy-shell notifications isDnd` is
+     `off`, and un-silences only what it silenced,
+   - kills the scratch-profile Chrome by `--user-data-dir` as a fallback when
+     the close fails (revoked grant, launch timeout),
+   - fails on a missing node, an error reply, or a `Saved:` line other than
+     "volume 7, size Large, notify on";
+   and uses `launch --timeout 15` and `a11y-find --role --limit 1`.
+   README wording narrowed to what the table measured: "reads values, text
+   and selections back" and "a window that does not have focus".
    Traps:
    - Never `hyprctl dispatch` a free-form string; use the CLI's `window`.
    - Chrome's `click` moves in-page focus (measured); that is fine and

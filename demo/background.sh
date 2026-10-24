@@ -4,16 +4,23 @@
 # REC=<file> records; MON=<monitor> picks the one (default: the focused one).
 set -u
 S="$(cd "$(dirname "$0")" && pwd)"; AI="${AI_MIRROR:-ai-mirror}"
-TMP="$(mktemp -d)"; FAIL=0; G=""; CH=""; RECPID=""
+TMP="$(mktemp -d)"; FAIL=0; G=""; CH=""; RECPID=""; DND=""
 j(){ python3 -c "import sys,json;d=json.load(sys.stdin);print($1)"; }
 # A terminal older than the running Hyprland (herdr, tmux) keeps a dead signature.
-hyprctl activewindow -j >/dev/null 2>&1 || export HYPRLAND_INSTANCE_SIGNATURE=$(hyprctl instances -j | j 'd[0]["instance"]')
+if ! hyprctl activewindow -j >/dev/null 2>&1; then
+  for sig in $(hyprctl instances -j | j '"\n".join(i["instance"] for i in d)'); do
+    HYPRLAND_INSTANCE_SIGNATURE=$sig hyprctl activewindow -j >/dev/null 2>&1 && { export HYPRLAND_INSTANCE_SIGNATURE=$sig; break; }
+  done
+fi
 hyprctl activewindow -j | j 'd["address"]' >/dev/null 2>&1 || { echo "cannot reach Hyprland"; exit 1; }
 
 cleanup(){
-  omarchy-toggle-notification-silencing >/dev/null 2>&1   # toggles back
+  [ "$DND" = set ] && omarchy-toggle-notification-silencing >/dev/null 2>&1   # only undo our own toggle
+  # gpu-screen-recorder installs its own SIGINT handler, so this flushes the file.
   [ -n "$RECPID" ] && { kill -INT "$RECPID" 2>/dev/null; wait "$RECPID" 2>/dev/null; }
   [ -n "$CH" ] && [ -n "$G" ] && $AI window --generation "$G" close "$CH" >/dev/null 2>&1
+  # A revoked grant cannot close a window, and a launch can time out with Chrome running.
+  pkill -f -- "--user-data-dir=$TMP/ch" 2>/dev/null; sleep 0.5
   $AI control off >/dev/null 2>&1
   rm -rf "$TMP"
 }
@@ -21,17 +28,17 @@ cleanup(){
 HOME_WIN=$(hyprctl activewindow -j | j 'd["address"]')
 HOME_WS=$(hyprctl activewindow -j | j 'd["workspace"]["id"]')
 
+trap cleanup EXIT   # before asking: an interrupted wait must still release the request
 $AI control agent >/dev/null
 for _ in $(seq 1 35); do
   [ "$($AI status | j 'd["owner"]')" = agent ] && break
   sleep 1
 done
 if [ "$($AI status | j 'd["owner"]')" != agent ]; then
-  echo "no grant"; $AI control off >/dev/null 2>&1; exit 1
+  echo "no grant"; exit 1
 fi
 G=$($AI status | j 'd["generation"]')
-trap cleanup EXIT
-omarchy-toggle-notification-silencing >/dev/null 2>&1
+[ "$(omarchy-shell notifications isDnd 2>/dev/null)" = off ] && omarchy-toggle-notification-silencing >/dev/null 2>&1 && DND=set
 
 CH=$($AI launch --generation "$G" --timeout 15 -- google-chrome-stable --user-data-dir="$TMP/ch" \
   --no-first-run --no-default-browser-check --force-renderer-accessibility --new-window \
@@ -62,7 +69,9 @@ step(){
   local out v
   out=$($AI a11y-act --generation "$G" "$node" "$action" "$@" 2>&1)
   v=$(printf '%s' "$out" | j 'd.get("verified")' 2>/dev/null || echo error)
+  [ -n "$node" ] || { v=no-node; FAIL=1; }
   [ "$must" = 1 ] && [ "$v" != True ] && FAIL=1
+  [ "$v" = error ] && FAIL=1
   [ "$(cursor)" != "$C0" ] || [ "$(active)" != "$A0" ] && FAIL=1
   echo "$action $node: verified=$v cursor $(cursor) focused: $(active | cut -d' ' -f2)"
   sleep 1.5
@@ -72,6 +81,8 @@ step 1 "$SLIDER" set_value --value 7
 step 1 "$(NODE 'list item' Large)" select --expect '{"role":"list item","name":"Large"}'
 step 0 "$(NODE 'check box' Notify)" click
 step 0 "$(NODE button Save)" click
-$AI a11y-find --app chrome --name Saved | j '[n.get("name") or n.get("text") for n in d["nodes"]]'
+SAVED=$($AI a11y-find --app chrome --name Saved | j '" ".join(n.get("name") or n.get("text") or "" for n in d.get("nodes", []))' 2>/dev/null)
+echo "$SAVED"
+[[ "$SAVED" == *"Saved: volume 7, size Large, notify on"* ]] || FAIL=1
 sleep 2
 exit $FAIL

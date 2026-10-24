@@ -77,7 +77,7 @@ ai-mirror is that, with three rules:
 | **See** | `screenshot` any monitor, all monitors or a zoomed region · `windows` (titles, classes, geometry) · `status` |
 | **Act** | `input`: move, click (1–3×), drag along a path, scroll, type any Unicode, key combos, hold keys or buttons, shift-click / ctrl-drag via `modifiers` |
 | **Manage** | `window`: focus, close, float, center, fullscreen / maximize, move to workspace, resize · `launch` apps · `clipboard` read/write |
-| **Understand** | `a11y_tree` / `a11y_find` list buttons, fields and links by role and name · `a11y_act` clicks, fills, sets sliders and picks list items **without the pointer**, and reads each result back |
+| **Understand** | `a11y_tree` / `a11y_find` list buttons, fields and links by role and name · `a11y_act` clicks, fills, sets sliders and picks list items **without the pointer**, and reads values, text and selections back |
 | **Switch** | `control` on/off — the agent *asks*, you allow or deny in a dialog, and you can always take it away |
 
 Example requests:
@@ -89,8 +89,8 @@ Example requests:
 
 ## Work in a window you are not using
 
-`a11y_act` acts on the widget itself, so the agent can work in a window on another workspace or
-monitor while your cursor and keyboard stay where you left them. The recording above shows it:
+`a11y_act` acts on the widget itself, so the agent can work in a window that does not have focus
+while your cursor and keyboard stay where you left them. The recording above shows it:
 a slider set, a list item picked, a box checked and a button pressed in Chrome, with the cursor
 position and the focused window printed after every step.
 
