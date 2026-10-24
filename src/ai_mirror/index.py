@@ -45,7 +45,7 @@ HYPR_DIR = Path.home() / '.config/hypr'
 PLUGIN_DIR = Path.home() / '.config/omarchy/plugins'
 
 DEFAULT_SECTIONS = ('state', 'keys', 'plugins', 'nav', 'gotchas')
-ALL_SECTIONS = DEFAULT_SECTIONS + ('apps',)
+ALL_SECTIONS = DEFAULT_SECTIONS + ('apps', 'measured')
 
 
 def sh(*argv, timeout: float = 10.0) -> str:
@@ -350,6 +350,12 @@ def gotchas() -> dict:
     return {'text': path.read_text(errors='replace')}
 
 
+def measured() -> dict:
+    """Per-app a11y results. Opt-in: too long for every session's first read."""
+    path = Path(__file__).with_name('measured.md')
+    return {'text': path.read_text(errors='replace')}
+
+
 def commands(query: str) -> dict:
     """Search the omarchy-* summaries. Never returned whole -- there are ~460,
     and an index too large to read is an index nobody reads."""
@@ -404,7 +410,8 @@ def build(args: dict | None = None) -> dict:
 
     out = {}
     builders = {'state': state, 'keys': keys, 'plugins': plugins,
-                'nav': nav, 'apps': apps, 'gotchas': gotchas}
+                'nav': nav, 'apps': apps, 'gotchas': gotchas,
+                'measured': measured}
     for name in wanted:
         if name == 'plugins':
             # Hand over the parse this build already did rather than re-reading
@@ -430,7 +437,7 @@ def render(data: dict) -> str:
 
 
 def _render_section(name: str, section: dict) -> list[str]:
-    if name == 'gotchas':
+    if name in ('gotchas', 'measured'):
         return [section['text'].rstrip()]
     if name == 'state':
         in_use = f"- workspaces in use: {section['occupied']}"

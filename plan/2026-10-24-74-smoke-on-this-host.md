@@ -80,6 +80,13 @@ Self-contained. Branch `fix/74-smoke-on-this-host` from master `77df700`.
    - `python3 -m ai_mirror index | wc -c` ≤ 20,500 on this host, run with
      the live `HYPRLAND_INSTANCE_SIGNATURE` exported (the session model
      runs this if the coder's shell cannot reach Hyprland)
+   **Deviation (step 2):** the default index on this host is 21,325
+   bytes, not ≤ 20,500. Moving the table and the step 1 trims gave 21,552.
+   Narration-only trims of three more gotchas ("`input` returning",
+   "Captures are refused", "`Return` in the package panel") gave about 250
+   bytes more. Going further would cut facts, so the 22,000 cap (about 700
+   bytes spare) is what holds. A tighter budget needs more sections made
+   opt-in: that is a new spec.
    Traps: `index` is derived per call, never cached or written to disk.
    Keep it so.
 

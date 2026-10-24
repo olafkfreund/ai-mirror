@@ -43,34 +43,32 @@ pointer off the bar between clicks and re-measure after any hover.
 
 ## `Return` in the package panel writes to your configuration
 
-`nixarchy.pkg` queues a change by editing `~/.config/nixarchy/apps.nix` or
-`services.nix` immediately. `Return` on a boolean row toggles it; there is no
-confirmation step, and "queued" looks like a UI state rather than a file write.
+`nixarchy.pkg` edits `~/.config/nixarchy/apps.nix` or `services.nix` at once.
+`Return` on a boolean row toggles it with no confirmation, and "queued" looks
+like UI state, not a file write. Two edits landed in one session:
+`chrome.enable = true` and a *removal* of `azure-cli`. Neither was applied;
+both had to be found and undone.
 
-Two edits landed this way during one session: `chrome.enable = true`, and a
-*removal* of `azure-cli`. Neither was applied, both had to be found and undone.
-
-**Do:** check `nixarchy-pkg pending` before and after. Snapshot those two files
-around any scripted run and restore them if they changed. Prefer a path option,
-whose editor cancels on Escape, over a boolean, which toggles on `Return`.
+**Do:** check `nixarchy-pkg pending` before and after; snapshot those two files
+around a scripted run and restore them if changed. Prefer a path option (its
+editor cancels on Escape) over a boolean (toggles on `Return`).
 
 ## `input` returning does not mean anything happened
 
-It reports that the keystroke was delivered, nothing more. Measured here: the
-call returned at 164 ms and the panel it opened did not exist until 225 ms. A
+It reports the keystroke was delivered, nothing more. Measured: the call
+returned at 164 ms and the panel it opened did not exist until 225 ms. A
 sequence that types in that window types into whatever was behind.
 
-**Do:** `ai-mirror wait --layer nixarchy-pkg-menu` after pressing the key, and
-only continue on `confirmed`. Use `--absent` to wait for a panel to close
-before opening the next, since panels do not stack.
+**Do:** `ai-mirror wait --layer nixarchy-pkg-menu` after the key; continue only
+on `confirmed`. `--absent` waits for a panel to close before opening the next,
+since panels do not stack.
 
-`not_confirmed` means it did not hold before the deadline — **not** that the
-action failed. It may still land. Retrying on it can toggle shut the panel that
-had just opened. `unavailable` is a third thing again: the state could not be
-read, so nothing was learned either way.
+`not_confirmed` means it did not hold before the deadline, **not** that the
+action failed: it may still land, and retrying can toggle shut the panel that
+just opened. `unavailable` means the state could not be read: nothing learned.
 
-It confirms a state, not a cause. Another agent or the human can satisfy the
-same predicate, and a confirmed state can stop holding before the next action.
+It confirms a state, not a cause: another agent or the human can satisfy the
+same predicate, and it can stop holding before your next action.
 
 ## Navigating the package panel
 
@@ -108,18 +106,18 @@ olafkfreund/nixarchy#749.
 
 ## Captures are refused over password managers and credential prompts
 
-`screenshot` raises `sensitive` when a password manager, a credential prompt, a private
-browsing window or a banking page is visible anywhere in the rectangle being captured --
-not just when it has focus. The refusal names the kind and never the window title.
+`screenshot` raises `sensitive` when a password manager, credential prompt,
+private browsing window or banking page is visible anywhere in the captured
+rectangle, not just when focused. The refusal names the kind, never the title.
 
-The accessibility tools are guarded the same way: `a11y_tree` reports such a window as
-`withheld` with no name and does not read inside it, `a11y_find` cannot match there and says
-so, and `a11y_act` refuses an id within one. A tree is machine-readable text, so reaching for
-`a11y_find` is not a way round a refused screenshot.
+The accessibility tools are guarded the same way: `a11y_tree` reports such a
+window as `withheld` with no name and does not read inside it, `a11y_find`
+cannot match there and says so, `a11y_act` refuses an id within one. A tree is machine-readable text, so
+`a11y_find` is no way round a refused screenshot.
 
-**Do:** capture a narrower region that excludes it, or ask the user to close it. Treat this
-as best-effort: it matches on window class and title, so it misses things and it misfires.
-It does not make a screen safe to photograph.
+**Do:** capture a narrower region that excludes it, or ask the user to close
+it. Best-effort: it matches on window class and title, so it misses things and
+misfires. It does not make a screen safe to photograph.
 
 ## `doctor` and a shell with no desktop session
 
