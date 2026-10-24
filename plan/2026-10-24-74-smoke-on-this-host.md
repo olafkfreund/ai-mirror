@@ -57,6 +57,11 @@ Self-contained. Branch `fix/74-smoke-on-this-host` from master `77df700`.
      (`| wc -c`) within the limits, measured including the next heading line
    - `git diff --stat` showing the table lines removed in one file and added
      in the other
+   **Deviation (step 1):** "Typing into a menu" is 1,519 bytes, not
+   ≤ 1,400. At 1,399 the coder's trim had dropped why the exempt set shrinks
+   (the confirm dialog and notifications are surfaces too) and that the
+   restart was measured on razer, so both were put back. The 20,500 total in
+   step 2 is the binding limit. Middle mouse: 471 bytes.
    Traps:
    - `gotchas.md` is read only by `index.gotchas()`; there is no generator.
    - `flake.nix` installs the package directory wholesale, so a new `.md`

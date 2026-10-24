@@ -143,33 +143,7 @@ AT-SPI EditableText interface, which Chromium does not implement even where
 it reports the `editable` state: focus the node, then send keystrokes. Keybindings
 for anything the shell draws. Never assume a11y covers the desktop itself.
 
-**Measured examples, not a toolkit rule** (Hyprland, 2026-10-23, target window
-unfocused): no action below changed the active window, the workspace or the
-pointer. Re-measure on your host.
-
-| App | Element | Actions offered | Tried | Result |
-|---|---|---|---|---|
-| GTK4 calculator | button | `click` | click | ok |
-| GTK4 calculator | entry | `text.*`, `clipboard.*`, `menu.popup` | set_text | the app accepts it, but the text cannot be read back, so `not_confirmed`: screenshot to check |
-| GTK4 calculator | button | `click` | focus | `atspi_error` (grab_focus unsupported) |
-| Chrome | button | `press` | click | ok, in-page focus moves |
-| Chrome | check box | `check` | click | ok (`check` counts as a click since #65) |
-| Chrome | entry | `activate` | set_text | `unsupported` (no EditableText) |
-| Chrome | entry | `activate` | focus | ok, in-page focus moves |
-| Chrome | link | `jump` | click | ok |
-| Firefox | button, link | `press`, `jump` | click | ok |
-| Firefox | check box | `check` | click | ok (`check` counts as a click since #65) |
-| Firefox | entry | `activate` | set_text, focus | ok |
-| Chrome, Firefox | slider | Value | set_value | ok, read back (#70) |
-| Chrome | spin button | Value | set_value | value unchanged: `not_confirmed` |
-| Firefox | spin button | Value | set_value | ok |
-| Chrome, Firefox | `<select size=4>` item | Selection on parent | select | ok, read back |
-| Chrome, Firefox | ARIA `role=option` | Selection on parent | select | `not_confirmed`: the page owns `aria-selected` |
-| Chrome | ARIA tab | Selection on parent | select | `unavailable` |
-| Firefox | browser tab | Selection on tab bar | select | switches the tab |
-
-Firefox exposes no content while its window is on a hidden workspace; Chrome
-and GTK4 do.
+Per-app results (what each action did in GTK4, Chrome, Firefox): `index --section measured`.
 
 ## Panels render on the focused monitor
 
@@ -219,51 +193,27 @@ command line.
 
 ## Typing into a menu, panel or launcher
 
-These are layer surfaces, not windows. Hyprland cannot say which surface holds
-the keyboard — measured on 0.56.0, `layers -j` carries only `address, alpha,
-h, namespace, pid, w, x, y` — and `activewindow` keeps naming the window
-*underneath* an overlay that has taken the keys. So nothing can be asked; it
-can only be inferred from what is mapped (#29).
+These are layer surfaces, not windows. Hyprland 0.56.0 cannot say which holds
+the keyboard (`layers -j`: `address, alpha, h, namespace, pid, w, x, y`) and `activewindow` keeps naming the window *underneath* an overlay that
+took the keys, so it can only be inferred from what is mapped (#29).
 
-**Do:** open it, call `windows`, and pass the surface's address from `layers`
-as `window`. It is accepted when that surface is the topmost thing mapped, on
-any monitor. A window that still holds focus no longer refuses the call: it is
-named in the result note instead, because if the surface does not take the
-keyboard, that window is where the keys went.
+**Do:** open it, call `windows`, pass the surface's address from `layers` as
+`window`. Accepted when it is the topmost thing mapped, on any monitor. A focused
+window is named in the result note, not refused. Refused while
+another surface is open at the same level or above (a notification over a menu):
+the message names it; wait, observe, retry.
 
-It is refused while another surface is open at the same level or above (a
-notification over a menu, say): the message names it. Wait for it to go,
-observe again, and retry.
+**Typing at a *window*** is refused while a level 2+ surface is up that was not
+part of the desktop when control was granted. The exempt set starts as what was
+mapped at the grant and **shrinks whenever a check finds one gone**: the confirm dialog and any
+notification up at the grant are surfaces too, and must not stay exempt (#39). The
+check runs only on window-addressed calls, so a surface that leaves and returns
+between two calls is never seen leaving. The refusal says which: "opened since
+control was granted" or "went away and came back".
 
-**And the other way round:** typing at a *window* is refused while a surface
-at level 2 or above is up that is **not part of the desktop as far as this
-grant is concerned**. That surface may hold the keyboard, and reporting the
-window as the destination when the keys went elsewhere is the failure this
-guard exists to prevent. Wait for it to go, or address the surface directly.
-
-The exempt set starts as whatever was mapped when control was granted, and
-**shrinks whenever a check finds one of those surfaces gone**. That matters
-because the dialog the person clicks to confirm is itself a surface, and so is
-any notification that happens to be up: without the shrinking, either would be
-treated as furniture for the life of the grant, which exempts exactly what the
-guard is for (#39).
-
-It is "gone when we looked", not "continuously mapped" — the check only runs
-on a window-addressed call, so a surface that leaves and returns between two
-calls is never observed leaving. The refusal tells you which shape you have:
-
-- *"nixi (0x…) opened since control was granted"* — new since the grant.
-- *"notification (0x…) went away and came back since control was granted"* —
-  it was part of the desktop, left, and returned, so it no longer counts as
-  furniture.
-
-**A restarted shell usually passes unnoticed.** Measured on razer: after
-`omarchy-restart-shell`, window-addressed input was accepted, because no check
-ran while the bar was down and its absence was never seen. If a check does
-land in that gap, the bar leaves the exempt set and returns as the second case
-above, and input is refused until control is re-taken. That is the deliberate
-part: admitting anything that returns would reopen the hole for anything that
-can be made to flicker.
+A shell restart (`omarchy-restart-shell`) usually passes unnoticed (measured on razer): no check ran
+while the bar was down. If one lands in that gap, the bar returns as "came back"
+and input is refused until control is re-taken.
 
 ## A refusal can mean part of the batch already landed
 
@@ -288,24 +238,12 @@ new grant was made. Stop and ask again.
 
 ## Chrome ignores the middle mouse button
 
-The button itself works. Measured with `wev`, a middle click arrives exactly as
-the others do — `button: 274 (middle)`, press and release 5 ms apart, framed —
-and a middle click pastes the primary selection into alacritty. What does not
-respond is **Chrome**: middle-clicking a tab does not close it and
-middle-clicking a link does not open a background tab, while `left` and `right`
-at the same coordinates work in the same window (#37).
+Delivered fine: `wev` shows `button: 274 (middle)`, press/release 5 ms apart,
+and alacritty pastes the primary selection. Chrome ignores it on tabs and links
+while `left`/`right` work (#37). GNOME apps never paste on middle click
+(`gtk-enable-primary-paste = false`). `input` says `ok` either way: delivered.
 
-Two things that look like this bug and are not:
-
-- **GNOME applications never paste on middle click**, because GNOME ships
-  `gtk-enable-primary-paste = false`. That is the desktop's setting, not a
-  missing event.
-- **`input` reports `ok` either way.** It says the button was delivered, which
-  is true; whether the application acted on it is a separate question, and one
-  only an observation answers.
-
-**Do:** in Chrome, use the keyboard — `CTRL+W` for a tab, `CTRL+click` for a
-link in a background tab. Elsewhere, middle click normally.
+**Do:** in Chrome, `CTRL+W` for a tab, `CTRL+click` for a background tab.
 
 ## What you launch dies with your terminal
 
