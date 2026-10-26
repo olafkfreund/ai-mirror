@@ -225,6 +225,9 @@ config, so `cursor/` holds three `.cfg` files (`arrow.cfg`, `hand.cfg`,
      Only its border follows the owner. A frame that maps at the grant is a
      new surface to `_refuse_new_surfaces` and refuses all typing (#78)."
 
+   Deviation (done): the `flake.nix` code-map row also lists `cursor` in
+   `packages.{…}`.
+
    Verify: read the rendered diff. `nix flake check` is still green.
 
 6. **Live check on this host (Claude with the user; not the coder).**

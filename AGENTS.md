@@ -36,9 +36,10 @@ Full reference: `docs/usage.md`.
 | `src/ai_mirror_input/ai_mirror_input.c` | Persistent wlr virtual pointer + virtual keyboard; `C` releases all; stdin EOF releases and exits |
 | `plugin/AgentConfirmDialog.qml` | The human's half of the gate: layer-shell dialog over everything, exclusive keyboard focus, keys in the first second deny; after that `A` allows (`ConfirmKeys.js`) |
 | `plugin/ConfirmKeys.js` | The dialog's key rule as one pure function, `decide(state, key, modifiers, autoRepeat)`; tested by `tests/test_confirm_keys.mjs` (`node --test`) |
-| `plugin/Overlay.qml` | Owns the one confirm dialog: the shell creates the overlay once, not per bar (#58) |
+| `cursor/` | Agent cursor art + xcursorgen configs; built into `packages.cursor`, no `Inherits` (#78) |
+| `plugin/Overlay.qml` | Owns the one confirm dialog: the shell creates the overlay once, not per bar (#58); switches the cursor theme and draws the frame |
 | `plugin/` | Omarchy bar widget: `FileView` on the state file, click asks for control; `@ai-mirror@` substituted by Nix |
-| `flake.nix` | `packages.{ai-mirror,ai-mirror-input,plugin}`, `homeManagerModules.default`, `checks`, `devShells` |
+| `flake.nix` | `packages.{ai-mirror,ai-mirror-input,plugin,cursor}`, `homeManagerModules.default`, `checks`, `devShells` |
 | `tests/test_invariants.py` | Fast regressions (no Wayland); `tests/smoke.py` live desktop check |
 
 ## Invariants — do not break
@@ -68,6 +69,8 @@ Full reference: `docs/usage.md`.
   protocol errors `-32603`; only unknown methods are `-32601`.
 - Every coordinate goes through `input.point` (integer, non-negative).
 - The plugin directory contains no symlinks (Nixarchy's validator rejects them).
+- **The frame surface is always mapped.** Only its border follows the owner. A frame that maps at
+  the grant is a new surface to `_refuse_new_surfaces` and refuses all typing (#78).
 
 ## Develop
 
