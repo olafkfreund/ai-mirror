@@ -8,7 +8,7 @@
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
       inherit (pkgs) lib;
-      version = "3.0.1";
+      version = "3.1.0";
 
       # Everything installable ships the licence it is under, in one place.
       licenceFiles = ''
