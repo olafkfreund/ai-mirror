@@ -25,7 +25,8 @@ class AgentIndicator(unittest.TestCase):
 
     def test_frame_stays_mapped_for_the_input_gate(self):
         frame = QML[QML.index('Variants {'):]
-        for line in ('mask: Region {}', 'WlrKeyboardFocus.None', 'WlrLayer.Top',
+        # Also the model: a frame filtered by root.agent maps at the grant just like a visible: one.
+        for line in ('model: Quickshell.screens\n', 'omarchy-ai-mirror-frame', 'mask: Region {}', 'WlrKeyboardFocus.None', 'WlrLayer.Top',
                      'border.width: root.agent ? 4 : 0'):
             self.assertIn(line, frame)
         self.assertNotIn('visible:', frame)

@@ -246,6 +246,11 @@ config, so `cursor/` holds three `.cfg` files (`arrow.cfg`, `hand.cfg`,
    `HYPRLAND_INSTANCE_SIGNATURE`. Export the newest one from
    `/run/user/1000/hypr/` before any `hyprctl` call.
 
+Review fixes (done, after the Opus review): the frame test also pins
+`model: Quickshell.screens` and the namespace, so a frame filtered or wrapped
+by `root.agent` fails it. The troubleshooting bullet says to restart the
+shell only after `control off`.
+
 ## Tests
 
 ```sh

@@ -147,5 +147,6 @@ and `toolkit-accessibility`; ai-mirror also sets the AT-SPI `IsEnabled` flag on 
 - Indicator missing — `omarchy plugin enable olafkfreund.ai-mirror --section right`.
 - Kill switch key does nothing — add `pcall(require, "hypr.ai-mirror-binds")` to `bindings.lua`.
 - `ai-mirror doctor` lists missing runtime commands.
-- Badge or frame stuck, or missing — both are drawn by the shell; restart it, and the first
+- Badge or frame stuck, or missing — both are drawn by the shell; restart it after
+  `control off` (mid-grant, the frame comes back as a new surface and typing is refused), and the first
   state read restores your cursor. The theme is installed by the Home Manager module (#78).
