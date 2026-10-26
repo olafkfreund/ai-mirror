@@ -17,6 +17,9 @@
   itself after ten minutes with no input (`not_owner`, "ask again").
 - While an agent only *looks*, `watching` records when it last did and the bar shows a steady
   neutral mark: reading the screen is visible, even though it needs no grant.
+- While `owner` is `agent`, the cursor carries an "Agent" badge and every monitor shows a red
+  frame. Both follow `state.json` and are display only, not part of the gate. The frame hides
+  under fullscreen windows; the badge still shows there (#78).
 - Every request, answer, expiry and stop is one JSON line in
   `$XDG_RUNTIME_DIR/ai-mirror/audit.jsonl`. `via` and `chain` show what answered, as that process
   reported it; on a shared account they are evidence, not proof.
@@ -144,3 +147,6 @@ and `toolkit-accessibility`; ai-mirror also sets the AT-SPI `IsEnabled` flag on 
 - Indicator missing — `omarchy plugin enable olafkfreund.ai-mirror --section right`.
 - Kill switch key does nothing — add `pcall(require, "hypr.ai-mirror-binds")` to `bindings.lua`.
 - `ai-mirror doctor` lists missing runtime commands.
+- Badge or frame stuck, or missing — both are drawn by the shell; restart it after
+  `control off` (mid-grant, the frame comes back as a new surface and typing is refused), and the first
+  state read restores your cursor. The theme is installed by the Home Manager module (#78).
