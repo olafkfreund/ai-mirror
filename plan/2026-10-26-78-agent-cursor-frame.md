@@ -64,6 +64,12 @@ config, so `cursor/` holds three `.cfg` files (`arrow.cfg`, `hand.cfg`,
    printf '24 7 10 text.png\n'  > text.cfg
    ```
 
+   Deviation (done): the `eval … $B` form fails on quoting ("missing output
+   filename `-fill`"), so the same arguments were run with `$B` as a bash
+   array. ImageMagick then wrote colormap PNGs, so each was rewritten with
+   `magick X.png PNG32:X.png` to get RGBA. Coordinates and hotspots are
+   unchanged.
+
    Verify: `file cursor/*.png` shows 64 x 40 RGBA. Open each scaled up 4x
    and check that the shape and the "Agent" text are legible and the text
    stays inside the box. Adjust the coordinates if not.
