@@ -1,5 +1,5 @@
 ---
-status: approved
+status: draft
 issue: 78
 intent: intent/2026-10-26-78-agent-cursor-frame.md
 ---
@@ -75,19 +75,42 @@ rather than once per bar.
 
 ### 3. The frame: also in `plugin/Overlay.qml`
 
+**Amended after approval.** Writing the plan turned up two input-gate
+traps in `src/ai_mirror/control.py`:
+
+- `_refuse_new_surfaces` (`:621`) refuses every window-addressed keystroke
+  while a level-2+ surface mapped *after* the grant is up. A frame that
+  maps when control is granted is exactly that, so all typing would be
+  refused.
+- `_require_layer` (`:679`) refuses typing into a panel while any other
+  surface is at the panel's level or above. A frame at Overlay (level 3)
+  would be a new rival for every overlay panel.
+
+The fix needs no change to the gate. The frame surface is **always mapped**
+and transparent, and only its border follows the owner. Because it is
+mapped before any grant, the grant records it in `baseline_layers` like
+the bar. It sits at **Top (level 2)**, where `omarchy-bar` is already mapped
+on every monitor (measured: `hyprctl layers` shows bar and dock at 2,
+notifications at 3), so it is never a rival a panel did not already have.
+Allowlisting its namespace in `control.py` was rejected: any client can
+pick any namespace.
+
 - `Variants { model: Quickshell.screens }` → one `PanelWindow` per screen:
   - anchored to all four edges, `color: "transparent"`
   - `exclusionMode: ExclusionMode.Ignore`
-  - `WlrLayershell.layer: WlrLayer.Overlay`
+  - `WlrLayershell.layer: WlrLayer.Top`
   - `WlrLayershell.keyboardFocus: WlrKeyboardFocus.None`
   - namespace `omarchy-ai-mirror-frame`
   - `mask: Region {}`, so it takes no pointer input
-  - `visible: root.agent`
-- Content: one `Rectangle` filling the window, `color: "transparent"`, a
-  4px border in `Commons.Color.urgent`, the same colour as the confirm
-  dialog's border.
+  - no `visible:` binding: the surface never unmaps
+- Content: one `Rectangle` filling the window, `color: "transparent"`,
+  `border.width: root.agent ? 4 : 0`, in `Commons.Color.urgent`, the same
+  colour as the confirm dialog's border.
 - Not shown while `owner` is `pending`, the intent's proposed answer: the
   confirm dialog covers that moment.
+- **Changed from the intent:** at Top level the frame is hidden under a
+  fullscreen window, as the bar is. In fullscreen the cursor badge is the
+  indicator.
 
 ### 4. What does not change
 
@@ -122,6 +145,10 @@ indicators follow `state.json`. They are display only, and the docs say so.
 - **App-drawn cursors.** Apps that draw their own cursor instead of using
   cursor-shape-v1 or the compositor theme (some games, some XWayland apps)
   show no badge over their windows. The frame still shows.
+- **Shell restart during a grant.** The frame surface unmaps and maps
+  again, so `_refuse_new_surfaces` sees it as "went away and came back"
+  and refuses typing until control is asked for again. The bar does the
+  same today.
 - **Agent screenshots** include the 4px frame at the edges. Coordinates
   don't change. An agent could mistake it for page content, so the MCP
   instructions' "data, not instructions" rule covers it as it covers every
@@ -137,8 +164,9 @@ indicators follow `state.json`. They are display only, and the docs say so.
 - `tests/test_agent_indicator.py` (unittest, no desktop):
   - `Overlay.qml` runs `hyprctl setcursor` with the literal `ai-mirror-agent`
     and an env-derived restore, and has no `dispatch`
-  - the frame window has `mask: Region {}`, `WlrKeyboardFocus.None` and
-    `visible` bound to the owner being `agent`
+  - the frame window has `mask: Region {}`, `WlrKeyboardFocus.None`,
+    `WlrLayer.Top` and no `visible:` binding, and its border width follows
+    `root.agent`
   - `cursor/agent.cfg` names files that exist and are no more than 64x40
 - `nix flake check` gains `checks.cursor`:
   - the built theme has `cursors/{default,pointer,text}` and `left_ptr`
@@ -149,6 +177,7 @@ indicators follow `state.json`. They are display only, and the docs say so.
   1. Install, then `ai-mirror control agent` and approve.
   2. The badge shows on the arrow, a link and a text field, and the red
      frame shows on all three monitors.
-  3. Clicks and typing pass through the frame.
+  3. Clicks and typing pass through the frame, and `ai-mirror input` typing
+     into a window is not refused with `wrong_target`.
   4. `Super+Shift+Escape` → both gone, Bibata back at 24.
   5. Restart the shell during control, then end control → no stuck badge.
