@@ -251,6 +251,16 @@ Review fixes (done, after the Opus review): the frame test also pins
 by `root.agent` fails it. The troubleshooting bullet says to restart the
 shell only after `control off`.
 
+Step 6 results (2026-10-26, p620, switched with `--override-input
+nixarchy/ai-mirror` set to this branch): 6.1 the badge shows, and the frame
+shows on DP-1, DP-3 and HDMI-A-1 at level 2. 6.2 typing into a scratch kitty
+window was delivered, with no `wrong_target`. 6.3 the pointer reached kitty
+through the frame, and its own cursor shape was badged. 6.4 the user's
+Super+Shift+Escape cleared the badge and the frame and brought Bibata back.
+Deviation: 6.5 was simulated rather than restarting mid-grant (the docs now
+say not to). `hyprctl setcursor ai-mirror-agent`, then a shell restart; the
+result is in the PR.
+
 ## Tests
 
 ```sh
