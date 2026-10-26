@@ -118,6 +118,10 @@ config, so `cursor/` holds three `.cfg` files (`arrow.cfg`, `hand.cfg`,
      '';
      ```
 
+   Deviation (done): an editor format-on-save hook reflowed ~100 untouched
+   lines of `flake.nix`. The file was restored and the five edits reapplied by
+   script, so the diff carries only this step.
+
    Verify: `nix build .#cursor` succeeds, `ls -l result/share/icons/ai-mirror-agent/cursors`
    shows three files and the symlinks, and `nix flake check` is green.
    Traps: `./cursor` must be `git add`ed before the flake can see it. Don't
