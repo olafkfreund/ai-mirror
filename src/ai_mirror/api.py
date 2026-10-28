@@ -15,7 +15,7 @@ MUTATING = {'input', 'window', 'launch', 'a11y_act'}
 OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'wait', 'index'}
 
 
-def _window(args: dict) -> dict:
+def _window(args: dict, by: str = 'human') -> dict:
     """Read, act, confirm (#53): the dispatch returning says nothing happened."""
     from . import wait
     action, address, enabled = args.get('action'), args.get('address'), args.get('enabled')
@@ -59,6 +59,8 @@ def _window(args: dict) -> dict:
     ok = {'ok': True, 'action': action, 'address': address}
     if action in holds and holds[action]():
         return {**ok, 'changed': False, 'verified': True, 'before': before, 'after': before, 'waited_ms': 0}
+    if by == 'agent':  # the queries above may have found a restarted Hyprland and revoked the grant
+        control.require_agent(_generation(args))
     host.ctl('dispatch', dispatcher)
 
     after = None
@@ -278,7 +280,7 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
             lines, owners = encode(actions, with_owners=True)
             return control.run_batch(lines, generation, window=window, owners=owners)
         if op == 'window':
-            return _window(args)
+            return _window(args, by)
         if op == 'launch':
             return _launch(args)
         if op == 'a11y_act':

@@ -237,11 +237,12 @@ def _instance_running(sig: str) -> bool:
     """Whether that Hyprland is alive: its lock file names the pid. No hyprctl, and no
     comparison with this process's environment, which may be the stale one."""
     try:
-        pid = int((Path(os.environ['XDG_RUNTIME_DIR']) / 'hypr' / sig / 'hyprland.lock')
+        runtime = os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}'
+        pid = int((Path(runtime) / 'hypr' / sig / 'hyprland.lock')
                   .read_text().split()[0])
         os.kill(pid, 0)
     except PermissionError:
-        return True  # exists, just not ours to signal
+        return False  # Hyprland runs as this user: a pid we can't signal is someone else's (reused)
     except (KeyError, OSError, ValueError, IndexError):
         return False
     return _is_hyprland(pid)
@@ -466,7 +467,11 @@ def _answer(request_id: str, granted: bool, *, via: str = 'cli', key: int | None
                          'enabled_by': 'human-confirmed', 'request_by': request.get('by'),
                          'last_input': now(), 'held_by': request.get('server')}
         baseline = _baseline_layers()
-        granted_state['instance'] = os.environ.get(host.SIG)  # after the baseline: its hyprctl made this live
+        instance = os.environ.get(host.SIG)  # after the baseline: its hyprctl made this live
+        if not instance or not _instance_running(instance):
+            # an unstamped grant would outlive any restart
+            raise MirrorError('bad_request', 'cannot tell which Hyprland this grant is for; is it running?')
+        granted_state['instance'] = instance
         if baseline is not None:
             granted_state['baseline_layers'] = baseline
         a11y_before = state.get('a11y_before') or _a11y_enable()

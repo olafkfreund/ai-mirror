@@ -204,6 +204,25 @@ class Grants(Base):
         with patch.object(control, '_is_hyprland', wraps=REAL_IS_HYPRLAND), patch.dict(os.environ, {SIG: 'A'}):
             self.assertEqual(control.read_state()['owner'], 'off')
 
+    def test_a_pid_we_cannot_signal_is_not_our_hyprland(self):
+        self.lock('A')
+        with patch.object(os, 'kill', side_effect=PermissionError):
+            self.assertFalse(control._instance_running('A'))
+
+    def test_a_missing_runtime_dir_falls_back_to_run_user(self):
+        runtime = os.environ['XDG_RUNTIME_DIR']
+        self.lock('A')
+        with patch.dict(os.environ, {'XDG_RUNTIME_DIR': ''}), \
+             patch.object(os, 'getuid', return_value=0), \
+             patch.object(control, 'Path', side_effect=lambda p: Path(runtime) if p == '/run/user/0' else Path(p)):
+            self.assertTrue(control._instance_running('A'))
+
+    def test_a_grant_is_refused_when_its_hyprland_is_not_running(self):
+        with patch.dict(os.environ, {SIG: 'gone'}):  # no lock file
+            with self.assertRaises(control.MirrorError):
+                grant()
+        self.assertNotEqual(control.read_state().get('owner'), 'agent')
+
     def test_a_missing_lock_file_counts_as_not_running(self):
         self.granted_under('A')
         (Path(os.environ['XDG_RUNTIME_DIR']) / 'hypr/A/hyprland.lock').unlink()

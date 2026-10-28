@@ -170,3 +170,11 @@ compatible both ways: an `instance` field is ignored by older code.
 - Tests: 27 in `test_instance_resolve.py`, mutation-checked for the liveness check, the pid-reuse
   check, the dispatch no-retry, the helper stop, the immediate revoke and the doctor condition.
   Not exercised: the C helper against a dead compositor.
+
+Second review fixes (implemented 2026-10-28):
+- A pid we can't signal (`PermissionError`) is someone else's reused pid: not running.
+- No `XDG_RUNTIME_DIR` falls back to `/run/user/<uid>`. Accepted: a caller in another pid
+  namespace sees the instance as dead and revokes (fails safe).
+- A grant is refused unless its instance is live, so no grant is ever unstamped.
+- `window` re-checks the grant just before its dispatch, since its own queries can find a
+  restarted Hyprland and revoke. That re-check has no dedicated test (code-reviewed only).
