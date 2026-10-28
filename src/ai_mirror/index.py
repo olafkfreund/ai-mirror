@@ -51,6 +51,11 @@ ALL_SECTIONS = DEFAULT_SECTIONS + ('apps', 'measured')
 def sh(*argv, timeout: float = 10.0) -> str:
     """Run a command and return stdout, or raise with something readable."""
     done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    if done.returncode and argv[0] == 'hyprctl':
+        from . import host  # local: keeps this module's import graph as it was
+        if any(m in done.stderr + done.stdout for m in host.LOST):
+            host.resolve(min(timeout, 5))
+            done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
     if done.returncode:
         raise RuntimeError((done.stderr or done.stdout).strip()[:200]
                            or f'{argv[0]} exited {done.returncode}')

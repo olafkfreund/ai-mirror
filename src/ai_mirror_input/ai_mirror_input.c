@@ -199,6 +199,15 @@ static void send_modifiers(void) {
 		xkb_state_serialize_layout(key_state, XKB_STATE_LAYOUT_EFFECTIVE));
 }
 
+/* A compositor restart leaves this connection dead; say so instead of acking OK. */
+static void roundtrip_or_die(void) {
+	if (wl_display_roundtrip(display) < 0) {
+		printf("ERR compositor gone\n");
+		fflush(stdout);
+		exit(1);
+	}
+}
+
 static void release_all(void) {
 	uint32_t t = now_ms();
 	for (int i = 0; i <= KEY_MAX; i++) {
@@ -234,7 +243,7 @@ static void handle_line(char *line) {
 		wl_display_flush(display);
 		/* Ack only once the server consumed the request; quitting
 		 * (or a keymap restore) ahead of the server drops input. */
-		wl_display_roundtrip(display);
+		roundtrip_or_die();
 		printf("OK\n");
 	} else if (op == 'B') {
 		int code, press;
@@ -247,7 +256,7 @@ static void handle_line(char *line) {
 				(uint32_t)press);
 		zwlr_virtual_pointer_v1_frame(ptr);
 		wl_display_flush(display);
-		wl_display_roundtrip(display);
+		roundtrip_or_die();
 		if (press) {
 			if (n_btns_down < 16) {
 				btns_down[n_btns_down++] = (uint32_t)code;
@@ -283,7 +292,7 @@ static void handle_line(char *line) {
 		}
 		zwlr_virtual_pointer_v1_frame(ptr);
 		wl_display_flush(display);
-		wl_display_roundtrip(display);
+		roundtrip_or_die();
 		printf("OK\n");
 	} else if (op == 'K') {
 		int code, press;
@@ -299,7 +308,7 @@ static void handle_line(char *line) {
 			press ? XKB_KEY_DOWN : XKB_KEY_UP);
 		send_modifiers();
 		wl_display_flush(display);
-		wl_display_roundtrip(display);
+		roundtrip_or_die();
 		printf("OK\n");
 	} else if (op == 'T') {
 		char *text = line + 1;
@@ -348,13 +357,13 @@ static void handle_line(char *line) {
 			struct xkb_keymap *map = build_type_map(distinct, nd);
 			if (!map) {
 				send_keymap(default_map);
-				wl_display_roundtrip(display);
+				roundtrip_or_die();
 				printf("ERR keymap failed\n");
 				return;
 			}
 			send_keymap(map);
 			zwp_virtual_keyboard_v1_modifiers(kbd, 0, 0, 0, 0);
-			wl_display_roundtrip(display);
+			roundtrip_or_die();
 			for (size_t i = start; i < end; i++) {
 				uint32_t t = now_ms();
 				zwp_virtual_keyboard_v1_key(kbd, t, TYPE_CODES[slot[i]], 1);
@@ -363,18 +372,18 @@ static void handle_line(char *line) {
 			wl_display_flush(display);
 			/* Keys must be dispatched under the type map before restoring
 			 * the default map; quitting ahead of the server drops them. */
-			wl_display_roundtrip(display);
+			roundtrip_or_die();
 			xkb_keymap_unref(map);
 			start = end;
 		}
 		send_keymap(default_map);
 		send_modifiers();
 		wl_display_flush(display);
-		wl_display_roundtrip(display);
+		roundtrip_or_die();
 		printf("OK\n");
 	} else if (op == 'C') {
 		release_all();
-		wl_display_roundtrip(display);
+		roundtrip_or_die();
 		printf("OK\n");
 	} else if (op == 'Q') {
 		printf("OK\n");

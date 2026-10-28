@@ -56,12 +56,17 @@ class Base(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        env = patch.dict(os.environ, {'XDG_RUNTIME_DIR': temp.name})
+        # A fixed signature: CI has no Hyprland, and p620's real one must not leak in.
+        env = patch.dict(os.environ, {'XDG_RUNTIME_DIR': temp.name, 'HYPRLAND_INSTANCE_SIGNATURE': 'test_sig'})
         env.start()
         self.addCleanup(env.stop)
         # The seams that would change the real desktop refuse from here. A test
         # that genuinely needs one calls guard.disarm().
         guard.arm()
+        # Tests run under a temp XDG_RUNTIME_DIR, so no Hyprland lock exists to find.
+        alive = patch.object(control, '_instance_running', lambda sig: True)
+        alive.start()
+        self.addCleanup(alive.stop)
         self.addCleanup(guard.disarm)
         # set_owner('agent') enables accessibility, so every test that takes
         # control would otherwise write org.a11y.Status on the real session

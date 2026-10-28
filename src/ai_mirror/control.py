@@ -24,6 +24,16 @@ from pathlib import Path
 
 from . import guard, host, privacy
 
+
+
+def _switched(old, new):
+    audit('instance-changed', **{'from': old, 'to': new})
+    HELPER.stop()  # its Wayland connection is to the dead compositor and still answers OK
+    read_state()   # revokes a grant stamped with the instance that is gone
+
+
+host.on_switch = _switched
+
 REPO_HELPER = Path(__file__).resolve().parents[2] / 'build/ai-mirror-input'
 
 
@@ -99,6 +109,8 @@ IDLE_LIMIT = 600       # seconds a grant survives without the agent using it
 # A request nobody answers usually means nothing drew the dialog, so say where it comes from.
 LAPSED = ('nobody answered the request within 30s; the ai-mirror bar widget draws the dialog '
           '(omarchy plugin enable olafkfreund.ai-mirror --section right)')
+
+RESTARTED = 'Hyprland restarted since control was granted; ask again'
 
 
 def now() -> float:
@@ -221,8 +233,54 @@ def _lapsed(state: dict) -> bool:
     return state.get('owner') == 'pending' and now() > state.get('request', {}).get('expires', 0)
 
 
+def _instance_running(sig: str) -> bool:
+    """Whether that Hyprland is alive: its lock file names the pid. No hyprctl, and no
+    comparison with this process's environment, which may be the stale one."""
+    try:
+        runtime = os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}'
+        pid = int((Path(runtime) / 'hypr' / sig / 'hyprland.lock')
+                  .read_text().split()[0])
+        os.kill(pid, 0)
+    except PermissionError:
+        return False  # Hyprland runs as this user: a pid we can't signal is someone else's (reused)
+    except (KeyError, OSError, ValueError, IndexError):
+        return False
+    return _is_hyprland(pid)
+
+
+def _is_hyprland(pid: int) -> bool:
+    """A dead Hyprland's pid can be reused: the process must still be Hyprland
+    (".Hyprland-wrapp" on NixOS). Unreadable /proc counts as Hyprland."""
+    try:
+        return 'hyprland' in Path(f'/proc/{pid}/comm').read_text().lower()
+    except OSError:
+        return True
+
+
+def _restarted(state: dict) -> bool:
+    # The bar calls read_state, so this reads a file and signals a pid, never hyprctl.
+    return (state.get('owner') in ('agent', 'pending') and bool(state.get('instance'))
+            and not _instance_running(state['instance']))
+
+
+def _revoke_if_restarted(state: dict) -> None:
+    if not _restarted(state):
+        return
+    with locked('control'):
+        state = _load()
+        if not _restarted(state):
+            return
+        audit('instance-changed-revoke', stamped=state['instance'],
+              current=os.environ.get(host.SIG), holder=_holder_pid(state.get('held_by')))
+        _a11y_restore(state.get('a11y_before') or {})
+        _write({'owner': 'off', 'generation': int(state.get('generation', 0)) + 1,
+                'since': stamp(), 'enabled_by': None, 'why': RESTARTED})
+
+
 def read_state() -> dict:
     """The state as it stands, with a request nobody answered already lapsed."""
+    state = _load()
+    _revoke_if_restarted(state)
     state = _load()
     if not _lapsed(state):
         return state
@@ -318,6 +376,11 @@ def set_owner(mode: str, by: str) -> dict:
             audit('requested', request=request['id'], by=by, holder=_holder_pid(SERVER))
             pending = {'owner': 'pending', 'generation': generation, 'since': stamp(),
                        'enabled_by': None, 'request': request}
+            # A stale name here would revoke the request before the human sees it; the
+            # grant is stamped by the answerer, whose hyprctl has made its name live.
+            instance = os.environ.get(host.SIG)
+            if instance and _instance_running(instance):
+                pending['instance'] = instance
             # Carry the record across a re-request from a live grant. The
             # properties are already on, so recapturing after the confirm would
             # record what we set ourselves and `off` would restore the wrong
@@ -404,6 +467,11 @@ def _answer(request_id: str, granted: bool, *, via: str = 'cli', key: int | None
                          'enabled_by': 'human-confirmed', 'request_by': request.get('by'),
                          'last_input': now(), 'held_by': request.get('server')}
         baseline = _baseline_layers()
+        instance = os.environ.get(host.SIG)  # after the baseline: its hyprctl made this live
+        if not instance or not _instance_running(instance):
+            # an unstamped grant would outlive any restart
+            raise MirrorError('bad_request', 'cannot tell which Hyprland this grant is for; is it running?')
+        granted_state['instance'] = instance
         if baseline is not None:
             granted_state['baseline_layers'] = baseline
         a11y_before = state.get('a11y_before') or _a11y_enable()
