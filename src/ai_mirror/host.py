@@ -1,5 +1,6 @@
 """The user's Hyprland session: monitors, windows and validated dispatchers."""
 import json
+import os
 import re
 import subprocess
 
@@ -9,16 +10,67 @@ ADDRESS_RE = re.compile(r'0x[0-9a-f]{1,16}')
 WORKSPACE_RE = re.compile(r'[0-9]{1,3}|special(:[A-Za-z0-9_-]{1,32})?')
 
 
+SIG = 'HYPRLAND_INSTANCE_SIGNATURE'
+LOST = ("Couldn't connect", 'HYPRLAND_INSTANCE_SIGNATURE was not set')
+on_switch = None  # (old, new) callback; control sets it, host cannot import control
+verified = False  # a hyprctl call has succeeded in this process, so SIG is known live
+
+
+def resolve() -> tuple[str | None, str] | None:
+    """Point this process at the live Hyprland instance after a restart.
+
+    Returns (old, new) when the environment changed, None when the inherited
+    signature was already live. The environment is the cache: children inherit it.
+    """
+    result = subprocess.run(['hyprctl', 'instances', '-j'], capture_output=True, text=True, timeout=5)
+    try:
+        live = {i['instance']: i for i in json.loads(result.stdout)}
+    except (ValueError, TypeError, KeyError):
+        live = {}
+    if not live:
+        raise RuntimeError('Hyprland: Hyprland is not running for this user (hyprctl instances is empty)')
+    old = os.environ.get(SIG)
+    if old in live:
+        return None
+    try:
+        shown = subprocess.run(['systemctl', '--user', 'show-environment'],
+                               capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        shown = ''
+    systemd = next((l.split('=', 1)[1] for l in shown.splitlines() if l.startswith(SIG + '=')), None)
+    if systemd in live:
+        new = systemd
+    elif len(live) == 1:
+        new = next(iter(live))
+    else:
+        raise RuntimeError(f'Hyprland: {len(live)} Hyprland instances are running ({", ".join(live)}); '
+                           f'set {SIG} to the one to drive')
+    os.environ[SIG] = new
+    sock = live[new].get('wl_socket')
+    if sock and os.environ.get('WAYLAND_DISPLAY') != sock:
+        os.environ['WAYLAND_DISPLAY'] = sock
+    if on_switch:
+        on_switch(old, new)
+    return old, new
+
+
 def ctl(*args, timeout=10):
     # Callers with their own deadline pass what is left of it: a caller waiting
     # 0.1s for something must not be held for ten by one slow query.
+    global verified
     if args and args[0] == 'dispatch':
         # Queries are left alone on purpose: reading where the windows are
         # disturbs nothing, and guarding it would mock every harmless call.
         guard.check('host.ctl dispatch', 'host.ctl')
-    result = subprocess.run(['hyprctl', *args], capture_output=True, text=True, timeout=timeout)
+    run = lambda: subprocess.run(['hyprctl', *args], capture_output=True, text=True, timeout=timeout)
+    result = run()
+    # A connect failure means a dispatch never ran, so the retry cannot repeat it.
+    if result.returncode and any(m in result.stderr + result.stdout for m in LOST):
+        resolve()
+        result = run()
     if result.returncode or (args[0] == 'dispatch' and result.stdout.strip() != 'ok'):
         raise RuntimeError('Hyprland: ' + (result.stderr or result.stdout).strip())
+    verified = True
     return result.stdout
 
 
