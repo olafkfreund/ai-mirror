@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 81
 intent: intent/2026-10-28-81-stale-hyprland-signature.md
 ---
@@ -51,7 +51,7 @@ ran.
 
 ### 2. A grant never crosses a compositor restart
 
-**Proposed — user to confirm at spec review: revoke.**
+**Decided — user approved 2026-10-28: revoke.**
 - A grant is stamped with the instance it was given on. `_answer` adds
   `'instance': os.environ.get('HYPRLAND_INSTANCE_SIGNATURE')` to `granted_state`, after a
   `host.ctl` call has made sure it's live; `_baseline_layers()` already makes one.
@@ -92,7 +92,7 @@ changes.
 
 ### 5. nixarchy's shells
 
-**Proposed — user to confirm at spec review: fix ai-mirror only; nixarchy is a separate issue if
+**Decided — user approved 2026-10-28: fix ai-mirror only; nixarchy is a separate issue if
 wanted.** ai-mirror is where the failure hurt, and §1 fixes it for every parent process: herdr,
 tmux or a systemd unit. A herdr pane would still give *other* Wayland tools the stale value.
 That's nixarchy's to fix (refresh the variable from `systemctl --user show-environment` when a
