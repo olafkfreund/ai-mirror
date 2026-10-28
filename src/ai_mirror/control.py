@@ -24,6 +24,8 @@ from pathlib import Path
 
 from . import guard, host, privacy
 
+host.on_switch = lambda old, new: audit('instance-changed', **{'from': old, 'to': new})
+
 REPO_HELPER = Path(__file__).resolve().parents[2] / 'build/ai-mirror-input'
 
 
@@ -99,6 +101,8 @@ IDLE_LIMIT = 600       # seconds a grant survives without the agent using it
 # A request nobody answers usually means nothing drew the dialog, so say where it comes from.
 LAPSED = ('nobody answered the request within 30s; the ai-mirror bar widget draws the dialog '
           '(omarchy plugin enable olafkfreund.ai-mirror --section right)')
+
+RESTARTED = 'Hyprland restarted since control was granted; ask again'
 
 
 def now() -> float:
@@ -221,8 +225,31 @@ def _lapsed(state: dict) -> bool:
     return state.get('owner') == 'pending' and now() > state.get('request', {}).get('expires', 0)
 
 
+def _restarted(state: dict) -> bool:
+    # Environment only, no hyprctl: the bar calls read_state. `verified` keeps a process that
+    # still holds the pre-restart value from revoking a grant the fresh CLI just stamped.
+    return (state.get('owner') in ('agent', 'pending') and bool(state.get('instance'))
+            and host.verified and state['instance'] != os.environ.get(host.SIG))
+
+
+def _revoke_if_restarted(state: dict) -> None:
+    if not _restarted(state):
+        return
+    with locked('control'):
+        state = _load()
+        if not _restarted(state):
+            return
+        audit('instance-changed-revoke', stamped=state['instance'],
+              current=os.environ.get(host.SIG), holder=_holder_pid(state.get('held_by')))
+        _a11y_restore(state.get('a11y_before') or {})
+        _write({'owner': 'off', 'generation': int(state.get('generation', 0)) + 1,
+                'since': stamp(), 'enabled_by': None, 'why': RESTARTED})
+
+
 def read_state() -> dict:
     """The state as it stands, with a request nobody answered already lapsed."""
+    state = _load()
+    _revoke_if_restarted(state)
     state = _load()
     if not _lapsed(state):
         return state
@@ -317,7 +344,8 @@ def set_owner(mode: str, by: str) -> dict:
                        'expires': now() + REQUEST_TTL, 'server': SERVER}
             audit('requested', request=request['id'], by=by, holder=_holder_pid(SERVER))
             pending = {'owner': 'pending', 'generation': generation, 'since': stamp(),
-                       'enabled_by': None, 'request': request}
+                       'enabled_by': None, 'request': request,
+                       'instance': os.environ.get(host.SIG)}
             # Carry the record across a re-request from a live grant. The
             # properties are already on, so recapturing after the confirm would
             # record what we set ourselves and `off` would restore the wrong
@@ -404,6 +432,7 @@ def _answer(request_id: str, granted: bool, *, via: str = 'cli', key: int | None
                          'enabled_by': 'human-confirmed', 'request_by': request.get('by'),
                          'last_input': now(), 'held_by': request.get('server')}
         baseline = _baseline_layers()
+        granted_state['instance'] = os.environ.get(host.SIG)  # after the baseline: its hyprctl made this live
         if baseline is not None:
             granted_state['baseline_layers'] = baseline
         a11y_before = state.get('a11y_before') or _a11y_enable()
