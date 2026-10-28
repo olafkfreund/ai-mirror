@@ -150,3 +150,23 @@ model reviews with a fresh Opus agent, given only this plan and `git diff`.
 Revert the implementation commit(s). Behaviour returns to today: a stale signature fails with the
 socket error until the process is restarted with the right environment. The state file stays
 compatible both ways: an `instance` field is ignored by older code.
+
+## Opus review fixes (implemented 2026-10-28)
+
+- **Revoke by liveness, not by our environment.** `_restarted` revokes a grant or pending request
+  whose stamped instance is no longer running: its `$XDG_RUNTIME_DIR/hypr/<sig>/hyprland.lock`
+  pid is gone, or is no longer a Hyprland process (`/proc/<pid>/comm`, pid reuse). Comparing with
+  this process's own, possibly stale, signature both kept an old grant alive and revoked a fresh
+  one. `host.verified` is removed. A pending request is stamped only when the requester's
+  instance is live; the answerer stamps the grant.
+- **No dispatch across an instance change.** When `resolve()` switches instance during a dispatch,
+  `host.ctl` raises "Hyprland restarted; the dispatch was not sent. Ask for control again"
+  instead of retrying. Queries still retry.
+- `on_switch` audits, stops the input helper and runs `read_state()`, so the revoke is immediate,
+  also for actions that never call `hyprctl`. The helper replies `ERR compositor gone` and exits
+  when a command's `wl_display_roundtrip` fails.
+- `LOST` matches the real hyprctl 0.56 text, `HYPRLAND_INSTANCE_SIGNATURE not set`. `resolve()`
+  honours the caller's timeout. `doctor` gives the restart hint only for a lost instance.
+- Tests: 27 in `test_instance_resolve.py`, mutation-checked for the liveness check, the pid-reuse
+  check, the dispatch no-retry, the helper stop, the immediate revoke and the doctor condition.
+  Not exercised: the C helper against a dead compositor.

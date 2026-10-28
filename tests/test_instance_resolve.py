@@ -13,6 +13,9 @@ from ai_mirror import api, control, guard, host, index
 from test_invariants import Base, grant
 
 SIG = host.SIG
+REAL_RUNNING = control._instance_running  # Base stubs it; the grant tests want the real one
+REAL_IS_HYPRLAND = control._is_hyprland
+NOT_SET = 'HYPRLAND_INSTANCE_SIGNATURE not set! (is hyprland running?)'  # hyprctl 0.56, verbatim
 LIVE = 'live_1_2'
 LOST = "Couldn't connect to /run/user/1000/hypr/old/.socket.sock"
 
@@ -51,9 +54,7 @@ class Resolve(Base):
         super().setUp()
         self.switches = []
         host.on_switch = lambda old, new: self.switches.append((old, new))
-        host.verified = False
         self.addCleanup(setattr, host, 'on_switch', None)
-        self.addCleanup(setattr, host, 'verified', False)
 
     def run_ctl(self, fake, sig='old_1_1', *args):
         env = {SIG: sig} if sig is not None else {}
@@ -71,10 +72,9 @@ class Resolve(Base):
         self.assertEqual((out, sig), ('[]', LIVE))
         self.assertEqual(self.switches, [('old_1_1', LIVE)])
         self.assertEqual(fake.count('hyprctl', 'monitors'), 2)
-        self.assertTrue(host.verified)
 
     def test_an_unset_signature_is_found(self):
-        fake = Fake([done(err='HYPRLAND_INSTANCE_SIGNATURE was not set', code=1), done('[]')])
+        fake = Fake([done(err=NOT_SET, code=1), done('[]')])
         out, sig = self.run_ctl(fake, None)
         self.assertEqual((out, sig), ('[]', LIVE))
         self.assertEqual(self.switches, [(None, LIVE)])
@@ -118,7 +118,6 @@ class Resolve(Base):
         self.assertIn('bad request', str(out))
         self.assertEqual(fake.count('hyprctl', 'instances'), 0)
         self.assertEqual(fake.count('hyprctl', 'monitors'), 1)
-        self.assertFalse(host.verified)
 
     def test_a_dispatch_error_runs_once(self):
         guard.disarm()
@@ -128,24 +127,52 @@ class Resolve(Base):
         self.assertEqual(fake.count('hyprctl', 'dispatch'), 1)
         self.assertEqual(fake.count('hyprctl', 'instances'), 0)
 
-    def test_a_dispatch_that_never_connected_is_retried(self):
+    def test_a_dispatch_is_not_sent_to_a_new_instance_under_an_old_grant(self):
         guard.disarm()
         fake = Fake([done(err=LOST, code=1), done('ok')])
         out, sig = self.run_ctl(fake, 'old_1_1', 'dispatch', 'x')
-        self.assertEqual((out, sig), ('ok', LIVE))
-        self.assertEqual(fake.count('hyprctl', 'dispatch'), 2)
+        self.assertIsInstance(out, RuntimeError)
+        self.assertIn('not sent', str(out))
+        self.assertEqual(fake.count('hyprctl', 'dispatch'), 1)
+        self.assertEqual(sig, LIVE)  # the process still follows the live instance
+        self.assertEqual(self.switches, [('old_1_1', LIVE)])
+
+    def test_resolve_timeouts_are_the_callers(self):
+        seen = []
+        fake = Fake([done(err=LOST, code=1), done('[]')], systemd='')
+        def spy(argv, **kw):
+            seen.append(kw['timeout'])
+            return fake(argv, **kw)
+        with patch.object(subprocess, 'run', spy), patch.dict(os.environ, {SIG: 'old_1_1'}):
+            host.ctl('monitors', timeout=2)
+        self.assertEqual(seen, [2, 2, 2, 2])  # monitors, instances, systemctl, monitors
 
 
 class Grants(Base):
+    """The stamp is checked against whether that Hyprland is alive, never against our own env."""
+
     def setUp(self):
         super().setUp()
-        host.verified = False
-        self.addCleanup(setattr, host, 'verified', False)
+        patcher = patch.object(control, '_instance_running', REAL_RUNNING)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        named = patch.object(control, '_is_hyprland', return_value=True)  # our pid stands in for Hyprland
+        self.is_hyprland = named.start()
+        self.addCleanup(named.stop)
         layers = patch.object(control.host, 'layers', return_value=[])
         layers.start()
         self.addCleanup(layers.stop)
+        dead = subprocess.Popen(['true'])
+        dead.wait()
+        self.dead_pid = dead.pid
+
+    def lock(self, sig, pid=None):
+        path = Path(os.environ['XDG_RUNTIME_DIR']) / 'hypr' / sig
+        path.mkdir(parents=True, exist_ok=True)
+        (path / 'hyprland.lock').write_text(f'{os.getpid() if pid is None else pid}\nwayland-1\n')
 
     def granted_under(self, sig):
+        self.lock(sig)
         with patch.dict(os.environ, {SIG: sig}):
             return grant()
 
@@ -154,10 +181,17 @@ class Grants(Base):
         with patch.dict(os.environ, {SIG: 'A'}):
             self.assertEqual(control.set_owner('agent', 'agent')['instance'], 'A')
 
-    def test_a_grant_is_revoked_once_the_instance_changed(self):
+    def test_a_request_from_a_stale_environment_is_not_stamped_with_it(self):
+        with patch.dict(os.environ, {SIG: 'gone'}):  # no lock file: not running
+            pending = control.set_owner('agent', 'agent')
+            self.assertNotIn('instance', pending)
+            self.assertEqual(control.read_state()['owner'], 'pending')
+
+    def test_a_grant_is_revoked_when_its_instance_died_even_if_our_env_still_names_it(self):
+        # A long-running server: env A, grant stamped A, Hyprland A has since died.
         before = self.granted_under('A')
-        host.verified = True
-        with patch.dict(os.environ, {SIG: 'B'}):
+        (Path(os.environ['XDG_RUNTIME_DIR']) / 'hypr/A/hyprland.lock').write_text(f'{self.dead_pid}\n')
+        with patch.dict(os.environ, {SIG: 'A'}):
             state = control.read_state()
         self.assertEqual(state['owner'], 'off')
         self.assertEqual(state['why'], control.RESTARTED)
@@ -165,39 +199,52 @@ class Grants(Base):
         events = [json.loads(l)['event'] for l in (control.root() / 'audit.jsonl').read_text().splitlines()]
         self.assertIn('instance-changed-revoke', events)
 
-    def test_a_process_that_has_not_reached_hyprland_does_not_revoke(self):
-        self.granted_under('A')
-        with patch.dict(os.environ, {SIG: 'B'}):
-            self.assertEqual(control.read_state()['owner'], 'agent')
+    def test_a_reused_pid_that_is_not_hyprland_counts_as_not_running(self):
+        self.granted_under('A')  # the lock names this test process, which is alive but is python
+        with patch.object(control, '_is_hyprland', wraps=REAL_IS_HYPRLAND), patch.dict(os.environ, {SIG: 'A'}):
+            self.assertEqual(control.read_state()['owner'], 'off')
 
-    def test_the_same_instance_is_kept(self):
+    def test_a_missing_lock_file_counts_as_not_running(self):
         self.granted_under('A')
-        host.verified = True
+        (Path(os.environ['XDG_RUNTIME_DIR']) / 'hypr/A/hyprland.lock').unlink()
+        self.assertEqual(control.read_state()['owner'], 'off')
+
+    def test_a_fresh_grant_survives_a_server_that_still_has_the_old_env(self):
+        # Stamped B by the answering CLI; this process still says A, and A is dead.
+        self.lock('B')
+        granted = self.granted_under('B')
         with patch.dict(os.environ, {SIG: 'A'}):
-            self.assertEqual(control.read_state()['owner'], 'agent')
+            state = control.read_state()
+        self.assertEqual((state['owner'], state['generation']), ('agent', granted['generation']))
+
+    def test_a_live_instance_is_kept(self):
+        self.granted_under('A')
+        self.assertEqual(control.read_state()['owner'], 'agent')
 
     def test_a_grant_without_a_stamp_is_kept(self):
         state = self.granted_under('A')
         state.pop('instance')
         control._write(state)
-        host.verified = True
-        with patch.dict(os.environ, {SIG: 'B'}):
-            self.assertEqual(control.read_state()['owner'], 'agent')
+        self.assertEqual(control.read_state()['owner'], 'agent')
 
     def test_a_pending_request_is_revoked_too(self):
+        self.lock('A')
         with patch.dict(os.environ, {SIG: 'A'}):
             control.set_owner('agent', 'agent')
-        host.verified = True
-        with patch.dict(os.environ, {SIG: 'B'}):
-            state = control.read_state()
+        (Path(os.environ['XDG_RUNTIME_DIR']) / 'hypr/A/hyprland.lock').write_text(f'{self.dead_pid}\n')
+        state = control.read_state()
         self.assertEqual((state['owner'], state['why']), ('off', control.RESTARTED))
 
-    def test_the_switch_is_audited(self):
-        # control wires host.on_switch at import; a reload of host must not lose it
-        self.assertIsNotNone(host.on_switch)
-        host.on_switch('A', 'B')
-        last = json.loads((control.root() / 'audit.jsonl').read_text().splitlines()[-1])
-        self.assertEqual((last['event'], last['from'], last['to']), ('instance-changed', 'A', 'B'))
+    def test_a_switch_audits_stops_the_helper_and_revokes(self):
+        self.granted_under('A')
+        (Path(os.environ['XDG_RUNTIME_DIR']) / 'hypr/A/hyprland.lock').write_text(f'{self.dead_pid}\n')
+        with patch.object(control.HELPER, 'stop') as stop:
+            host.on_switch('A', 'B')  # what resolve() calls
+        stop.assert_called_once_with()
+        self.assertEqual(control._load()['why'], control.RESTARTED)  # raw file: the hook did it, not a later read
+        last = [json.loads(l) for l in (control.root() / 'audit.jsonl').read_text().splitlines()]
+        self.assertIn(('instance-changed', 'A', 'B'),
+                      [(e['event'], e.get('from'), e.get('to')) for e in last])
 
 
 class Doctor(Base):
@@ -215,11 +262,20 @@ class Doctor(Base):
 
     def test_stale_is_reported_when_resolving_fails(self):
         with patch.dict(os.environ, {SIG: 'old'}), \
-             patch.object(api.host, 'focused_address', side_effect=RuntimeError('Hyprland: gone')):
+             patch.object(api.host, 'focused_address', side_effect=RuntimeError('Hyprland: ' + LOST)):
             report = api.doctor()
         self.assertFalse(report['ok'])
         self.assertEqual(report['stale'], 'old')
         self.assertIn('restart the MCP server', report['hint'])
+
+    def test_no_restart_hint_when_the_failure_was_something_else(self):
+        for why in ('Hyprland: Hyprland is not running for this user (hyprctl instances is empty)',
+                    'Hyprland: 2 Hyprland instances are running (a, b); set X'):
+            with patch.dict(os.environ, {SIG: 'old'}), \
+                 patch.object(api.host, 'focused_address', side_effect=RuntimeError(why)):
+                report = api.doctor()
+            self.assertNotIn('stale', report)
+            self.assertNotIn('restart the MCP server', report.get('hint', ''))
 
 
 class IndexSh(Base):

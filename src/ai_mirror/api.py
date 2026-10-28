@@ -159,7 +159,7 @@ def doctor() -> dict:
             report['unset'] = unset
             report['hint'] = ('this shell has no desktop session; export ' + ', '.join(unset) +
                               ' from the running one (see demo/rz for a worked example)')
-        if before:
+        if before and any(m in str(exc) for m in host.LOST):
             report['stale'] = before
             report['hint'] = ('Hyprland restarted after this process started; it now finds the '
                               'running instance itself. If this persists, restart the MCP server')

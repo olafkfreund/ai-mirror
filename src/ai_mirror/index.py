@@ -54,7 +54,7 @@ def sh(*argv, timeout: float = 10.0) -> str:
     if done.returncode and argv[0] == 'hyprctl':
         from . import host  # local: keeps this module's import graph as it was
         if any(m in done.stderr + done.stdout for m in host.LOST):
-            host.resolve()
+            host.resolve(min(timeout, 5))
             done = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
     if done.returncode:
         raise RuntimeError((done.stderr or done.stdout).strip()[:200]

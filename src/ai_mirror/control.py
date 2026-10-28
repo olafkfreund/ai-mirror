@@ -24,7 +24,15 @@ from pathlib import Path
 
 from . import guard, host, privacy
 
-host.on_switch = lambda old, new: audit('instance-changed', **{'from': old, 'to': new})
+
+
+def _switched(old, new):
+    audit('instance-changed', **{'from': old, 'to': new})
+    HELPER.stop()  # its Wayland connection is to the dead compositor and still answers OK
+    read_state()   # revokes a grant stamped with the instance that is gone
+
+
+host.on_switch = _switched
 
 REPO_HELPER = Path(__file__).resolve().parents[2] / 'build/ai-mirror-input'
 
@@ -225,11 +233,33 @@ def _lapsed(state: dict) -> bool:
     return state.get('owner') == 'pending' and now() > state.get('request', {}).get('expires', 0)
 
 
+def _instance_running(sig: str) -> bool:
+    """Whether that Hyprland is alive: its lock file names the pid. No hyprctl, and no
+    comparison with this process's environment, which may be the stale one."""
+    try:
+        pid = int((Path(os.environ['XDG_RUNTIME_DIR']) / 'hypr' / sig / 'hyprland.lock')
+                  .read_text().split()[0])
+        os.kill(pid, 0)
+    except PermissionError:
+        return True  # exists, just not ours to signal
+    except (KeyError, OSError, ValueError, IndexError):
+        return False
+    return _is_hyprland(pid)
+
+
+def _is_hyprland(pid: int) -> bool:
+    """A dead Hyprland's pid can be reused: the process must still be Hyprland
+    (".Hyprland-wrapp" on NixOS). Unreadable /proc counts as Hyprland."""
+    try:
+        return 'hyprland' in Path(f'/proc/{pid}/comm').read_text().lower()
+    except OSError:
+        return True
+
+
 def _restarted(state: dict) -> bool:
-    # Environment only, no hyprctl: the bar calls read_state. `verified` keeps a process that
-    # still holds the pre-restart value from revoking a grant the fresh CLI just stamped.
+    # The bar calls read_state, so this reads a file and signals a pid, never hyprctl.
     return (state.get('owner') in ('agent', 'pending') and bool(state.get('instance'))
-            and host.verified and state['instance'] != os.environ.get(host.SIG))
+            and not _instance_running(state['instance']))
 
 
 def _revoke_if_restarted(state: dict) -> None:
@@ -344,8 +374,12 @@ def set_owner(mode: str, by: str) -> dict:
                        'expires': now() + REQUEST_TTL, 'server': SERVER}
             audit('requested', request=request['id'], by=by, holder=_holder_pid(SERVER))
             pending = {'owner': 'pending', 'generation': generation, 'since': stamp(),
-                       'enabled_by': None, 'request': request,
-                       'instance': os.environ.get(host.SIG)}
+                       'enabled_by': None, 'request': request}
+            # A stale name here would revoke the request before the human sees it; the
+            # grant is stamped by the answerer, whose hyprctl has made its name live.
+            instance = os.environ.get(host.SIG)
+            if instance and _instance_running(instance):
+                pending['instance'] = instance
             # Carry the record across a re-request from a live grant. The
             # properties are already on, so recapturing after the confirm would
             # record what we set ourselves and `off` would restore the wrong
