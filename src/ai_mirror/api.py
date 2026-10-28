@@ -145,9 +145,13 @@ def doctor() -> dict:
     except MirrorError:
         missing.append('ai-mirror-input')
     report = {'missing': missing}
+    before = os.environ.get('HYPRLAND_INSTANCE_SIGNATURE')
     try:
         host.focused_address()
         report['compositor'] = 'reachable'
+        after = os.environ.get('HYPRLAND_INSTANCE_SIGNATURE')
+        if after != before:
+            report['resolved'] = {'from': before, 'to': after}
     except (MirrorError, RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
         unset = [name for name in SESSION_VARS if not os.environ.get(name)]
         report['compositor'] = str(exc)
@@ -155,6 +159,10 @@ def doctor() -> dict:
             report['unset'] = unset
             report['hint'] = ('this shell has no desktop session; export ' + ', '.join(unset) +
                               ' from the running one (see demo/rz for a worked example)')
+        if before:
+            report['stale'] = before
+            report['hint'] = ('Hyprland restarted after this process started; it now finds the '
+                              'running instance itself. If this persists, restart the MCP server')
     return {'ok': not missing and report['compositor'] == 'reachable', **report}
 
 
