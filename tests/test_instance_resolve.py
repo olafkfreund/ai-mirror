@@ -222,6 +222,9 @@ class Grants(Base):
             with self.assertRaises(control.MirrorError):
                 grant()
         self.assertNotEqual(control.read_state().get('owner'), 'agent')
+        # #85: the trail must not claim a grant that did not happen
+        events = [one['event'] for one in control.read_audit(0)['entries']]
+        self.assertNotIn('confirmed', events)
 
     def test_a_missing_lock_file_counts_as_not_running(self):
         self.granted_under('A')
