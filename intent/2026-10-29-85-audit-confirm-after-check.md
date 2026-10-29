@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 85
 author: olafkfreund
 ---
@@ -59,3 +59,7 @@ record, and it surfaces in two places:
    request's eventual `expired` line already shows that nobody's answer took
    effect. The alternative is a new `confirm_failed` event: more to read,
    and a new event kind for readers to learn.
+
+## Decisions (owner, 2026-10-29)
+
+1. No new event: a failed confirm leaves no audit line.
