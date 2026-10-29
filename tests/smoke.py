@@ -161,6 +161,7 @@ def check_wait():
         ns = None
         for p in candidates:
             before = {l['namespace'] for l in host.layers()}
+            wins = {w['address'] for w in host.windows()}
             try:
                 press(p['opens_with'])
                 deadline = time.monotonic() + 5
@@ -172,6 +173,12 @@ def check_wait():
                         time.sleep(0.1)
             finally:
                 hide(p['id'])
+                # A key that opened a window instead of a panel: close it, or
+                # the next press lands in it (#77).
+                for w in host.windows():
+                    if w['address'] not in wins:
+                        api.run('window', {'generation': gen, 'action': 'close',
+                                           'address': w['address']})
             if ns:
                 chosen = p
                 break
