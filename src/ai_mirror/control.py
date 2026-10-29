@@ -454,6 +454,12 @@ def _answer(request_id: str, granted: bool, *, via: str = 'cli', key: int | None
         if state.get('owner') != 'pending' or not request_id or request_id != request.get('id'):
             raise MirrorError('bad_request', 'no request with that id is waiting; ask again')
         generation = int(state.get('generation', 0)) + 1
+        if granted:  # before the audit line: a confirm that cannot grant must not read as one (#85)
+            baseline = _baseline_layers()
+            instance = os.environ.get(host.SIG)  # after the baseline: its hyprctl made this live
+            if not instance or not _instance_running(instance):
+                # an unstamped grant would outlive any restart
+                raise MirrorError('bad_request', 'cannot tell which Hyprland this grant is for; is it running?')
         audit('confirmed' if granted else 'denied', request=request_id, by=request.get('by'),
               holder=_holder_pid(request.get('server')), via=via, key=key, mods=mods,
               pid=os.getpid(), chain=_chain(), id_given=id_given)
@@ -466,11 +472,6 @@ def _answer(request_id: str, granted: bool, *, via: str = 'cli', key: int | None
         granted_state = {'owner': 'agent', 'generation': generation, 'since': stamp(),
                          'enabled_by': 'human-confirmed', 'request_by': request.get('by'),
                          'last_input': now(), 'held_by': request.get('server')}
-        baseline = _baseline_layers()
-        instance = os.environ.get(host.SIG)  # after the baseline: its hyprctl made this live
-        if not instance or not _instance_running(instance):
-            # an unstamped grant would outlive any restart
-            raise MirrorError('bad_request', 'cannot tell which Hyprland this grant is for; is it running?')
         granted_state['instance'] = instance
         if baseline is not None:
             granted_state['baseline_layers'] = baseline
