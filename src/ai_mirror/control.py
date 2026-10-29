@@ -682,31 +682,21 @@ def _forget_departed(departed: list, gone) -> list:
     return (kept + sorted(gone))[-DEPARTED_CAP:]
 
 
-def _refuse_new_surfaces(window: str) -> None:
-    """Refuse a window-addressed keystroke while a surface mapped since the grant is up.
+def _furniture(mapped: list[dict]) -> tuple[list[str], list[str]] | None:
+    """The shell's own surfaces: those mapped continuously since control was granted.
 
-    The focused window is not the whole answer to "where will this land": an
-    overlay above it can hold the keyboard while Hyprland still reports the
-    window as focused, and then the keystroke goes somewhere the result names
-    wrongly (#29). Nothing can be queried to settle it, so the honest move is
-    to refuse and say which surface is in the way -- the caller can wait for it
-    to go, or address it directly.
-
-    Surfaces that have been mapped continuously since control was granted are
-    not in the way: they are the shell the desktop always has up. Presence at
-    the instant of the grant is not enough (#39) -- the dialog the person
-    clicked to confirm is itself a surface, and so is any notification that
-    happened to be up, and treating either as furniture for the life of the
-    grant exempts exactly what this exists to refuse.
+    Returns `(still, departed)`: the baseline namespaces still mapped, and the
+    ones seen to leave (#39). `None` when the grant has no baseline to compare
+    against. Presence at the instant of the grant is not enough (#39) -- the
+    dialog the person clicked to confirm is itself a surface, and so is any
+    notification that happened to be up, and treating either as furniture for
+    the life of the grant exempts exactly what the guards exist to refuse.
+    Anything that has left is dropped from the baseline for good.
     """
     state = read_state()
     baseline = state.get('baseline_layers')
     if baseline is None:
-        return  # granted before this check existed; nothing to compare against
-    try:
-        mapped = host.layers()
-    except (RuntimeError, ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError):
-        return  # a failed query is not evidence of a surface; _require_focus already passed
+        return None  # granted before this check existed; nothing to compare against
     # Every level, not just KEYBOARD_LEVEL and above: omarchy-background sits at
     # 0, and dropping it for being below the threshold this refusal uses would
     # make the wallpaper "new" on the first check and refuse everything after.
@@ -722,6 +712,31 @@ def _refuse_new_surfaces(window: str) -> None:
             fresh = read_state()
             if fresh.get('generation') == state.get('generation'):
                 _write({**fresh, 'baseline_layers': still, 'baseline_departed': departed})
+    return still, departed
+
+
+def _refuse_new_surfaces(window: str) -> None:
+    """Refuse a window-addressed keystroke while a surface mapped since the grant is up.
+
+    The focused window is not the whole answer to "where will this land": an
+    overlay above it can hold the keyboard while Hyprland still reports the
+    window as focused, and then the keystroke goes somewhere the result names
+    wrongly (#29). Nothing can be queried to settle it, so the honest move is
+    to refuse and say which surface is in the way -- the caller can wait for it
+    to go, or address it directly.
+
+    Surfaces that have been mapped continuously since control was granted are
+    not in the way (see `_furniture`): they are the shell the desktop always
+    has up.
+    """
+    try:
+        mapped = host.layers()
+    except (RuntimeError, ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError):
+        return  # a failed query is not evidence of a surface; _require_focus already passed
+    furniture = _furniture(mapped)
+    if furniture is None:
+        return
+    still, departed = furniture
     new = [one for one in mapped
            if one.get('level', 0) >= KEYBOARD_LEVEL and str(one.get('namespace') or '') not in still]
     if new:
