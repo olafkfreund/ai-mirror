@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 83
 intent: intent/2026-10-29-83-layer-furniture-rivals.md
 ---
