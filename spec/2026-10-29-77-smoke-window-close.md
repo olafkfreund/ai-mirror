@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 77
 intent: intent/2026-10-29-77-smoke-window-close.md
 ---
