@@ -199,8 +199,10 @@ mapped (#29).
 **Do:** open it, call `windows`, pass its address from `layers` as `window`.
 Accepted when it is topmost, on any monitor; a still-focused window is named in
 the note, since keys go there if the surface does not take them. Refused while
-another surface is at the same level or above (a notification over a menu):
-wait and retry.
+another surface is above it, or at its level and not part of the desktop since
+the grant (a notification that popped up over a menu): wait and retry. Surfaces
+mapped the whole time since the grant (the shell's notification host,
+accent-hold) are furniture and don't block at the same level (#83).
 
 **Typing at a *window*** is refused while a level 2+ surface outside the exempt
 set is up: it may hold the keyboard, and naming the window as destination then

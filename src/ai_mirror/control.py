@@ -776,13 +776,23 @@ def _require_layer(layer: dict, layers: list[dict]) -> str | None:
     window that still holds focus is no longer a refusal -- it is returned,
     so the result can name it as where these keys land if the surface does
     not take them. Delivered is still not accepted.
+
+    Same-level furniture (#39's definition, see `_furniture`) is not a rival:
+    it is the shell's own always-mapped surface, such as the notification host,
+    and cannot be a newcomer that took the keyboard. Furniture above still is
+    one (#83).
     """
     try:
         focused = host.focused_address()
     except (RuntimeError, ValueError, OSError, subprocess.SubprocessError) as exc:
         raise MirrorError('unavailable', f'could not read which window has focus: {exc}') from None
+    furniture = _furniture(layers)
     rivals = [other for other in layers
-              if other['address'] != layer['address'] and other['level'] >= layer['level']]
+              if other['address'] != layer['address']
+              and (other['level'] > layer['level']
+                   or (other['level'] == layer['level']
+                       and (furniture is None
+                            or str(other.get('namespace') or '') not in furniture[0])))]
     if rivals:
         names = ', '.join(f'{r["namespace"] or "?"} ({r["address"]})' for r in rivals)
         raise MirrorError('wrong_target',
