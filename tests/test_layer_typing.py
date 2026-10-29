@@ -184,6 +184,53 @@ class TypingIntoASurface(Base):
         self.assertEqual([line for line in helper.sent if line != 'C'], [])
 
 
+class TypingBesideFurniture(Base):
+    """#83: a same-level surface mapped since the grant (the notification host) is furniture."""
+
+    NOTIFY = layer(TOAST, 'omarchy-notifications', 3)
+
+    def setUp(self):
+        super().setUp()
+        with patch.object(host, 'layers', return_value=FURNITURE + [self.NOTIFY]):
+            self.granted = grant()
+
+    def run_on(self, layers, lines=('T hi',), target=PANEL):
+        helper = FakeHelper()
+        with patch.object(host, 'layers', return_value=layers), \
+             patch.object(host, 'focused_address', return_value=None):
+            control.run_batch(list(lines), self.granted['generation'], helper, window=target)
+        return helper
+
+    def test_same_level_furniture_does_not_block(self):
+        self.assertEqual(self.run_on(OPEN + [self.NOTIFY]).sent, ['T hi'])
+
+    def test_a_newcomer_beside_furniture_still_blocks_and_only_it_is_named(self):
+        with self.assertRaises(MirrorError) as caught:
+            self.run_on(OPEN + [self.NOTIFY, layer('0x5efa93100000', 'osd', 3)])
+        self.assertEqual(caught.exception.code, 'wrong_target')
+        self.assertIn('osd', str(caught.exception))
+        self.assertNotIn('omarchy-notifications', str(caught.exception))
+
+    def test_furniture_that_left_and_came_back_blocks(self):
+        self.assertEqual(self.run_on(OPEN).sent, ['T hi'])  # records the departure
+        with self.assertRaises(MirrorError) as caught:
+            self.run_on(OPEN + [self.NOTIFY])
+        self.assertEqual(caught.exception.code, 'wrong_target')
+        self.assertIn('omarchy-notifications', str(caught.exception))
+
+    def test_furniture_above_the_target_blocks(self):
+        with self.assertRaises(MirrorError) as caught:
+            self.run_on(FURNITURE + [layer(PANEL, 'launcher', 2), self.NOTIFY])
+        self.assertEqual(caught.exception.code, 'wrong_target')
+
+    def test_without_a_baseline_every_same_level_surface_blocks(self):
+        with patch.object(host, 'layers', side_effect=RuntimeError('boom')):
+            self.granted = grant()
+        with self.assertRaises(MirrorError) as caught:
+            self.run_on(OPEN + [self.NOTIFY])
+        self.assertEqual(caught.exception.code, 'wrong_target')
+
+
 class ReleaseAfterTargetCloses(Base):
     """#68: a key-up whose key-down landed may follow the target's closing."""
 
