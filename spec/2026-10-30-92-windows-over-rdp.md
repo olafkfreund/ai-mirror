@@ -6,192 +6,187 @@ intent: intent/2026-10-30-92-windows-over-rdp.md
 
 # Spec: drive a Windows PC through an RDP window
 
+## Measured (2026-10-30, before design)
+
+Test bed: libvirt `win11` (Windows 11, local account `rdptest`, keyboard
+ENG US) at `192.168.122.172`, reached from this desktop with
+`xfreerdp /v:… /u:rdptest /cert:tofu /dynamic-resolution +clipboard
+[/kbd:unicode:on] /kbd:pipe:…` (FreeRDP 3.32.2, XWayland). Window class
+`xfreerdp`. Every result read back byte for byte: Ctrl+A, Ctrl+C in
+Notepad, then `clipboard read`.
+
+**M1 typing** — test string `abc ABC 123 {}[]()<>;:'"\|/~ äöå → 😀 xAy`:
+
+| Route | Result |
+|---|---|
+| `type` today (`T` lines) | ✗ `1231453678390-3=qwertyui2op[]as3dfg3h3j` — every character is the next key in physical order. FreeRDP loads its key map once at start (`load_map_from_xkbfile`) and sends scancodes for keycodes; the throwaway keymap never reaches it. |
+| `type` + `/kbd:unicode:on` | ✗ same garbage. |
+| `/kbd:pipe` (Unicode events) | ✗ intermittent: a character is replaced by its successor (`abc`→`bbc`, ` xAy`→` AAy`), a pipe newline does nothing, one long write lost its tail. |
+| `clipboard` write + `key CTRL V` | ✓ 33/33 pastes exact, including indentation, `{}[]`, `äöå`, `→`, `😀`, with no delay between write and paste — once the bug below is fixed. |
+| `key` (Enter, Ctrl+A/C/V/End, Alt+F4, Ctrl+Esc) | ✓ all as expected. |
+
+**Clipboard bug found, not RDP-specific:** `api.py:242` runs `wl-copy`
+without `--type`, so wl-copy sniffs the content. `d: …` was offered as
+`application/x-coff` with no text target; Windows (and any local app) then
+pastes the previous clipboard or nothing. `wl-copy --type
+'text/plain;charset=utf-8'` restores `UTF8_STRING`/`TEXT`/`STRING`; the
+failing text then pasted exactly.
+
+**M2 OCR** — Start menu, Windows at 100 % scale, 24 known labels, a hit is
+a box centre within 30 px of the label:
+
+| Engine | Full screen 2560×1440 | Start-menu crop 840×880 |
+|---|---|---|
+| tesseract 5.5.3, 1× | 11/24, 1.2 s | 0.45 s |
+| tesseract, 2× upscale | 18/24, 8.6 s | — |
+| RapidOCR 3.9.2 (PP-OCRv6, onnxruntime CPU) | 22/24, 2.0 s | all 24 read, 0.65 s (3 runs); misreads `Clodk`, `Noetad`, `Fille Explorer` |
+| ocrs 0.12.2 | does not build in nixpkgs (`rten-gemm`: AVX-512 intrinsic signature mismatch) | — |
+
+Timings on this 128-thread host; slower machines will be slower.
+
+**M3 clicks** — 12/12 clicks from screenshot frames and 1/1 from a RapidOCR
+box centre (`Calculator`, opened) landed on the intended control.
+Coordinates need no mapping.
+
 ## Design
 
-Keep the architecture: the human opens a FreeRDP window on this desktop and
-ai-mirror drives that window like any other. Nothing runs on Windows. Three
-changes, each decided by a measurement (Verification, M1–M3) before it is
-built, and each dropped if the measurement says the existing path already
-works.
+Keep the architecture: the human opens a FreeRDP window; ai-mirror drives it
+like any other window. Nothing runs on Windows. The measurements cut the
+earlier design down to three changes:
 
 ```
-agent ──ocr / screenshot──▶ grim, RDP window region ──▶ boxes in global px
-agent ──input key/click──▶ helper (wlr virtual input) ─┐
-agent ──input type──▶ FreeRDP /kbd:pipe (Unicode) ─────┼─▶ xfreerdp ─▶ Windows
-agent ──clipboard write + key ctrl+v──▶ +clipboard ────┘
-                   all of it behind owner + generation, per line
+agent ──ocr {window}──▶ grim crop ──▶ RapidOCR ──▶ lines + boxes (global px)
+agent ──input click/key──▶ helper ──▶ xfreerdp ──▶ Windows       (works today)
+agent ──clipboard write──▶ wl-copy --type text/plain ──▶ +clipboard
+agent ──input key CTRL V──▶ paste                                 (works today)
+agent ──input type──▶ refused for RDP windows, with the paste recipe
 ```
 
-### 1. Reading: an `ocr` tool
+### 1. Fix `clipboard` write's type (`api.py:242`)
 
-`ocr` is to pixels what `a11y_find` is to AT-SPI: text on screen with boxes
-the agent can click, a few hundred bytes instead of an image.
+`['wl-copy']` → `['wl-copy', '--type', 'text/plain;charset=utf-8']`. The
+tool already promises "the clipboard as text"; this makes it so for every
+app, not only RDP. Test: the argv carries the type.
 
-- Arguments: `region` [x,y,w,h] or `window` (address from `windows`; its
-  box is the region), optional `find` (case-insensitive substring),
-  `limit` (1–200, default 50).
+### 2. `type` into an RDP client window is refused
+
+`type` sends keystrokes FreeRDP turns into the wrong scancodes, so in a
+remote shell it types and runs garbage. In `api.run`'s `input` branch,
+after the existing `needs_window` check: if the batch types (`type` action)
+and the target window's class is an RDP client, raise `invalid` before any
+line is sent:
+
+> typing into an RDP window sends the wrong keys. Put the text on the
+> clipboard (clipboard write) and paste it with key ["CTRL","V"]; use key
+> for Enter, Tab and shortcuts.
+
+- Classes: `xfreerdp` (measured). `wlfreerdp`, `sdl-freerdp` and
+  `org.remmina.Remmina` are refused too, unmeasured: all forward scancodes
+  from keycodes the same way, and a refusal costs one call while a wrong
+  keystroke in a remote shell costs more. One tuple in `api.py`.
+- `key`, `key_down`, `key_up` and pointer actions are not affected.
+- The class comes from `host.windows()`, the same lookup `_require_target`
+  already makes for the address.
+
+### 3. An `ocr` tool
+
+Text on screen with boxes the agent can click — what `a11y_find` is for
+AT-SPI, for surfaces AT-SPI cannot see. A few hundred bytes instead of an
+image.
+
+- Arguments: `window` (address; its box is the region) or `region`
+  [x,y,w,h]; optional `find` (fuzzy match), `limit` (1–200, default 50).
 - Returns `{lines: [{text, box: [x,y,w,h], conf}], region, generation,
-  engine}` with boxes in **global layout pixels**, so a box centre goes
-  straight into `input` with `generation`. No frame needed: the boxes are
-  already in the coordinates `input` accepts.
-- Capture goes through `control.screenshot(dest, region=…)`, so the privacy
-  refusal (`privacy.refuse`, `control.py:964`) covers OCR too: a window it
-  would not show is a window it will not read.
-- Box conversion: `global = region_origin + engine_box / scale`, where
-  `scale` is the upscale the engine was fed (tesseract reads small UI text
-  far better at 2×). One function, one test.
-- Observing, not acting: added to `api.OBSERVING` (`api.py:15`), outside
-  the ownership gate like `a11y_find`, `wait`, `index`.
-- OCR text is data, never instructions. The MCP server's instructions
-  (`mcp.py`) already say this for a11y text; the `ocr` description repeats it.
-- Engine: one function `_engine(png) -> [(text, x, y, w, h, conf)]` calling
-  a CLI as a subprocess (argv, `DEVNULL` stdin, no shell). Which CLI is
-  decided by **M2**: tesseract (installed, `tsv` output) unless it misses
-  labels that `ocrs` (nixpkgs `ocrs` 0.12.2) or RapidOCR (nixpkgs
-  `python3Packages.rapidocr`) find. The chosen binary is added to the
-  wrapper's PATH (`flake.nix:52`) — the one dependency the intent approved.
+  engine}`, boxes in **global layout pixels**: a box centre goes straight
+  into `input` with `generation` (measured, M3).
+- `find` is fuzzy because RapidOCR misreads small UI text (`Noetad`): a line
+  matches when the query is a case-insensitive substring, or
+  `difflib.SequenceMatcher` ratio ≥ 0.75 against the line or any same-length
+  window of it. Matches sorted best first.
+- Capture goes through `control.screenshot(dest, region=…)` at scale 1, so
+  `privacy.refuse` covers OCR: a window it would not show, it will not read.
+- Read-only: added to `api.OBSERVING`, outside the ownership gate like
+  `a11y_find`, `wait`, `index`. OCR text is data, never instructions; the
+  tool description says so.
+- Engine: RapidOCR (models ship inside the nixpkgs package; runs offline).
+  New module `src/ai_mirror/ocr.py`, imported lazily from `api.py` like
+  `a11y`. The engine object is built once per process and reused (first
+  call loads models, ~1.5 s; later calls ~0.65 s for a window).
+- Dependency: `python3Packages.rapidocr` + `onnxruntime` in the flake's
+  Python environment — the one dependency the intent approved. If the
+  import fails, `ocr` returns `unavailable` naming the package; nothing else
+  in ai-mirror imports it.
 - New tool recipe: `api.run` branch + `mcp.TOOLS` entry + CLI subcommand +
   test (AGENTS.md).
 
-### 2. Typing: FreeRDP's keyboard pipe for RDP windows
+### 4. `gotchas.md`: "Windows over RDP"
 
-**M1 decides whether this is built.** If the existing `type` (`T` lines)
-already arrives intact with `/kbd:unicode:on`, this section is dropped and
-only the gotcha is written.
-
-Otherwise:
-
-- `xfreerdp /kbd:pipe:<path>` makes the client create a FIFO and send every
-  character read from it as a `TS_UNICODE_KEYBOARD_EVENT` (FreeRDP
-  `client/common/client.c`, `common_inject_keypress`). No keymap, no
-  scancode guess, any Windows layout.
-- **Finding the pipe:** for `input` with `window` set, `api` looks up the
-  window's `pid` and `class` (`host.windows()`). If the class is a FreeRDP
-  client (`xfreerdp`/`wlfreerdp`, exact strings measured in M1), read
-  `/proc/<pid>/cmdline`, take the `pipe:` value of the `/kbd:` argument,
-  and accept it only if `os.stat` says it is a FIFO owned by this uid.
-  The cmdline also holds `/p:<password>`: it is parsed in memory and never
-  logged, returned or put in an error.
-- **Routing:** `encode` stays as is. After it, `api` rewrites each `T <text>`
-  line into `R <chunk>` lines; newline and tab already encode as `P` key
-  taps (`input.py:136-139`) and stay on the helper, so Enter is a real key.
-- **Chunks:** each `R` chunk is at most 60 UTF-8 bytes and whole code points.
-  FreeRDP reads 63 bytes at a time and fails the whole read if a character
-  is split across it (`ConvertUtf8NToWChar`), which stops its pipe thread.
-- **Pacing and the kill switch:** `run_batch` handles `R` lines by writing
-  the chunk to the FIFO (`O_WRONLY|O_NONBLOCK`; `ENXIO` means no reader:
-  `unavailable`), then sleeping `UTF-16 units × 10 ms + 20 ms`, FreeRDP's
-  own rate. The owner and generation re-read before every line therefore
-  happens at most one chunk (~0.6 s) after the last one, and nothing is
-  queued in the FIFO beyond that chunk. SIGUSR1 sets the abort that the
-  loop already checks. The `C` release on failure still goes to the helper.
-- **A FreeRDP window without a pipe** (or Remmina, which has no such
-  option): `type` into it is refused with `invalid`, naming the two ways
-  that work — relaunch with `/kbd:pipe:`, or `clipboard` write plus
-  `key ctrl+v` — instead of typing characters that would arrive wrong.
-  Only if M1 shows `T` is wrong over RDP.
-- **Guard:** the FIFO write is a seam that changes the world outside the
-  process. It raises `guard.Blocked` while armed, on the innermost call
-  (the `os.write`), like `Helper.cmd`.
-
-### 3. Pasting code: documented, no code
-
-`clipboard` write (gated, `api.py:229`) then `input key ["CTRL","V"]` already
-exists. FreeRDP forwards the Wayland clipboard with `+clipboard` (on by
-default). Pasting skips editor auto-close, auto-indent and per-key cost, so
-the gotcha says: code and anything over one line goes by paste; `type` is
-for short fields.
-
-### 4. Coordinates: no code
-
-The RDP window shows the remote desktop and the client maps local pointer
-positions back to remote ones, scaled or not. A point in global pixels on
-the RDP window is therefore the right point to click, whether it came from a
-screenshot frame or an `ocr` box. The gotcha says: do not resize the window
-between observing and clicking; `/dynamic-resolution` keeps it 1:1.
-
-### 5. `gotchas.md`: a "Windows over RDP" section
-
-Launch line, which flags matter and why, paste for code, `type` via pipe,
-`ocr` before screenshots, the Ctrl+Alt+End equivalent of Ctrl+Alt+Del, and
-that `wait` cannot see inside the session (observe again instead). Served by
-`ai-mirror index` like every other gotcha.
+Served by `ai-mirror index`. Launch line and why each flag
+(`+clipboard` for paste, `/dynamic-resolution` keeps the window 1:1); text
+by paste only, never `type`; `ocr {window}` before screenshots; copy back
+with Ctrl+A, Ctrl+C, `clipboard read` to verify; Ctrl+Esc for Start
+(Super may be taken by Hyprland); Ctrl+Alt+End for Ctrl+Alt+Del; `wait`
+cannot see inside the session, observe again instead; a Microsoft-account
+login fails over NLA with Kerberos errors — use a local account or
+`MicrosoftAccount\…`.
 
 ## Alternatives rejected
 
+- **`/kbd:pipe` typing** (previous draft). Measured unreliable: characters
+  replaced by their successor, newline ignored, tail lost. Also a second
+  input path outside the helper. Dropped with its chunking and pacing.
+- **Fix `type` for RDP with a keymap delay or `/kbd:unicode:on`.** FreeRDP
+  never reads the uploaded keymap; measured garbage with and without the
+  flag.
+- **Make `type` paste silently into RDP windows.** One call instead of two,
+  but it overwrites the human's clipboard behind their back and hides a
+  second channel inside `input`. The refusal names the two calls instead.
+  Easy to add later if two calls prove costly.
+- **Type ASCII through real key codes (`P` taps with Shift).** Works only
+  when the Windows layout matches a table we would hard-code, and cannot do
+  `äöå → 😀`. Paste covers all of it.
+- **tesseract.** Already installed, but 11/24 at 1× and 18/24 at 2× taking
+  8.6 s; RapidOCR found 22/24 in 2.0 s on the same screen.
+- **ocrs.** Does not build in nixpkgs today.
 - **A headless RDP client ai-mirror owns** (IronRDP, `agent-rdp`,
-  `ironrdp-agent`, a libfreerdp helper). Deterministic input and exact frames,
-  but a second input path outside the helper, a new viewer for the human,
-  and the bar and kill switch rebuilt around it. Revisit only if M1–M3 show
-  the visible window is the limit.
-- **Use `agent-rdp` as is.** No visible session; its UI Automation mode
-  injects PowerShell into Windows, which the intent forbids.
-- **OmniParser v2, UI-TARS, OS-Atlas, UGround.** Find icons OCR misses, but
-  need a GPU for sub-second steps and add models to the closure. The agent's
-  own reading of a screenshot covers icons.
-- **Keep the throwaway-keymap `type` and add a delay** (agy's suggestion).
-  It relies on the client reading keysyms; FreeRDP reads keycodes unless
-  `/kbd:unicode:on`, and even then it races keymap changes. The pipe never
-  touches the keymap. M1 measures it before this is final.
-- **Write the whole text to the pipe at once.** FreeRDP would keep typing
-  for seconds after the kill switch, out of reach of the gate.
-- **A pixel-diff `wait --changed`.** Useful, not needed for the outcome:
-  the agent observes again. Left for a later issue.
-- **Guacamole as a bridge.** A daemon, a web stack and a protocol for one
-  session.
+  `ironrdp-agent`). Not needed: clicks, keys and paste all work through the
+  visible window. A second input path and viewer would rebuild the gate.
+- **OmniParser v2, UI-TARS and other grounding models.** GPU-sized; the
+  agent's own reading of a screenshot covers icons.
+- **A pixel-diff `wait --changed`.** Not needed for the outcome; later issue.
 
 ## Risks
 
-- **Pipe write outside the helper.** The first input path that is not a
-  helper line. Mitigated by putting it inside `run_batch`'s per-line loop,
-  chunked and paced, with a guard seam and tests that a state change between
-  chunks stops the next one.
-- **Password in `/proc/<pid>/cmdline`.** Read to find the pipe; a leak in an
-  error or the audit log would expose it. Tests assert no cmdline text
-  appears in any result or exception.
-- **Unicode events in some Windows apps.** Console hosts and shortcut
-  handling can treat `VK_PACKET` differently (FreeRDP #10591). M1 tests
-  Notepad, PowerShell and a code editor.
-- **OCR accuracy on ClearType text.** Unknown until M2. The screenshot stays
-  the fallback, so a miss costs a step, not a wrong click.
-- **Clipboard redirection disabled by policy** on some Windows hosts.
-  Then code goes through `type`; the gotcha says so.
-- **Hosts:** only this desktop's `ai-mirror` and the `win11` libvirt VM used
-  for testing. Enabling Remote Desktop inside the test VM is a Windows
-  setting, not an install, and is fixture setup, not product behaviour.
+- **RapidOCR closure size and CPU.** onnxruntime is large, and 0.65 s per
+  window on 128 threads will be slower on smaller hosts. Mitigated by
+  cropping to the window, reusing the engine, and leaving `screenshot` as
+  the fallback. The plan records the closure size.
+- **OCR misreads.** Fuzzy `find` absorbs single-letter errors; a label it
+  cannot match costs a screenshot, not a wrong click, because the agent
+  clicks a returned box, never a guessed one.
+- **Refusing `type` breaks a caller typing into an RDP window today.** That
+  caller was already sending garbage; the error tells it what works.
+- **Clipboard redirection disabled by policy** on some Windows hosts. Then
+  there is no reliable text path; the gotcha says so rather than offering
+  `type`.
+- **Overwriting the human's clipboard** by `clipboard` write is existing,
+  gated behaviour; unchanged.
+- **Hosts:** this desktop's `ai-mirror` and the `win11` test VM only.
 
 ## Verification
 
-Test bed: `win11` on `qemu:///system` (default NAT network), Remote Desktop
-enabled in Windows settings, reached with
-`xfreerdp /v:<vm-ip> /u:<user> /dynamic-resolution +clipboard /kbd:pipe:$XDG_RUNTIME_DIR/ai-mirror/rdp.kbd`
-from this desktop.
-
-Measurements, before code (results go in the plan):
-
-- **M1 typing.** In Notepad, PowerShell and one code editor, send
-  `abc ABC 123 {}[]()<>;:'"\|/~ äöå → 😀` plus a newline by: (a) `type` as it is
-  now, (b) `type` with `/kbd:unicode:on`, (c) bytes written to the pipe,
-  (d) clipboard + Ctrl+V. Read each back with Ctrl+A, Ctrl+C, `clipboard
-  read`; compare byte for byte. Also record the FreeRDP window classes.
-- **M2 OCR.** Screenshots of Notepad, Settings, Explorer and a dialog at
-  Windows scale 100 %, 125 %, 150 %. For tesseract (1× and 2×), `ocrs` and
-  RapidOCR: share of 20 known labels found, box centre inside the control,
-  wall time. Pick the cheapest engine that finds ≥ 90 % at 100 %.
-- **M3 clicks.** Click the centre of 10 `ocr` boxes (buttons, menu items)
-  and confirm each by screenshot.
-
-Done when:
-
-- `python3 -m unittest discover -s tests -v` passes, including new tests:
-  OCR box conversion and `find` filter on a fixture TSV; pipe discovery from
-  a fake cmdline (pipe present, absent, not a FIFO, other uid); chunking on
-  code-point boundaries ≤ 60 bytes; a generation change between chunks stops
-  the next write and sends `C`; the FIFO write raises `guard.Blocked` while
-  armed; no cmdline text in any result or error; `ocr` in `mcp.SPECS` and in
-  `OBSERVING`.
-- `nix flake check` and `nix build .#ai-mirror` pass.
-- On the test bed, an agent using only ai-mirror opens Notepad by `ocr` +
-  click, types a line with `type`, pastes a 30-line code block, and the
-  read-back matches byte for byte; the kill switch during a long `type`
-  stops typing within one chunk.
+- `python3 -m unittest discover -s tests -v` passes, with new tests:
+  `wl-copy` argv carries `--type text/plain;charset=utf-8`; `type` to a
+  window of class `xfreerdp` (stubbed `host.windows`) raises `invalid` and
+  sends no line, while `key` to it and `type` to `foot` do not; `ocr` box
+  conversion from a stubbed engine result to global pixels with a region
+  offset; fuzzy `find` matches `Notepad` against `Noetad` and does not match
+  `Paint`; `ocr` returns `unavailable` when the import fails; `ocr` is in
+  `mcp.SPECS` and `api.OBSERVING`; the screenshot privacy refusal also
+  refuses `ocr`.
+- `nix flake check` and `nix build .#ai-mirror` pass; the plan records the
+  closure size change.
+- On the test bed, an agent using only ai-mirror: `ocr {window, find:
+  "Notepad"}` from the open Start menu, clicks the box, pastes the M1 test
+  string and a 30-line code block, and the read-back matches byte for byte;
+  `type` into the RDP window is refused with the paste recipe.
