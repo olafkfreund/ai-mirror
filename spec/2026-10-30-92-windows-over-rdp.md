@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 92
 intent: intent/2026-10-30-92-windows-over-rdp.md
 ---
