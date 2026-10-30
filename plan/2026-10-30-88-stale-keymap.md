@@ -8,15 +8,20 @@ spec: spec/2026-10-30-88-stale-keymap.md
 
 > **Correction, found while implementing (2026-10-30).** The intent and spec
 > blame a `std::string_view` in `Seat.cpp:379`. That is wrong:
-> `m_lastKeymap` is a `std::string` (`Seat.hpp:137`). The cause is that
-> Hyprland forwards a keyboard's keymap change only when that keyboard is the
-> seat's main one (`InputManager.cpp:1165-1167`), the main one is the most
-> recently created keyboard, and key events do not change it. Every MCP
-> server starts its own helper, so once a newer keyboard exists, the helper's
-> keymap switches never reach the window while its keys still do. p620's
-> desktop lists 14 keyboards, one `main: yes`. The design and the
-> measurements are unchanged: a throwaway keyboard becomes main when it is
-> created, so its keymap is sent.
+> `m_lastKeymap` is a `std::string` (`Seat.hpp:137`). A second explanation
+> (keymap changes forwarded only from the main keyboard, which key events
+> do not change) is wrong too: key and modifier events make their keyboard
+> main (`InputManager.cpp:1743`, `:1784`). The mechanism inside Hyprland is
+> not known. What is measured stands: foot's own `WAYLAND_DEBUG` trace shows
+> the stock helper's switch back to the default map never arriving before
+> `RETURN`, and the design below fixes every case measured. The design is
+> unchanged.
+>
+> **Deviation, from review (2026-10-30), step 1.** `send_keymap` returns
+> whether it uploaded. If it did not, `T` destroys `tk`, drops the map and
+> answers `ERR keymap failed`: a keyboard without a keymap would be a
+> protocol error on its next request and end the helper as "compositor
+> gone".
 
 Approved decisions, carried over from the spec:
 

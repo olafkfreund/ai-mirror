@@ -71,7 +71,7 @@ static uint32_t now_ms(void) {
 	return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
-static void send_keymap(struct zwp_virtual_keyboard_v1 *to, struct xkb_keymap *map) {
+static bool send_keymap(struct zwp_virtual_keyboard_v1 *to, struct xkb_keymap *map) {
 	const char *str = xkb_keymap_get_as_string(map, XKB_KEYMAP_USE_ORIGINAL_FORMAT);
 	if (!str) {
 		str = default_map_str;
@@ -79,14 +79,15 @@ static void send_keymap(struct zwp_virtual_keyboard_v1 *to, struct xkb_keymap *m
 	size_t len = strlen(str) + 1;
 	int fd = memfd_create("ai-mirror-keymap", MFD_CLOEXEC);
 	if (fd < 0) {
-		return;
+		return false;
 	}
 	if (write(fd, str, len) != (ssize_t)len) {
 		close(fd);
-		return;
+		return false;
 	}
 	zwp_virtual_keyboard_v1_keymap(to, XKB_KEYMAP_FORMAT_TEXT_V1, fd, (uint32_t)len);
 	close(fd);
+	return true;
 }
 
 static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
@@ -365,7 +366,14 @@ static void handle_line(char *line) {
 			 * change on an existing keyboard, so none ever changes (#88). */
 			struct zwp_virtual_keyboard_v1 *tk =
 				zwp_virtual_keyboard_manager_v1_create_virtual_keyboard(kbd_mgr, seat);
-			send_keymap(tk, map);
+			/* A keyboard without a keymap is a protocol error on its next
+			 * request, which would end the helper as "compositor gone". */
+			if (!send_keymap(tk, map)) {
+				zwp_virtual_keyboard_v1_destroy(tk);
+				xkb_keymap_unref(map);
+				printf("ERR keymap failed\n");
+				return;
+			}
 			zwp_virtual_keyboard_v1_modifiers(tk, 0, 0, 0, 0);
 			roundtrip_or_die();
 			for (size_t i = start; i < end; i++) {
