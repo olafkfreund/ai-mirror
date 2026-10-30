@@ -34,6 +34,8 @@
       };
 
       python = pkgs.python3.withPackages (p: [ p.pygobject3 ]);
+      # `ocr` (#92). English only: every language is 1.1 GiB, this adds ~41 MiB.
+      tesseract = pkgs.tesseract.override { enableLanguages = [ "eng" ]; };
 
       ai-mirror = pkgs.stdenv.mkDerivation {
         pname = "ai-mirror";
@@ -49,7 +51,7 @@
             --set PYTHONPATH $out/lib \
             --set AI_MIRROR_HELPER ${ai-mirror-input}/bin/ai-mirror-input \
             --prefix GI_TYPELIB_PATH : ${lib.makeSearchPath "lib/girepository-1.0" [ pkgs.at-spi2-core pkgs.glib.out pkgs.gobject-introspection ]} \
-            --suffix PATH : ${lib.makeBinPath (with pkgs; [ grim wl-clipboard systemd ])}
+            --suffix PATH : ${lib.makeBinPath (with pkgs; [ grim wl-clipboard systemd tesseract ])}
           ${licenceFiles}
         '';
         meta = { mainProgram = "ai-mirror"; license = lib.licenses.mit; };
@@ -172,7 +174,7 @@
       };
 
       devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [ python pkg-config wayland-scanner wayland libxkbcommon wlr-protocols jq grim wl-clipboard ];
+        packages = with pkgs; [ python pkg-config wayland-scanner wayland libxkbcommon wlr-protocols jq grim wl-clipboard tesseract ];
         WLR_PROTO = "${pkgs.wlr-protocols}/share/wlr-protocols/unstable/wlr-virtual-pointer-unstable-v1.xml";
         GI_TYPELIB_PATH = lib.makeSearchPath "lib/girepository-1.0" [ pkgs.at-spi2-core pkgs.glib.out pkgs.gobject-introspection ];
       };
