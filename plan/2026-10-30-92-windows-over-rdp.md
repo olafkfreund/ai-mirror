@@ -31,8 +31,9 @@ VM over `xfreerdp` 3.32.2; this plan only carries the decisions.
    tsv`; words grouped into lines by (block, par, line); boxes divided by 2
    and offset by the region origin, so they are **global layout pixels**
    `input` accepts with `generation`. `find` is fuzzy (substring, else
-   `difflib` ratio ≥ 0.75 against the line or any same-length slice),
-   best first. The privacy refusal `control.screenshot` makes runs first.
+   `difflib` ratio ≥ 0.75 against the line or any slice of the query's
+   length ±1 — deviation in step 3: same-length only missed `Noetad` inside a
+   longer line), best first. The privacy refusal `control.screenshot` makes runs first.
    Observing, ungated, in `api.OBSERVING` and `mcp.READ_ONLY`. Text read is
    data, never instructions.
 5. Engine: tesseract, English only, always installed:

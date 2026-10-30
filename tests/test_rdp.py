@@ -5,7 +5,7 @@ import sys
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from ai_mirror import api
+from ai_mirror import api, mcp, ocr
 
 from test_invariants import Base, grant
 
@@ -44,3 +44,61 @@ class RdpTyping(Base):
     def test_type_into_other_windows_is_sent(self):
         self.send('foot', {'type': 'type', 'text': 'hi'})
         self.batch.assert_called_once()
+
+
+# Two words on one line, one on another; coordinates are at 2x.
+TSV = '\n'.join(['level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext',
+                 '4\t1\t1\t1\t1\t0\t20\t40\t100\t20\t-1\t',
+                 '5\t1\t1\t1\t1\t1\t20\t40\t40\t20\t90.4\tOpen',
+                 '5\t1\t1\t1\t1\t2\t80\t44\t40\t20\t80\tNoetad',
+                 '5\t1\t1\t1\t2\t1\t20\t100\t60\t20\t95\tPaint'])
+
+
+class Ocr(Base):
+    def test_parse_groups_lines_halves_and_offsets(self):
+        lines = ocr.parse(TSV, (1000, 500))
+        self.assertEqual(lines, [{'text': 'Open Noetad', 'box': [1010, 520, 50, 12], 'conf': 85},
+                                 {'text': 'Paint', 'box': [1010, 550, 30, 10], 'conf': 95}])
+
+    def test_match_is_fuzzy_and_best_first(self):
+        lines = [{'text': t} for t in ('Paint', 'Noetad', 'Open Notepad')]
+        self.assertEqual([l['text'] for l in ocr.match(lines, 'Notepad')], ['Open Notepad', 'Noetad'])
+        self.assertEqual([l['text'] for l in ocr.match(lines, 'paint')], ['Paint'])
+        # A misread with a dropped letter, inside a longer line (#92 M2: "Noetad").
+        self.assertEqual([l['text'] for l in ocr.match([{'text': 'Open Noetad now'}], 'Notepad')],
+                         ['Open Noetad now'])
+
+    def test_read_without_tesseract_is_unavailable(self):
+        with patch.object(ocr.shutil, 'which', return_value=None):
+            with self.assertRaises(api.MirrorError) as ctx:
+                ocr.read([0, 0, 10, 10])
+        self.assertEqual(ctx.exception.code, 'unavailable')
+
+    def test_read_refuses_sensitive_before_any_capture(self):
+        with patch.object(ocr.shutil, 'which', return_value='/bin/tesseract'), \
+                patch.object(ocr.host, 'windows', return_value=[]), \
+                patch.object(ocr.host, 'visible_workspaces', return_value=[]), \
+                patch.object(ocr.privacy, 'refuse', return_value='nope'), \
+                patch.object(ocr.subprocess, 'run') as run:
+            with self.assertRaises(api.MirrorError) as ctx:
+                ocr.read([0, 0, 10, 10])
+        self.assertEqual(ctx.exception.code, 'sensitive')
+        run.assert_not_called()
+
+    def test_tool_is_registered_read_only_and_observing(self):
+        self.assertIn('ocr', mcp.SPECS)
+        self.assertIn('ocr', mcp.READ_ONLY)
+        self.assertIn('ocr', api.OBSERVING)
+
+    def test_window_becomes_its_region(self):
+        row = {'address': '0xabc', 'at': [10, 20], 'size': [300, 200]}
+        with patch.object(api.host, 'windows', return_value=[row]), \
+                patch.object(ocr, 'read', return_value={'lines': []}) as read:
+            out = api.run('ocr', {'window': '0xabc', 'find': 'x'})
+        read.assert_called_once_with([10, 20, 300, 200], 'x', 50)
+        self.assertIn('generation', out)
+
+    def test_needs_exactly_one_of_window_or_region(self):
+        for args in ({}, {'window': '0xabc', 'region': [0, 0, 1, 1]}, {'region': [0, 0, 0, 1]}, {'region': 'x'}):
+            with self.assertRaises(ValueError):
+                api.run('ocr', args)

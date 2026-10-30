@@ -12,7 +12,7 @@ from .input import encode, needs_window
 
 MUTATING = {'input', 'window', 'launch', 'a11y_act'}
 # Ungated reads. An agent doing any of these lights the watching mark in the bar.
-OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'wait', 'index'}
+OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'ocr', 'wait', 'index'}
 
 # FreeRDP maps ai-mirror's throwaway-keymap keycodes to the wrong scancodes (#92).
 RDP_CLIENTS = ('xfreerdp', 'wlfreerdp', 'sdl-freerdp', 'org.remmina.Remmina')
@@ -256,6 +256,21 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
         from . import a11y
         gen = control.read_state().get('generation')
         return {**a11y.find(args.get('name'), args.get('role'), args.get('app'), args.get('limit', 20)), 'generation': gen}
+    if op == 'ocr':
+        from . import ocr
+        region, window = args.get('region'), args.get('window')
+        if (region is None) == (window is None):
+            raise ValueError('give exactly one of window or region')
+        gen = control.read_state().get('generation')  # before the capture, as a11y_find does
+        if window is not None:
+            row = next((w for w in host.windows() if w['address'] == window), None)
+            if not row:
+                raise MirrorError('no_such_window', f'no window {window}; call windows')
+            region = [*row['at'], *row['size']]
+        elif (not isinstance(region, list) or len(region) != 4 or any(type(v) is not int for v in region)
+              or region[2] <= 0 or region[3] <= 0):
+            raise ValueError('region must be [x, y, width, height] in layout pixels, width and height positive')
+        return {**ocr.read(region, args.get('find'), args.get('limit', 50)), 'generation': gen}
     if op == 'wait':
         # Read-only, and outside the ownership gate for the same reason as
         # index: observing is not acting. A caller whose control was revoked
