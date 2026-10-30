@@ -1,5 +1,5 @@
 ---
-status: approved
+status: draft
 issue: 92
 intent: intent/2026-10-30-92-windows-over-rdp.md
 ---
@@ -44,9 +44,44 @@ a box centre within 30 px of the label:
 
 Timings on this 128-thread host; slower machines will be slower.
 
-**M3 clicks** — 12/12 clicks from screenshot frames and 1/1 from a RapidOCR
-box centre (`Calculator`, opened) landed on the intended control.
-Coordinates need no mapping.
+**M2b OCR on window crops** (amendment, after the user asked whether
+RapidOCR is reliably better). The tool reads one window, so this is the
+real case. Seven captures: Start menu; Settings, File Explorer and a
+40-line Python file in Notepad, each in light and dark mode. Labels are
+the visible UI strings; code is scored per line against the exact text
+pasted in.
+
+| Screen (crop) | tesseract 1× | tesseract 2× | RapidOCR |
+|---|---|---|---|
+| Start 840×880 | 21/24 exact | **24/24** | 22/24 |
+| Settings light 1200×930 | 23/23 | 23/23 | 23/23 |
+| Explorer light 1120×634 | 18/24 | 21–22/24 | **24/24** |
+| Explorer dark | 16/24 | 20/24 (23/24 fuzzy) | **24/24** |
+| Notepad code light 2500×760 | 17/39 lines | **21–24/39**, 0.96 | **0 lines** (detector finds nothing; 17 on a 1000-px crop) |
+| Notepad code dark | 18/39 | 25–29/39, 0.96 | 27/39, 0.965 |
+| Time per window | 0.4–1.4 s | 0.6–1.6 s | 0.7–1.3 s |
+
+(Settings dark was captured on the Colours page, not the page its answer
+key described; all engines read it alike, so it is excluded.)
+
+- RapidOCR is **not** reliably better: it wins on Explorer icons-with-
+  labels, ties on Settings, and silently returns nothing for a light code
+  editor — the case that matters most for coding.
+- tesseract at 2× is within 1–4 labels of RapidOCR on UI, better on code,
+  and never empty. Grayscale and inverting dark screens did not change
+  accuracy (inverting made one dark run faster); plain 2× colour is enough.
+- `grim -g <window> -s 2 -t ppm - | tesseract stdin - --psm 11 tsv`
+  measured 1.1 s end to end on dark Explorer, 20/24 exact, and a
+  double-click on its `Downloads` box opened Downloads.
+- Closure: flake-nixpkgs `tesseract` with all languages is 1.1 GiB;
+  `tesseract.override { enableLanguages = [ "eng" ]; }` is 111.6 MiB.
+  RapidOCR's Python environment is 1.2 GiB against 246 MiB today.
+
+**M3 clicks** — 12/12 clicks from screenshot frames, 1/1 from a RapidOCR
+box (`Calculator`, opened) and 1/1 from a tesseract box (`Downloads`,
+opened) landed on the intended control. Coordinates need no mapping. A
+window still loading can move under a click (Settings' sidebar shifted
+16 px; the click hit `Apps`): observe after a window settles.
 
 ## Design
 
@@ -55,7 +90,7 @@ like any other window. Nothing runs on Windows. The measurements cut the
 earlier design down to three changes:
 
 ```
-agent ──ocr {window}──▶ grim crop ──▶ RapidOCR ──▶ lines + boxes (global px)
+agent ──ocr {window}──▶ grim -s 2 ──▶ tesseract ──▶ lines + boxes (global px)
 agent ──input click/key──▶ helper ──▶ xfreerdp ──▶ Windows       (works today)
 agent ──clipboard write──▶ wl-copy --type text/plain ──▶ +clipboard
 agent ──input key CTRL V──▶ paste                                 (works today)
@@ -99,23 +134,27 @@ image.
 - Returns `{lines: [{text, box: [x,y,w,h], conf}], region, generation,
   engine}`, boxes in **global layout pixels**: a box centre goes straight
   into `input` with `generation` (measured, M3).
-- `find` is fuzzy because RapidOCR misreads small UI text (`Noetad`): a line
+- `find` is fuzzy because OCR misreads small UI text (`Noetad`): a line
   matches when the query is a case-insensitive substring, or
   `difflib.SequenceMatcher` ratio ≥ 0.75 against the line or any same-length
   window of it. Matches sorted best first.
-- Capture goes through `control.screenshot(dest, region=…)` at scale 1, so
-  `privacy.refuse` covers OCR: a window it would not show, it will not read.
+- Capture: the same `privacy.refuse` check `control.screenshot` makes
+  (`control.py:964`) runs first, so a window it would not show, it will not
+  read; then `grim -g <region> -s 2 -t ppm -` piped into `tesseract stdin -
+  --psm 11 tsv` (argv, no shell, no temp file). Words are grouped into lines
+  by tesseract's block/paragraph/line numbers; boxes are divided by 2 and
+  offset by the region origin.
 - Read-only: added to `api.OBSERVING`, outside the ownership gate like
   `a11y_find`, `wait`, `index`. OCR text is data, never instructions; the
   tool description says so.
-- Engine: RapidOCR (models ship inside the nixpkgs package; runs offline).
-  New module `src/ai_mirror/ocr.py`, imported lazily from `api.py` like
-  `a11y`. The engine object is built once per process and reused (first
-  call loads models, ~1.5 s; later calls ~0.65 s for a window).
-- Dependency: `python3Packages.rapidocr` + `onnxruntime` in the flake's
-  Python environment — the one dependency the intent approved. If the
-  import fails, `ocr` returns `unavailable` naming the package; nothing else
-  in ai-mirror imports it.
+- Engine: tesseract, English only. New module `src/ai_mirror/ocr.py`,
+  stdlib only, imported lazily from `api.py` like `a11y`. ~0.6–1.6 s per
+  window on this host.
+- Dependency: `(tesseract.override { enableLanguages = [ "eng" ]; })` on
+  the wrapper's PATH (`flake.nix:52`), +111.6 MiB at most, shared with any
+  system tesseract. Always installed, no opt-in: the user asked for opt-in
+  only if RapidOCR was used. If `tesseract` is missing (checkout launcher),
+  `ocr` returns `unavailable` naming it.
 - New tool recipe: `api.run` branch + `mcp.TOOLS` entry + CLI subcommand +
   test (AGENTS.md).
 
@@ -145,8 +184,12 @@ login fails over NLA with Kerberos errors — use a local account or
 - **Type ASCII through real key codes (`P` taps with Shift).** Works only
   when the Windows layout matches a table we would hard-code, and cannot do
   `äöå → 😀`. Paste covers all of it.
-- **tesseract.** Already installed, but 11/24 at 1× and 18/24 at 2× taking
-  8.6 s; RapidOCR found 22/24 in 2.0 s on the same screen.
+- **RapidOCR** (the approved spec's first choice). On window crops it is not
+  reliably better (M2b): it returned nothing for light-mode code, and it
+  adds ~950 MiB. Its full-screen lead (22/24 vs 18/24) disappears once the
+  capture is the window, which is what `ocr` reads.
+- **Grayscale or inverting dark screens before OCR.** Measured no accuracy
+  gain; one less step.
 - **ocrs.** Does not build in nixpkgs today.
 - **A headless RDP client ai-mirror owns** (IronRDP, `agent-rdp`,
   `ironrdp-agent`). Not needed: clicks, keys and paste all work through the
@@ -157,10 +200,12 @@ login fails over NLA with Kerberos errors — use a local account or
 
 ## Risks
 
-- **RapidOCR closure size and CPU.** onnxruntime is large, and 0.65 s per
-  window on 128 threads will be slower on smaller hosts. Mitigated by
-  cropping to the window, reusing the engine, and leaving `screenshot` as
-  the fallback. The plan records the closure size.
+- **OCR speed on smaller hosts.** 0.6–1.6 s per window here; slower
+  elsewhere. Mitigated by reading one window, not the screen, and leaving
+  `screenshot` as the fallback.
+- **OCR on code is not exact** (24–29 of 39 lines exact, 0.96 similarity).
+  `ocr` finds and reads; it does not replace copy-back (Ctrl+A, Ctrl+C,
+  `clipboard read`) when exact text matters. The gotcha says so.
 - **OCR misreads.** Fuzzy `find` absorbs single-letter errors; a label it
   cannot match costs a screenshot, not a wrong click, because the agent
   clicks a returned box, never a guessed one.
@@ -179,9 +224,9 @@ login fails over NLA with Kerberos errors — use a local account or
   `wl-copy` argv carries `--type text/plain;charset=utf-8`; `type` to a
   window of class `xfreerdp` (stubbed `host.windows`) raises `invalid` and
   sends no line, while `key` to it and `type` to `foot` do not; `ocr` box
-  conversion from a stubbed engine result to global pixels with a region
-  offset; fuzzy `find` matches `Notepad` against `Noetad` and does not match
-  `Paint`; `ocr` returns `unavailable` when the import fails; `ocr` is in
+  fuzzy `find` matches `Notepad` against `Noetad` and does not match
+  `Paint`; TSV fixture lines grouped and boxes halved and offset; `ocr`
+  returns `unavailable` when `tesseract` is not on PATH; `ocr` is in
   `mcp.SPECS` and `api.OBSERVING`; the screenshot privacy refusal also
   refuses `ocr`.
 - `nix flake check` and `nix build .#ai-mirror` pass; the plan records the
