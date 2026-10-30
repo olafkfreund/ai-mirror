@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 92
 spec: spec/2026-10-30-92-windows-over-rdp.md
 ---
