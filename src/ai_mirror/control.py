@@ -964,8 +964,8 @@ def screenshot(dest: Path, output: str | None = None, region=None, max_size=None
         monitor = host.monitor(output)
         x, y, width, height, name = monitor['x'], monitor['y'], monitor['w'], monitor['h'], monitor['name']
     # Before grim, not after: every agent-visible frame comes through here,
-    # including the one mcp.py base64s, so one check covers the surface rather
-    # than each caller remembering. The code is its own, so an agent can tell a
+    # including the one mcp.py base64s. ocr.read captures with its own grim and
+    # makes this same check; change both together. The code is its own, so an agent can tell a
     # refusal that will never succeed from a capture that merely failed.
     refusal = privacy.refuse((x, y, width, height), host.windows(),
                              host.visible_workspaces())

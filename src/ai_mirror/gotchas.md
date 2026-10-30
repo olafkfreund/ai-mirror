@@ -254,3 +254,30 @@ terminal's (measured: tmux, foot). Close that terminal and they go too.
 
 **Do:** `["uwsm-app", "--", "<app>", …]` gives each app its own scope, as
 `omarchy-launch-*` do. `launch` does not add it for you.
+
+## Windows over RDP
+
+A Windows PC is just a window to ai-mirror: clicks, `key` and paste work
+through it, and nothing runs on the Windows side (#92). Accessibility sees only
+the FreeRDP window, so use `ocr` instead.
+
+**Do:** `xfreerdp /v:<host> /u:<user> /cert:tofu /dynamic-resolution
++clipboard`. `+clipboard` is the only text path; `/dynamic-resolution` keeps
+the window 1:1 with the layout.
+
+- **Never `type` into it.** FreeRDP turns ai-mirror's keycodes into the wrong
+  scancodes (`qwertyui…`), so `input` refuses before sending anything. `clipboard`
+  write, then `key ["CTRL","V"]`.
+- **Verify exact text by copy-back** (Ctrl+A, Ctrl+C, `clipboard read`), not
+  `ocr`, which misreads.
+- **`ocr {window}` to find and click text** before taking screenshots. Observe
+  again once a window finishes loading: Settings' sidebar moved 16 px under a click.
+- **Ctrl+Esc opens Start** (Super may be Hyprland's). **Ctrl+Alt+End** is Ctrl+Alt+Del.
+- `wait` cannot see inside the session.
+- **The capture refusal cannot see inside it either.** It matches the window
+  class and title, which here are `xfreerdp` and `FreeRDP: <host>`, so a
+  password manager open in Windows is captured and read like anything else.
+- `ocr find` never guesses labels under 4 letters (`No` matched `Undo`), and
+  each match has a `score`: 1.1 and up is the text itself, below is a guess.
+- A Microsoft account fails NLA with Kerberos `Cannot find KDC for realm`: use
+  a local account.

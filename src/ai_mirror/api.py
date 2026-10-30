@@ -12,7 +12,17 @@ from .input import encode, needs_window
 
 MUTATING = {'input', 'window', 'launch', 'a11y_act'}
 # Ungated reads. An agent doing any of these lights the watching mark in the bar.
-OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'wait', 'index'}
+OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'ocr', 'wait', 'index'}
+
+
+def _rdp_client(cls) -> bool:
+    """FreeRDP maps ai-mirror's throwaway-keymap keycodes to the wrong scancodes (#92).
+
+    Substring, not a list: FreeRDP 3 also ships as xfreerdp3 and sdl3-freerdp.
+    Remmina embeds FreeRDP; its connection list is refused too, which costs a paste.
+    """
+    cls = str(cls or '').lower()
+    return 'freerdp' in cls or cls == 'org.remmina.remmina'
 
 
 def _window(args: dict, by: str = 'human') -> dict:
@@ -239,8 +249,10 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
                 raise ValueError('text must be a string up to 1 MiB')
             # wl-copy forks a daemon that serves the clipboard; it must not inherit our
             # stdout, which is the MCP JSON-RPC channel.
-            subprocess.run(['wl-copy'], input=text.encode(), stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, check=True, timeout=10)
+            # --type: without it wl-copy sniffs the content, and text like "d: x" is offered as
+            # application/x-coff with no text target, so nothing can paste it (#92).
+            subprocess.run(['wl-copy', '--type', 'text/plain;charset=utf-8'], input=text.encode(),
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=10)
             return {'ok': True}
         raise ValueError('action must be read or write')
     if op == 'a11y_tree':
@@ -251,6 +263,25 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
         from . import a11y
         gen = control.read_state().get('generation')
         return {**a11y.find(args.get('name'), args.get('role'), args.get('app'), args.get('limit', 20)), 'generation': gen}
+    if op == 'ocr':
+        from . import ocr
+        region, window = args.get('region'), args.get('window')
+        if (region is None) == (window is None):
+            raise ValueError('give exactly one of window or region')
+        gen = control.read_state().get('generation')  # before the capture, as a11y_find does
+        if window is not None:
+            row = next((w for w in host.windows() if w['address'] == window), None)
+            if not row:
+                raise MirrorError('no_such_window', f'no window {window}; call windows')
+            # A hidden window's rectangle shows whatever is on screen there instead (#92 review).
+            if str(row.get('workspace')) not in host.visible_workspaces():
+                raise MirrorError('invalid', f'window {window} is not on a visible workspace, so its '
+                                             'text cannot be read; focus it first')
+            region = [*row['at'], *row['size']]
+        elif (not isinstance(region, list) or len(region) != 4 or any(type(v) is not int for v in region)
+              or region[2] <= 0 or region[3] <= 0):
+            raise ValueError('region must be [x, y, width, height] in layout pixels, width and height positive')
+        return {**ocr.read(region, args.get('find'), args.get('limit', 50)), 'generation': gen}
     if op == 'wait':
         # Read-only, and outside the ownership gate for the same reason as
         # index: observing is not acting. A caller whose control was revoked
@@ -277,6 +308,11 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
                                              'mean -- or, for a menu, panel or launcher, of the '
                                              'surface under layers -- and pass it as window. Pointer actions do '
                                              'not need it.')
+            if needs_window(actions) and any(isinstance(a, dict) and a.get('type') == 'type' for a in actions) and any(
+                    w['address'] == window and _rdp_client(w.get('class')) for w in host.windows()):
+                raise MirrorError('invalid', 'typing into an RDP window sends the wrong keys, so nothing was '
+                                             'typed. Put the text on the clipboard (clipboard write) and paste '
+                                             'it with key ["CTRL","V"]; use key for Enter, Tab and shortcuts.')
             lines, owners = encode(actions, with_owners=True)
             return control.run_batch(lines, generation, window=window, owners=owners)
         if op == 'window':
