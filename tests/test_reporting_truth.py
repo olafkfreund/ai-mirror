@@ -116,7 +116,7 @@ class PartialDelivery(Base):
     def test_the_count_is_in_actions_too(self):
         error, lines, _ = self._run(fail_before_line=2)
         self.assertEqual(error.details['actions_total'], 3)
-        self.assertLessEqual(error.details['actions_completed'], 2)
+        self.assertEqual(error.details['actions_completed'], 2)
         self.assertIn('actions', str(error))
 
 
