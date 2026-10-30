@@ -239,8 +239,10 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
                 raise ValueError('text must be a string up to 1 MiB')
             # wl-copy forks a daemon that serves the clipboard; it must not inherit our
             # stdout, which is the MCP JSON-RPC channel.
-            subprocess.run(['wl-copy'], input=text.encode(), stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, check=True, timeout=10)
+            # --type: without it wl-copy sniffs the content, and text like "d: x" is offered as
+            # application/x-coff with no text target, so nothing can paste it (#92).
+            subprocess.run(['wl-copy', '--type', 'text/plain;charset=utf-8'], input=text.encode(),
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=10)
             return {'ok': True}
         raise ValueError('action must be read or write')
     if op == 'a11y_tree':

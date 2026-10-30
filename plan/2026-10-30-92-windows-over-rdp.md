@@ -51,7 +51,9 @@ VM over `xfreerdp` 3.32.2; this plan only carries the decisions.
    New file `tests/test_rdp.py` (class on `test_invariants.Base`): patch
    `api.subprocess.run`, call `api.run('clipboard', {'action': 'write',
    'text': 'd: x'})` and assert the argv.
-   → verify `python3 -m unittest tests.test_rdp -v`.
+   → verify `python3 -m unittest discover -s tests -p test_rdp.py -v`
+   (test files import `test_invariants` from `tests/`, so they run through
+   `discover`, not as `tests.<module>`).
    Traps: **nothing inherits the MCP stdout** — keep `DEVNULL`. Do not
    gate `clipboard` differently; the human CLI path stays ungated.
 
