@@ -14,6 +14,9 @@ MUTATING = {'input', 'window', 'launch', 'a11y_act'}
 # Ungated reads. An agent doing any of these lights the watching mark in the bar.
 OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'wait', 'index'}
 
+# FreeRDP maps ai-mirror's throwaway-keymap keycodes to the wrong scancodes (#92).
+RDP_CLIENTS = ('xfreerdp', 'wlfreerdp', 'sdl-freerdp', 'org.remmina.Remmina')
+
 
 def _window(args: dict, by: str = 'human') -> dict:
     """Read, act, confirm (#53): the dispatch returning says nothing happened."""
@@ -279,6 +282,11 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
                                              'mean -- or, for a menu, panel or launcher, of the '
                                              'surface under layers -- and pass it as window. Pointer actions do '
                                              'not need it.')
+            if needs_window(actions) and any(isinstance(a, dict) and a.get('type') == 'type' for a in actions) and any(
+                    w['address'] == window and w.get('class') in RDP_CLIENTS for w in host.windows()):
+                raise MirrorError('invalid', 'typing into an RDP window sends the wrong keys, so nothing was '
+                                             'typed. Put the text on the clipboard (clipboard write) and paste '
+                                             'it with key ["CTRL","V"]; use key for Enter, Tab and shortcuts.')
             lines, owners = encode(actions, with_owners=True)
             return control.run_batch(lines, generation, window=window, owners=owners)
         if op == 'window':
