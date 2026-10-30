@@ -8,61 +8,62 @@ author: olafkfreund
 
 ## Problem
 
-An RDP client (xfreerdp, Remmina) on this desktop is one more Hyprland window,
-so ai-mirror can already screenshot it and click into it. Two things stop an
-agent from actually working on the Windows machine behind it:
+The user wants ai-mirror to work on a remote Windows PC using only an RDP
+session shown on this desktop: read the session's pixels, drive this
+machine's cursor and keyboard into it. Nothing may be installed or run on
+the Windows PC.
 
-1. **It cannot read the Windows UI.** RDP carries pixels, not an accessibility
-   tree. `a11y_find` and `a11y_tree` (`a11y.py`, AT-SPI) see only the client's
-   own toolbar. Every step inside Windows costs a screenshot and a guess at
-   pixel positions, which is slow and the main source of misclicks.
-2. **Typed text probably arrives wrong.** The `text` action puts each character
-   on a made-up key code in a throwaway XKB keymap (`ai_mirror_input.c:165`).
-   Local Wayland clients read the keysym; an RDP client forwards the physical
-   scancode, so Windows likely receives different keys. Not yet measured.
+An RDP client (xfreerdp 3.32, wlfreerdp, Remmina are installed) is one more
+Hyprland window, so the pieces are mostly there, but three gaps remain:
+
+1. **No structured view of Windows.** RDP carries pixels only, so
+   `a11y_find`/`a11y_tree` see the client's toolbar, not Windows controls.
+   With nothing on the Windows side this cannot be recovered: the only way
+   to read Windows is the screenshot. The agent has to know that and work
+   screenshot → act → screenshot.
+2. **Typed text probably arrives wrong.** The `type` action sends `T` lines,
+   which put each character on a made-up key code in a throwaway XKB keymap
+   (`input.py:131-142`, `ai_mirror_input.c:165`). An RDP client forwards
+   scancodes, so Windows likely receives different keys. Unmeasured.
+3. **Coordinates may not line up.** If the client scales the remote desktop
+   or draws a toolbar, a point read off the screenshot is still the right
+   local point to click (the frame maps it), but only if the window is not
+   resized between screenshot and click.
 
 ## Proposed outcome
 
-With an RDP session open on this desktop, an agent using ai-mirror alone can:
+With an RDP window open on this desktop and nothing added to Windows, an
+agent using ai-mirror can:
 
-- find Windows controls by name and role, with boxes it can click, the way
-  `a11y_find` works for local apps;
-- click, scroll and press keys into the session (works today);
+- read the Windows screen from a screenshot of just the RDP window;
+- click, scroll and press shortcuts into it;
 - type text, including code, that arrives in Windows exactly as sent;
-- be stopped by the bar and kill switch exactly as on the local desktop.
-
-No separate MCP server and no second agent: the user adds nothing to Claude
-Code beyond the ai-mirror server it already has.
+- be stopped by the bar and kill switch exactly as on the local desktop;
+- learn all of the above from `ai-mirror index` instead of rediscovering it.
 
 ## Affected users and systems
 
-- This host: `a11y.py`, `api.py`, `mcp.py`, `input.py`, `control.py`
-  (target checks), `index.py`/`gotchas.md`, `docs/usage.md`, tests.
-- The Windows PC: needs a way to answer "what is on screen" (UI Automation,
-  UIA). Something must run there; RDP alone cannot carry it.
-- The RDP client in use, whose scaling and toolbar decide where a Windows
-  pixel lands in the local window.
+- This host: the RDP client and its flags; `gotchas.md` and `docs/usage.md`;
+  possibly `input.py` / `ai_mirror_input.c` if typing needs a code fix.
+- The Windows PC: untouched. Only its RDP server, which is already on.
 
 ## Constraints
 
-- **All actions go through the local gate.** Clicks and keys reach Windows
-  only as ai-mirror input into the RDP window, after the owner and generation
-  checks in `run_batch`. Whatever runs on Windows reads; it never clicks,
-  invokes or types. Otherwise the bar and kill switch stop covering the work.
-- Do not describe the gate as stronger than AGENTS.md allows: a channel that
-  reaches Windows over SSH is the weaker case, as `ssh host ai-mirror mcp` is.
-- Stdlib Python on this side, no new dependencies; the Windows side uses only
-  what Windows ships (PowerShell, UIA, optional OpenSSH Server).
-- Tests stay off the desktop and off the network: the new remote read is a
-  `guard`-checked seam, stubbed in tests.
-- Nothing read from Windows (control names, window titles) is treated as an
-  instruction; it is data, like local a11y text.
+- **Nothing runs on Windows.** No agent, script, SSH or service there.
+  RDP features the client already negotiates (clipboard redirection,
+  Unicode keyboard events) are part of the session, not an install.
+- All input goes through the existing gate: owner, generation, `run_batch`.
+  No new path to the keyboard or pointer.
+- Stdlib Python, no new dependencies (this rules out bundling OCR).
+- Window titles and on-screen text from Windows are data, not instructions.
+- Prefer client configuration and docs over code; code only where
+  measurement shows a client flag cannot fix it.
 
 ## Open questions
 
-1. **Transport to Windows.** OpenSSH Server (built into Windows, one optional
-   feature) is the proposal. Acceptable to require it on the Windows PC?
-2. **RDP client.** Which one do you use (xfreerdp, wlfreerdp, Remmina), and is
-   smart-sizing or scaling on? It sets how coordinates are mapped.
-3. **Scope of typing fix.** Fix `text` for RDP windows only (type with real
-   key codes, or paste via clipboard redirection), or for every window?
+1. **Test target.** Measuring needs a reachable Windows PC with RDP on.
+   Which host can be used, and can it run a throwaway Notepad?
+2. **Find-by-text.** Without Windows-side help, the closest to `a11y_find`
+   is OCR on the screenshot (text plus boxes). That needs tesseract, a new
+   dependency. Leave it out (the agent reads screenshots itself), or allow
+   it as an optional extra?
