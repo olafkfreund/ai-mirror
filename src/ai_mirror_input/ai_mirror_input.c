@@ -16,7 +16,9 @@
  *
  * Unicode typing generates a throwaway XKB keymap mapping printable-key codes to
  * the requested codepoints, following the approach of wtype (MIT licensed,
- * https://github.com/atx/wtype), then restores the default map.
+ * https://github.com/atx/wtype), on a throwaway keyboard per round. The
+ * persistent keyboard keeps the default map: Hyprland can miss a keymap change
+ * on an existing keyboard, which left text and the keys after it misread (#88).
  */
 
 #define _GNU_SOURCE
@@ -69,7 +71,7 @@ static uint32_t now_ms(void) {
 	return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
-static void send_keymap(struct xkb_keymap *map) {
+static void send_keymap(struct zwp_virtual_keyboard_v1 *to, struct xkb_keymap *map) {
 	const char *str = xkb_keymap_get_as_string(map, XKB_KEYMAP_USE_ORIGINAL_FORMAT);
 	if (!str) {
 		str = default_map_str;
@@ -83,7 +85,7 @@ static void send_keymap(struct xkb_keymap *map) {
 		close(fd);
 		return;
 	}
-	zwp_virtual_keyboard_v1_keymap(kbd, XKB_KEYMAP_FORMAT_TEXT_V1, fd, (uint32_t)len);
+	zwp_virtual_keyboard_v1_keymap(to, XKB_KEYMAP_FORMAT_TEXT_V1, fd, (uint32_t)len);
 	close(fd);
 }
 
@@ -356,27 +358,30 @@ static void handle_line(char *line) {
 			}
 			struct xkb_keymap *map = build_type_map(distinct, nd);
 			if (!map) {
-				send_keymap(default_map);
-				roundtrip_or_die();
 				printf("ERR keymap failed\n");
 				return;
 			}
-			send_keymap(map);
-			zwp_virtual_keyboard_v1_modifiers(kbd, 0, 0, 0, 0);
+			/* A keyboard of its own per round: Hyprland can miss a keymap
+			 * change on an existing keyboard, so none ever changes (#88). */
+			struct zwp_virtual_keyboard_v1 *tk =
+				zwp_virtual_keyboard_manager_v1_create_virtual_keyboard(kbd_mgr, seat);
+			send_keymap(tk, map);
+			zwp_virtual_keyboard_v1_modifiers(tk, 0, 0, 0, 0);
 			roundtrip_or_die();
 			for (size_t i = start; i < end; i++) {
 				uint32_t t = now_ms();
-				zwp_virtual_keyboard_v1_key(kbd, t, TYPE_CODES[slot[i]], 1);
-				zwp_virtual_keyboard_v1_key(kbd, t, TYPE_CODES[slot[i]], 0);
+				zwp_virtual_keyboard_v1_key(tk, t, TYPE_CODES[slot[i]], 1);
+				zwp_virtual_keyboard_v1_key(tk, t, TYPE_CODES[slot[i]], 0);
 			}
 			wl_display_flush(display);
-			/* Keys must be dispatched under the type map before restoring
-			 * the default map; quitting ahead of the server drops them. */
+			/* Keys must be dispatched before the keyboard goes; destroying
+			 * it ahead of the server drops them. */
+			roundtrip_or_die();
+			zwp_virtual_keyboard_v1_destroy(tk);
 			roundtrip_or_die();
 			xkb_keymap_unref(map);
 			start = end;
 		}
-		send_keymap(default_map);
 		send_modifiers();
 		wl_display_flush(display);
 		roundtrip_or_die();
@@ -443,7 +448,7 @@ int main(void) {
 	}
 	default_map_str = strdup(xkb_keymap_get_as_string(default_map,
 			XKB_KEYMAP_USE_ORIGINAL_FORMAT));
-	send_keymap(default_map);
+	send_keymap(kbd, default_map);
 	wl_display_roundtrip(display);
 	if (wl_display_get_error(display)) {
 		fprintf(stderr, "ai-mirror-input: compositor rejected the devices\n");
