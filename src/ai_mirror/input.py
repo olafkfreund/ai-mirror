@@ -1,4 +1,4 @@
-"""Translate readable input actions to ai-mirror-input helper lines (M/B/S/K/T)."""
+"""Translate readable input actions to ai-mirror-input helper lines (M/B/S/K/P/T)."""
 import re
 
 # Linux evdev codes 0..127, in order (input-event-codes.h); '_' marks gaps.
@@ -136,12 +136,12 @@ def encode(actions, with_owners: bool = False):
             for piece in re.split(r'([\n\t])', value):
                 if piece in ('\n', '\t'):
                     code = KEYS['ENTER'] if piece == '\n' else KEYS['TAB']
-                    lines += [f'K {code} 1', f'K {code} 0']
+                    lines.append(f'P {code}')
                 elif piece:
                     lines += ['T ' + piece[i:i + 240] for i in range(0, len(piece), 240)]
         elif kind == 'key':
             codes = _keys(action, 'keys', 1, 5)
-            lines += [f'K {c} 1' for c in codes] + [f'K {c} 0' for c in reversed(codes)]
+            lines.append('P ' + ' '.join(map(str, codes)))
         elif kind in ('key_down', 'key_up'):
             lines += [f'K {c} {1 if kind == "key_down" else 0}' for c in _keys(action, 'keys', 1, 5)]
         else:

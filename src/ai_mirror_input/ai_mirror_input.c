@@ -9,6 +9,7 @@
  *   B <code> <0|1>       pointer button release/press (linux/input-event-codes)
  *   S <dx> <dy>          scroll in discrete steps (x, y)
  *   K <code> <0|1>       keyboard key release/press (evdev code, us map)
+ *   P <code>...          tap 1-5 keys: press in order, release in reverse, one flush
  *   T <utf8-text>        type text; rest of line is the payload (no newlines)
  *   C                    cancel: release all pressed keys/buttons
  *   Q                    quit cleanly
@@ -310,6 +311,44 @@ static void handle_line(char *line) {
 		xkb_state_update_key(key_state, (xkb_keycode_t)code + KEY_BASE,
 			press ? XKB_KEY_DOWN : XKB_KEY_UP);
 		send_modifiers();
+		wl_display_flush(display);
+		roundtrip_or_die();
+		printf("OK\n");
+	} else if (op == 'P') {
+		long codes[5];
+		int n = 0;
+		char *p = line + 1, *end;
+		for (;;) {
+			long c = strtol(p, &end, 10);
+			if (end == p) {
+				break;
+			}
+			if (n == 5 || c < 0 || c > KEY_MAX) {
+				n = 0;
+				break;
+			}
+			codes[n++] = c;
+			p = end;
+		}
+		while (*p == ' ') {
+			p++;
+		}
+		if (n == 0 || *p != '\0') {
+			printf("ERR bad key\n");
+			return;
+		}
+		uint32_t t = now_ms();
+		/* Press in order, release in reverse, one flush and one round trip. */
+		for (int i = 0; i < 2 * n; i++) {
+			int press = i < n;
+			int code = (int)codes[press ? i : 2 * n - 1 - i];
+			zwp_virtual_keyboard_v1_key(kbd, t, (uint32_t)code,
+					(uint32_t)press);
+			keys_down[code] = press;
+			xkb_state_update_key(key_state, (xkb_keycode_t)code + KEY_BASE,
+				press ? XKB_KEY_DOWN : XKB_KEY_UP);
+			send_modifiers();
+		}
 		wl_display_flush(display);
 		roundtrip_or_die();
 		printf("OK\n");

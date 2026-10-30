@@ -160,6 +160,14 @@ class TypingIntoASurface(Base):
                 control.run_batch(['T a', 'T b', 'T c'], self.granted['generation'], helper, window=PANEL)
         self.assertEqual(typed(helper), ['T a', 'T b'])
 
+    def test_a_tap_line_is_sent_to_a_window_target_and_leaves_nothing_held(self):
+        helper = FakeHelper()
+        with patch.object(host, 'layers', return_value=FURNITURE), \
+             patch.object(host, 'focused_address', return_value=WINDOW):
+            result = control.run_batch(['P 29 30'], self.granted['generation'], helper, window=WINDOW)
+        self.assertEqual(helper.sent, ['P 29 30'])
+        self.assertNotIn('closed', result)
+
     def test_a_window_target_keeps_24s_path_under_the_usual_furniture(self):
         # The bar and background were mapped when control was granted, so they
         # are not in the way: #24's path is unchanged.

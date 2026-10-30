@@ -105,18 +105,18 @@ class PartialDelivery(Base):
         self.assertEqual([line for line in helper.sent if line != 'C'], [])
 
     def test_a_delivered_prefix_is_reported(self):
-        error, lines, helper = self._run(fail_before_line=3)
+        error, lines, helper = self._run(fail_before_line=2)
         sent = [line for line in helper.sent if line != 'C']
-        self.assertEqual(len(sent), 3)
+        self.assertEqual(len(sent), 2)
         self.assertNotIn('input was NOT sent', str(error))
-        self.assertIn('partial: 3 of %d lines delivered' % len(lines), str(error))
-        self.assertEqual(error.details['delivered'], 3)
+        self.assertIn('partial: 2 of %d lines delivered' % len(lines), str(error))
+        self.assertEqual(error.details['delivered'], 2)
         self.assertEqual(error.details['of'], len(lines))
 
     def test_the_count_is_in_actions_too(self):
-        error, lines, _ = self._run(fail_before_line=3)
+        error, lines, _ = self._run(fail_before_line=2)
         self.assertEqual(error.details['actions_total'], 3)
-        self.assertLessEqual(error.details['actions_completed'], 3)
+        self.assertEqual(error.details['actions_completed'], 2)
         self.assertIn('actions', str(error))
 
 
