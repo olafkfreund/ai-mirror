@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 88
 author: olafkfreund
 ---
@@ -58,7 +58,9 @@ alacritty and kitty. Measured the same way as above: 3/3 in each.
 
 ## Open questions
 
-1. May I report the `m_lastKeymap` aliasing to hyprwm/Hyprland as well, once
-   the fix here is measured?
-2. Should the spec include a check on the real desktop? It needs you to grant
-   control once.
+None. Decided at approval (2026-10-30):
+
+1. Yes: report the `m_lastKeymap` aliasing to hyprwm/Hyprland once the fix
+   here is measured.
+2. Yes: verification includes one check on the real desktop, with the owner
+   granting control.
