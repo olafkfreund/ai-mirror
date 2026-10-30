@@ -14,8 +14,15 @@ MUTATING = {'input', 'window', 'launch', 'a11y_act'}
 # Ungated reads. An agent doing any of these lights the watching mark in the bar.
 OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'ocr', 'wait', 'index'}
 
-# FreeRDP maps ai-mirror's throwaway-keymap keycodes to the wrong scancodes (#92).
-RDP_CLIENTS = ('xfreerdp', 'wlfreerdp', 'sdl-freerdp', 'org.remmina.Remmina')
+
+def _rdp_client(cls) -> bool:
+    """FreeRDP maps ai-mirror's throwaway-keymap keycodes to the wrong scancodes (#92).
+
+    Substring, not a list: FreeRDP 3 also ships as xfreerdp3 and sdl3-freerdp.
+    Remmina embeds FreeRDP; its connection list is refused too, which costs a paste.
+    """
+    cls = str(cls or '').lower()
+    return 'freerdp' in cls or cls == 'org.remmina.remmina'
 
 
 def _window(args: dict, by: str = 'human') -> dict:
@@ -266,6 +273,10 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
             row = next((w for w in host.windows() if w['address'] == window), None)
             if not row:
                 raise MirrorError('no_such_window', f'no window {window}; call windows')
+            # A hidden window's rectangle shows whatever is on screen there instead (#92 review).
+            if str(row.get('workspace')) not in host.visible_workspaces():
+                raise MirrorError('invalid', f'window {window} is not on a visible workspace, so its '
+                                             'text cannot be read; focus it first')
             region = [*row['at'], *row['size']]
         elif (not isinstance(region, list) or len(region) != 4 or any(type(v) is not int for v in region)
               or region[2] <= 0 or region[3] <= 0):
@@ -298,7 +309,7 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
                                              'surface under layers -- and pass it as window. Pointer actions do '
                                              'not need it.')
             if needs_window(actions) and any(isinstance(a, dict) and a.get('type') == 'type' for a in actions) and any(
-                    w['address'] == window and w.get('class') in RDP_CLIENTS for w in host.windows()):
+                    w['address'] == window and _rdp_client(w.get('class')) for w in host.windows()):
                 raise MirrorError('invalid', 'typing into an RDP window sends the wrong keys, so nothing was '
                                              'typed. Put the text on the clipboard (clipboard write) and paste '
                                              'it with key ["CTRL","V"]; use key for Enter, Tab and shortcuts.')

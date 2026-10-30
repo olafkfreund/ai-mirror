@@ -41,6 +41,11 @@ class RdpTyping(Base):
         self.send('xfreerdp', {'type': 'key', 'keys': ['CTRL', 'V']})
         self.batch.assert_called_once()
 
+    def test_type_into_versioned_freerdp_is_refused(self):
+        with self.assertRaises(api.MirrorError):
+            self.send('xfreerdp3', {'type': 'type', 'text': 'hi'})
+        self.batch.assert_not_called()
+
     def test_type_into_other_windows_is_sent(self):
         self.send('foot', {'type': 'type', 'text': 'hi'})
         self.batch.assert_called_once()
@@ -68,6 +73,13 @@ class Ocr(Base):
         self.assertEqual([l['text'] for l in ocr.match([{'text': 'Open Noetad now'}], 'Notepad')],
                          ['Open Noetad now'])
 
+    def test_short_labels_are_never_guessed_and_exact_ranks_first(self):
+        # "No" fuzzy-matched "Undo", and "OK" matched "Network" (#92 review).
+        lines = [{'text': t} for t in ('Network', 'Undo', 'Not now', 'No', 'Open')]
+        self.assertEqual([l['text'] for l in ocr.match(lines, 'No')], ['No', 'Not now'])
+        self.assertEqual(ocr.match(lines, 'OK'), [])
+        self.assertEqual(ocr.match(lines, 'No')[0]['score'], 1.3)
+
     def test_read_without_tesseract_is_unavailable(self):
         with patch.object(ocr.shutil, 'which', return_value=None):
             with self.assertRaises(api.MirrorError) as ctx:
@@ -91,12 +103,24 @@ class Ocr(Base):
         self.assertIn('ocr', api.OBSERVING)
 
     def test_window_becomes_its_region(self):
-        row = {'address': '0xabc', 'at': [10, 20], 'size': [300, 200]}
+        row = {'address': '0xabc', 'at': [10, 20], 'size': [300, 200], 'workspace': '4'}
         with patch.object(api.host, 'windows', return_value=[row]), \
+                patch.object(api.host, 'visible_workspaces', return_value={'4'}), \
                 patch.object(ocr, 'read', return_value={'lines': []}) as read:
             out = api.run('ocr', {'window': '0xabc', 'find': 'x'})
         read.assert_called_once_with([10, 20, 300, 200], 'x', 50)
         self.assertIn('generation', out)
+
+    def test_hidden_window_is_not_read(self):
+        # Its rectangle would show another window's text (#92 review).
+        row = {'address': '0xabc', 'at': [10, 20], 'size': [300, 200], 'workspace': '9'}
+        with patch.object(api.host, 'windows', return_value=[row]), \
+                patch.object(api.host, 'visible_workspaces', return_value={'4'}), \
+                patch.object(ocr, 'read') as read:
+            with self.assertRaises(api.MirrorError) as ctx:
+                api.run('ocr', {'window': '0xabc'})
+        self.assertEqual(ctx.exception.code, 'invalid')
+        read.assert_not_called()
 
     def test_needs_exactly_one_of_window_or_region(self):
         for args in ({}, {'window': '0xabc', 'region': [0, 0, 1, 1]}, {'region': [0, 0, 0, 1]}, {'region': 'x'}):

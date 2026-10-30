@@ -44,6 +44,21 @@ VM over `xfreerdp` 3.32.2; this plan only carries the decisions.
 6. `gotchas.md` gets a "Windows over RDP" section; `docs/usage.md` and
    AGENTS.md's code map get the tool.
 
+**Deviations after the Opus review of steps 1–5** (one commit with the code):
+- `find` ranks exact line > whole word > substring > fuzzy, returns `score`,
+  and never fuzzy-matches a query under 4 letters: with ±1 slices, `No`
+  matched `Undo` and `OK` matched `Network`, a wrong click in a dialog.
+- `ocr {window}` refuses (`invalid`) a window not on a visible workspace:
+  its rectangle would show another window's text.
+- RDP clients match `freerdp` anywhere in the class (FreeRDP 3 also ships
+  `xfreerdp3`, `sdl3-freerdp`), plus Remmina; replaces the exact tuple.
+- grim/tesseract timeouts become `unavailable`; the `control.screenshot`
+  comment names `ocr.read`'s copy of the privacy check; MCP instructions list
+  OCR text as untrusted data; gotchas and usage say the privacy check cannot
+  see inside an RDP session.
+- Not changed: the flake comment's "~41 MiB" is the measured closure delta
+  (503.4 → 544.7 MiB); 111.6 MiB is tesseract's own closure, mostly shared.
+
 ## Steps
 
 1. **`src/ai_mirror/api.py:242`** — `['wl-copy']` →

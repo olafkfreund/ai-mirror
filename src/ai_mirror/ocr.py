@@ -38,9 +38,17 @@ def parse(tsv: str, origin: tuple[int, int], scale: int = SCALE) -> list[dict]:
 
 
 def _score(text: str, query: str) -> float:
-    text, query = text.lower(), query.lower()
+    """Exact line 1.3 > whole word 1.2 > substring 1.1 > fuzzy ratio (< 1)."""
+    text, query = text.lower().strip(), query.lower().strip()
+    if text == query:
+        return 1.3
+    if query in text.split():
+        return 1.2
     if query in text:
-        return 1.0
+        return 1.1
+    # Short labels are never guessed: "No" would match "Undo" and the agent click Undo (#92 review).
+    if len(query) < 4:
+        return 0.0
     # One letter shorter or longer too: OCR drops and doubles letters ("Noetad" for "Notepad").
     slices = [text[i:i + n] for n in {len(query) - 1, len(query), len(query) + 1} if n > 0
               for i in range(len(text) - n + 1)] or [text]
@@ -48,19 +56,27 @@ def _score(text: str, query: str) -> float:
 
 
 def match(lines: list[dict], query: str) -> list[dict]:
-    """Lines containing query, else close to it (OCR drops and swaps letters); best first."""
+    """Lines containing query, else close to it (OCR drops and swaps letters); best first.
+
+    Each carries its score, so a caller can tell an exact hit (>= 1.1) from a guess.
+    """
     scored = [(_score(line['text'], query), line) for line in lines]
-    return [line for score, line in sorted(scored, key=lambda s: -s[0]) if score >= THRESHOLD]
+    return [{**line, 'score': round(score, 2)} for score, line in sorted(scored, key=lambda s: -s[0])
+            if score >= THRESHOLD]
 
 
 def _recognise(region: list[int]) -> str:
     x, y, width, height = region
-    grim = subprocess.run(['grim', '-g', f'{x},{y} {width}x{height}', '-s', str(SCALE), '-t', 'ppm', '-'],
-                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30)
-    if grim.returncode:
-        raise MirrorError('unavailable', 'grim failed to capture the region')
-    done = subprocess.run(['tesseract', 'stdin', '-', '--psm', '11', 'tsv'], input=grim.stdout,
-                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30)
+    try:
+        grim = subprocess.run(['grim', '-g', f'{x},{y} {width}x{height}', '-s', str(SCALE), '-t', 'ppm', '-'],
+                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              timeout=30)
+        if grim.returncode:
+            raise MirrorError('unavailable', 'grim failed to capture the region')
+        done = subprocess.run(['tesseract', 'stdin', '-', '--psm', '11', 'tsv'], input=grim.stdout,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30)
+    except subprocess.TimeoutExpired:
+        raise MirrorError('unavailable', 'ocr timed out; read a smaller region or one window') from None
     if done.returncode:
         raise MirrorError('unavailable', 'tesseract failed to read the capture')
     return done.stdout.decode('utf-8', 'replace')
