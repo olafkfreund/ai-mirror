@@ -33,6 +33,7 @@ Full reference: `docs/usage.md`.
 | `src/ai_mirror/gotchas.md` | The hand-written half of the index. Read only; nothing generates it |
 | `src/ai_mirror/measured.md` | Per-app a11y_act results; served only by `index --section measured` |
 | `src/ai_mirror/a11y.py` | AT-SPI via `gi.repository.Atspi`: tree, find, act |
+| `src/ai_mirror/ocr.py` | tesseract on a `grim` capture: lines with boxes in global px, fuzzy `find`; for windows a11y cannot see (RDP) |
 | `src/ai_mirror_input/ai_mirror_input.c` | Persistent wlr virtual pointer + virtual keyboard; `C` releases all; stdin EOF releases and exits |
 | `plugin/AgentConfirmDialog.qml` | The human's half of the gate: layer-shell dialog over everything, exclusive keyboard focus, keys in the first second deny; after that `A` allows (`ConfirmKeys.js`) |
 | `plugin/ConfirmKeys.js` | The dialog's key rule as one pure function, `decide(state, key, modifiers, autoRepeat)`; tested by `tests/test_confirm_keys.mjs` (`node --test`) |

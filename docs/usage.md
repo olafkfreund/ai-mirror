@@ -58,6 +58,7 @@
 | `clipboard` | `action: read\|write`, `text`, `generation` (required to write as an agent) |
 | `a11y_tree` | `app`, `depth`, `max_nodes` |
 | `a11y_find` | `name` (substring), `role` (exact, e.g. `push button`, `entry`, `link`), `app`, `limit` |
+| `ocr` | `window` (address) or `region [x,y,w,h]`, `find` (fuzzy), `limit` 1–200 (default 50). Reads text with tesseract: `lines` of `{text, box [x,y,w,h], conf}` in global px, which `input` accepts with `generation`. For windows accessibility cannot see, such as an RDP session. Refused over password managers like a screenshot (`sensitive`); `unavailable` without tesseract |
 | `a11y_act` | `node`, `action: click\|focus\|set_text\|set_value\|select\|<action name>`, `text`, `value` (finite number, for `set_value`), `expect {role,name}`, `generation` (required), `timeout` 0.1–30 (read-back poll, default 1). Returns `verified` (`true` for `set_text`/`focus` once read back; `null` plus a note for `click` and named actions), `states_before`, `states_after` (`null` if the element is gone or changed role). `click` runs only a named default action (`click`, `press`, `jump`, `doDefault`, `check`, `uncheck`, ...), else `unsupported: element actions are [...]`; `set_text`/`focus` that cannot be read back give `not_confirmed`. `set_value` writes a slider or spin button (`unsupported` without a Value interface, `invalid` outside its range) and `select` selects a list or tab item through its container (up to 2 levels up; `unsupported` if none); both are read back (`verified`) and return `changed` (`false`, no write, if already there), `value_before`/`value_after` or `selected {role,name}` and `selected_via`. Rows carry `value: [current, minimum, maximum, step]` (`null` for unreadable bounds) |
 
 ### Input actions
@@ -102,6 +103,7 @@ ai-mirror launch --generation N [--timeout S] -- uwsm-app -- firefox https://exa
 ai-mirror clipboard read | ai-mirror clipboard write "text"
 ai-mirror a11y-tree [--app firefox] [--depth 12] [--max-nodes 400]
 ai-mirror a11y-find --name Save [--role "push button"]
+ai-mirror ocr --window 0x55d1… --find Notepad
 ai-mirror a11y-act --generation N 3.0.2.1 click | ai-mirror a11y-act --generation N 3.0.2.4 set_text --text hello [--expect '{"role":"entry"}'] [--timeout S]
 ai-mirror a11y-act --generation N 3.0.2.5 set_value --value 3.5 | ai-mirror a11y-act --generation N 3.0.2.6.1 select
 ai-mirror doctor
