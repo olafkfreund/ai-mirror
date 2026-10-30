@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 88
 spec: spec/2026-10-30-88-stale-keymap.md
 ---
