@@ -270,12 +270,18 @@ class InputTests(unittest.TestCase):
         self.assertEqual(input.encode([{'type': 'click', 'x': 10, 'y': 20},
                                        {'type': 'key', 'keys': ['CTRL', 'A']},
                                        {'type': 'type', 'text': 'Hi Ω\nx'}]),
-                         ['M 10 20', 'B 272 1', 'B 272 0', 'K 29 1', 'K 30 1', 'K 30 0', 'K 29 0',
-                          'T Hi Ω', 'K 28 1', 'K 28 0', 'T x'])
+                         ['M 10 20', 'B 272 1', 'B 272 0', 'P 29 30',
+                          'T Hi Ω', 'P 28', 'T x'])
         for bad in ([{'type': 'click', 'x': '10', 'y': 20}], [{'type': 'key', 'keys': ['BOGUS']}],
                     [], [{'type': 'click', 'x': 1, 'y': 2}] * 17, [{'type': 'nope'}]):
             with self.assertRaises(ValueError):
                 input.encode(bad)
+
+    def test_a_tap_is_one_line_and_holds_stay_k_lines(self):
+        self.assertEqual(input.encode([{'type': 'type', 'text': 'a\tb'}]), ['T a', 'P 15', 'T b'])
+        self.assertEqual(input.encode([{'type': 'key_down', 'keys': ['CTRL', 'A']},
+                                       {'type': 'key_up', 'keys': ['CTRL', 'A']}]),
+                         ['K 29 1', 'K 30 1', 'K 29 0', 'K 30 0'])
 
     def test_bug2_every_coordinate_rejects_negatives(self):
         for bad in ({'type': 'drag', 'x': 10, 'y': 10, 'to_x': -5, 'to_y': 10},
