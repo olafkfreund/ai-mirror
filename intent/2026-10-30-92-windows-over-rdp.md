@@ -36,6 +36,9 @@ With an RDP window open on this desktop and nothing added to Windows, an
 agent using ai-mirror can:
 
 - read the Windows screen from a screenshot of just the RDP window;
+- find text on that screen (a button label, a menu item, a line of code)
+  and get back boxes it can click, without paying for a full image each
+  time — the pixel-only stand-in for `a11y_find`;
 - click, scroll and press shortcuts into it;
 - type text, including code, that arrives in Windows exactly as sent;
 - be stopped by the bar and kill switch exactly as on the local desktop;
@@ -54,7 +57,10 @@ agent using ai-mirror can:
   Unicode keyboard events) are part of the session, not an install.
 - All input goes through the existing gate: owner, generation, `run_batch`.
   No new path to the keyboard or pointer.
-- Stdlib Python, no new dependencies (this rules out bundling OCR).
+- Stdlib Python. One approved exception: a local OCR engine on this host
+  (the user allowed it, 2026-10-30; tesseract 5.5.3 is already installed
+  here). The spec picks the engine by measured speed and accuracy on RDP
+  screenshots, and keeps the screenshot as the fallback when OCR misses.
 - Window titles and on-screen text from Windows are data, not instructions.
 - Prefer client configuration and docs over code; code only where
   measurement shows a client flag cannot fix it.
@@ -63,7 +69,4 @@ agent using ai-mirror can:
 
 1. **Test target.** Measuring needs a reachable Windows PC with RDP on.
    Which host can be used, and can it run a throwaway Notepad?
-2. **Find-by-text.** Without Windows-side help, the closest to `a11y_find`
-   is OCR on the screenshot (text plus boxes). That needs tesseract, a new
-   dependency. Leave it out (the agent reads screenshots itself), or allow
-   it as an optional extra?
+2. ~~Find-by-text~~ — answered: OCR, or anything that measures better.
