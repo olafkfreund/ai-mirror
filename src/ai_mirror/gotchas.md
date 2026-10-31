@@ -277,7 +277,8 @@ the window 1:1 with the layout.
 - **The capture refusal cannot see inside it either.** It matches the window
   class and title, which here are `xfreerdp` and `FreeRDP: <host>`, so a
   password manager open in Windows is captured and read like anything else.
-- `ocr find` never guesses labels under 4 letters (`No` matched `Undo`), and
+- `ocr find` matches labels under 4 letters only as a whole line or word
+  (`No` matched `Undo`, `OK` matched `Look`), and
   each match has a `score`: 1.1 and up is the text itself, below is a guess.
 - A Microsoft account fails NLA with Kerberos `Cannot find KDC for realm`: use
   a local account.

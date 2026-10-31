@@ -48,6 +48,9 @@ VM over `xfreerdp` 3.32.2; this plan only carries the decisions.
 - `find` ranks exact line > whole word > substring > fuzzy, returns `score`,
   and never fuzzy-matches a query under 4 letters: with ±1 slices, `No`
   matched `Undo` and `OK` matched `Network`, a wrong click in a dialog.
+- After the live check on the installed build: the under-4-letters guard now
+  runs before the substring tier too, so `OK` no longer matches `Look` or
+  `Token` (found by a Fable review of the live-check plan, confirmed live).
 - `ocr {window}` refuses (`invalid`) a window not on a visible workspace:
   its rectangle would show another window's text.
 - RDP clients match `freerdp` anywhere in the class (FreeRDP 3 also ships
