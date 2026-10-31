@@ -74,9 +74,10 @@ class Ocr(Base):
                          ['Open Noetad now'])
 
     def test_short_labels_are_never_guessed_and_exact_ranks_first(self):
-        # "No" fuzzy-matched "Undo", and "OK" matched "Network" (#92 review).
-        lines = [{'text': t} for t in ('Network', 'Undo', 'Not now', 'No', 'Open')]
-        self.assertEqual([l['text'] for l in ocr.match(lines, 'No')], ['No', 'Not now'])
+        # "No" fuzzy-matched "Undo", and "OK" matched "Network" (#92 review); as a substring,
+        # "OK" matched "Look" and "Token" (#92, live check).
+        lines = [{'text': t} for t in ('Network', 'Undo', 'Not now', 'No', 'Open', 'Look', 'Token', 'Say No')]
+        self.assertEqual([l['text'] for l in ocr.match(lines, 'No')], ['No', 'Say No'])
         self.assertEqual(ocr.match(lines, 'OK'), [])
         self.assertEqual(ocr.match(lines, 'No')[0]['score'], 1.3)
 

@@ -44,11 +44,11 @@ def _score(text: str, query: str) -> float:
         return 1.3
     if query in text.split():
         return 1.2
-    if query in text:
-        return 1.1
-    # Short labels are never guessed: "No" would match "Undo" and the agent click Undo (#92 review).
+    # Short labels are never guessed: "No" would match "Undo", "OK" would match "Look" (#92 review).
     if len(query) < 4:
         return 0.0
+    if query in text:
+        return 1.1
     # One letter shorter or longer too: OCR drops and doubles letters ("Noetad" for "Notepad").
     slices = [text[i:i + n] for n in {len(query) - 1, len(query), len(query) + 1} if n > 0
               for i in range(len(text) - n + 1)] or [text]
