@@ -113,3 +113,4 @@ the state file format is unchanged, so no migration.
 - Step 1 (coder): no code deviation. Verify command corrected: `tests` is not a
   package, so the discover form is used. 378 tests OK.
 - Step 2 (coder): no deviation. 378 tests OK.
+- Step 3 (coder): plan's recording cases merged into two tests, plus one extra (closed and still gone → only departed). 385 tests OK (+7, plan said ≥ 8).

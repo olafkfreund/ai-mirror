@@ -97,6 +97,20 @@ class Recording(Base):
                 patch.object(events, 'seed', return_value={}):
             events.feed(line, st, r)
 
+    def test_closelayer_is_kept_per_grant_and_only_for_that_generation(self):
+        r = events.Recorder()
+        self.feed(r, 'closelayer>>omarchy-audio', state())
+        self.assertEqual(r.closed_layers(1), {'omarchy-audio'})
+        self.assertEqual(r.closed_layers(2), set())
+        self.assertEqual(r.closed_layers(None), set())
+        r.clear(2)
+        self.assertEqual(r.closed, set())
+
+    def test_closelayer_while_not_held_is_not_kept(self):
+        r = events.Recorder()
+        self.feed(r, 'closelayer>>omarchy-audio', state(owner='off'))
+        self.assertEqual(r.closed, set())
+
     def test_off_records_nothing(self):
         r = events.Recorder()
         self.feed(r, 'a>>b', state(owner='off'))
