@@ -126,3 +126,15 @@ Revert the merge commit; no state is persisted.
 - Step 3 (coder): no deviation. 400 tests OK.
 - Step 4 (coder): no deviation; 8 tests. 408 tests OK.
 - Step 5 (coder): no deviation. nix flake check passed, nix build OK.
+- Step 6 (live, p620, checkout CLI and MCP, 2026-11-02):
+  - Visible herdr window: 2520x1384 PNG (its `size`), region `[20,41,2520,1384]`,
+    `output: DP-1`, `view_only: false`.
+  - A `foot` started on hidden workspace 9 (`[workspace 9 silent]`):
+    `visible: false`, `view_only: true`, and the active workspace stayed `1`.
+    The first capture, 1.5 s after launch, was blank background: the client
+    had not drawn yet. A second capture a few seconds later showed its
+    content. So a just-started hidden window can capture empty.
+  - Through `ai-mirror mcp`, `input` with that frame gave `invalid` ("frame f1 is
+    a capture of window … on a hidden workspace …"), and nothing moved. No grant
+    was needed: `from_frame` refuses before the gate.
+  - Test window killed afterwards.
