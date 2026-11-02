@@ -282,3 +282,9 @@ the window 1:1 with the layout.
   each match has a `score`: 1.1 and up is the text itself, below is a guess.
 - A Microsoft account fails NLA with Kerberos `Cannot find KDC for realm`: use
   a local account.
+
+## Events are what Hyprland reported
+
+`events` lists what Hyprland said happened, not proof that your action caused
+it. A state that already holds sends nothing, so use `wait` to confirm a
+prerequisite and `events` to see what else moved.
