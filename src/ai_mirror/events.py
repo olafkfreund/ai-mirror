@@ -2,8 +2,10 @@
 kept in memory while this server's agent holds control, and only then."""
 from __future__ import annotations
 
+import json
 import os
 import socket
+import subprocess
 import threading
 import time
 from collections import deque
@@ -16,11 +18,14 @@ SIZE = 512
 TITLED = {'activewindow': (2, 0, 1), 'openwindow': (4, 2, 3)}
 
 RUNNING = False
+CONNECTED = False  # an empty list from a reader that cannot connect would read as "nothing happened"
 
 
 def parse(line: str) -> tuple[str, str] | None:
     name, sep, data = line.rstrip('\r\n').partition('>>')
-    return (name, data[:CAP]) if sep else None
+    # Not capped here: a private-browsing marker sits at the end of a long title,
+    # so redact sees the whole line and add() caps what is stored.
+    return (name, data) if sep else None
 
 
 def _addr(a: str) -> str:
@@ -58,6 +63,7 @@ class Recorder:
         self.seq = 0
         self.generation = None  # None = not recording
         self.classes: dict = {}
+        self.base = 0  # seq when this grant's recording started
 
     def add(self, name: str, data: str) -> None:
         with self.lock:
@@ -76,18 +82,25 @@ class Recorder:
             self.ring.clear()
             self.classes = {}
             self.generation = generation
+            self.base = self.seq
 
     def since(self, cursor: int, limit: int) -> dict:
         with self.lock:
+            # A cursor from before this grant means "from its start", not a loss;
+            # one past seq is from another server life, so it cannot be trusted.
+            start = max(cursor, self.base)
             oldest = self.ring[0]['seq'] if self.ring else self.seq + 1
-            got = [dict(e) for e in self.ring if e['seq'] > cursor][:limit]
+            got = [dict(e) for e in self.ring if e['seq'] > start][:limit]
             return {'events': got, 'next': got[-1]['seq'] if got else self.seq,
-                    'dropped': cursor < oldest - 1}
+                    'dropped': cursor > self.seq or start < oldest - 1}
 
 
 def seed() -> dict:
+    # hyprctl directly, not host.windows(): its retry calls host.resolve(), whose
+    # on_switch stops HELPER and writes state from this thread.
     try:
-        return {_addr(w['address']): w.get('class', '') for w in host.windows()}
+        out = subprocess.run(['hyprctl', 'clients', '-j'], capture_output=True, text=True, timeout=2).stdout
+        return {_addr(w['address']): w.get('class', '') for w in json.loads(out)}
     except Exception:
         return {}
 
@@ -118,7 +131,8 @@ RECORDER = Recorder()
 
 
 def _path() -> str:
-    return f'{os.environ["XDG_RUNTIME_DIR"]}/hypr/{os.environ[host.SIG]}/.socket2.sock'
+    runtime = os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}'  # as control does
+    return f'{runtime}/hypr/{os.environ.get(host.SIG, "")}/.socket2.sock'
 
 
 def pump(sock, recorder: Recorder) -> None:
@@ -152,10 +166,13 @@ def _connect():
 
 
 def _session(recorder: Recorder, connect=_connect) -> None:
+    global CONNECTED
     sock = connect()
+    CONNECTED = True
     try:
         pump(sock, recorder)
     finally:
+        CONNECTED = False
         sock.close()
         if recorder.generation is not None:
             recorder.gap('Hyprland event socket lost')

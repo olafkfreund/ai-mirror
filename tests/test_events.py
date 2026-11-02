@@ -2,6 +2,7 @@
 from pathlib import Path
 import json
 import socket
+from types import SimpleNamespace
 import sys
 from unittest.mock import patch
 
@@ -24,8 +25,24 @@ class Pure(Base):
     def test_parse_drops_line_without_separator(self):
         self.assertIsNone(events.parse('nothing here\n'))
 
-    def test_parse_caps_data(self):
-        self.assertEqual(len(events.parse('x>>' + 'a' * 1000)[1]), 300)
+    def test_a_long_private_title_is_withheld_and_stored_capped(self):
+        # The marker sits at the end of a long title: redacting after the cap missed it (#95 review).
+        r = events.Recorder()
+        line = 'openwindow>>5a,3,firefox,' + 'p' * 280 + ' — Mozilla Firefox Private Browsing'
+        with patch.object(events.control, 'SERVER', ME), patch.object(events, 'seed', return_value={}):
+            events.feed(line, state(), r)
+        data = r.since(0, 1)['events'][0]['data']
+        self.assertIn('withheld', data)
+        self.assertNotIn('ppp', data)
+        r.add('x', 'a' * 1000)
+        self.assertEqual(len(r.since(1, 1)['events'][0]['data']), 300)
+
+    def test_seed_asks_hyprctl_directly_not_through_host(self):
+        # host.windows() retries through host.resolve(), whose on_switch stops HELPER (#95 review).
+        out = SimpleNamespace(stdout='[{"address": "0xab", "class": "foot"}]')
+        with patch.object(events.subprocess, 'run', return_value=out), \
+                patch.object(events.host, 'windows', side_effect=AssertionError('host.windows')):
+            self.assertEqual(events.seed(), {'ab': 'foot'})
 
     def test_redact_openwindow_title(self):
         out = events.redact('openwindow', '1a,2,KeePassXC,Vault, main', {})
@@ -62,9 +79,21 @@ class Recording(Base):
         self.assertTrue(r.since(0, 5)['dropped'])
         self.assertFalse(r.since(r.cursor() - 10, 5)['dropped'])
 
+    def test_a_later_grant_starts_clean_and_a_future_cursor_is_dropped(self):
+        r = events.Recorder()
+        r.clear(1)
+        for _ in range(10):
+            r.add('e', '')
+        r.clear(None)
+        r.clear(2)
+        r.add('new', '')
+        got = r.since(0, 10)
+        self.assertEqual(([e['event'] for e in got['events']], got['dropped']), (['new'], False))
+        self.assertTrue(r.since(1000, 10)['dropped'])  # a cursor from another server life
+
     def feed(self, r, line, st):
         with patch.object(events.control, 'SERVER', ME), \
-                patch.object(events.host, 'windows', return_value=[]):
+                patch.object(events, 'seed', return_value={}):
             events.feed(line, st, r)
 
     def test_off_records_nothing(self):
@@ -101,9 +130,8 @@ class Recording(Base):
 
     def test_class_map_from_seed_and_openwindow(self):
         r = events.Recorder()
-        rows = [{'address': '0xaa', 'class': 'KeePassXC'}]
         with patch.object(events.control, 'SERVER', ME), \
-                patch.object(events.host, 'windows', return_value=rows):
+                patch.object(events, 'seed', return_value={'aa': 'KeePassXC'}):
             events.feed('windowtitlev2>>aa,Vault', state(), r)
             events.feed('openwindow>>bb,1,pinentry,x', state(), r)
             events.feed('windowtitlev2>>bb,Enter', state(), r)
@@ -119,7 +147,7 @@ class Reader(Base):
             p = patch.object(events.control, target, value)
             p.start()
             self.addCleanup(p.stop)
-        p = patch.object(events.host, 'windows', return_value=[])
+        p = patch.object(events, 'seed', return_value={})
         p.start()
         self.addCleanup(p.stop)
 
@@ -157,8 +185,8 @@ class Tool(Base):
         with self.assertRaises(SystemExit), patch('sys.stderr'):
             cli.build_parser().parse_args(['events'])
 
-    def run_events(self, running=True, st=None, rec=None, **args):
-        with patch.object(events, 'RUNNING', running), \
+    def run_events(self, running=True, connected=True, st=None, rec=None, **args):
+        with patch.object(events, 'RUNNING', running), patch.object(events, 'CONNECTED', connected), \
                 patch.object(events, 'RECORDER', rec or events.Recorder()), \
                 patch.object(events.control, 'SERVER', ME), \
                 patch.object(events.control, '_load', lambda: st or state(owner='off')):
@@ -171,6 +199,9 @@ class Tool(Base):
 
     def test_unavailable_when_reader_not_running(self):
         self.assertEqual(self.code(running=False), 'unavailable')
+
+    def test_unavailable_when_the_socket_is_not_connected(self):
+        self.assertEqual(self.code(connected=False), 'unavailable')
 
     def test_not_owner_when_not_held(self):
         self.assertEqual(self.code(), 'not_owner')

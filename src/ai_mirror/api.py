@@ -240,6 +240,8 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
         from . import events
         if not events.RUNNING:
             raise MirrorError('unavailable', 'events are kept only by the MCP server')
+        if not events.CONNECTED:
+            raise MirrorError('unavailable', 'the Hyprland event socket is not connected; observe with windows')
         state = control._load()
         if not events.held(state):
             raise MirrorError('not_owner', 'events are recorded only while you hold control; ask with control')
