@@ -526,6 +526,56 @@ class ContinuousPresence(Base):
         self.assertIn('opened since control was granted', str(brand_new))
         self.assertNotIn('went away and came back', str(brand_new))
 
+    def _recorder(self, generation, closed):
+        from ai_mirror import events
+        rec = events.Recorder()
+        rec.clear(generation)
+        rec.closed.update(closed)
+        return rec
+
+    def _check_recorded(self, rec, namespaces, generation):
+        from unittest.mock import patch
+        from ai_mirror import events
+        with patch.object(events, 'RECORDER', rec):
+            return self._check_with(namespaces, generation)
+
+    def test_a_close_seen_in_events_counts_though_it_is_back(self):
+        from ai_mirror import control
+        names = ['omarchy-background', 'omarchy-bar', 'omarchy-audio']
+        generation = self._grant_with(names)
+        error = self._check_recorded(self._recorder(generation, ['omarchy-audio']), names, generation)
+        self.assertEqual(error.code, 'wrong_target')
+        self.assertIn('went away and came back', str(error))
+        state = control.read_state()
+        self.assertIn('omarchy-audio', state['baseline_departed'])
+        self.assertNotIn('omarchy-audio', state['baseline_layers'])
+
+    def test_without_a_recording_the_quick_return_goes_unseen(self):
+        from ai_mirror import control, events
+        names = ['omarchy-background', 'omarchy-bar', 'omarchy-audio']
+        generation = self._grant_with(names)
+        self.assertIsNone(self._check_recorded(events.Recorder(), names, generation))
+        self.assertIn('omarchy-audio', control.read_state()['baseline_layers'])
+
+    def test_a_recording_of_another_generation_is_ignored(self):
+        names = ['omarchy-background', 'omarchy-bar', 'omarchy-audio']
+        generation = self._grant_with(names)
+        rec = self._recorder(generation + 1, ['omarchy-audio'])
+        self.assertIsNone(self._check_recorded(rec, names, generation))
+
+    def test_a_close_seen_in_events_and_still_gone_is_only_departed(self):
+        from ai_mirror import control
+        generation = self._grant_with(['omarchy-background', 'omarchy-bar', 'omarchy-audio'])
+        rec = self._recorder(generation, ['omarchy-audio'])
+        self.assertIsNone(self._check_recorded(rec, ['omarchy-background', 'omarchy-bar'], generation))
+        state = control.read_state()
+        self.assertEqual(state['baseline_layers'], ['omarchy-background', 'omarchy-bar'])
+        self.assertEqual(state['baseline_departed'], ['omarchy-audio'])
+
+    def test_closed_since_grant_without_a_generation_is_empty(self):
+        from ai_mirror import control
+        self.assertEqual(control._closed_since_grant(None), set())
+
 
 class ValueRows(unittest.TestCase):
     """#70: a slider or spin button reports its value, and never as nan."""

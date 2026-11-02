@@ -683,6 +683,11 @@ def _forget_departed(departed: list, gone) -> list:
     return (kept + sorted(gone))[-DEPARTED_CAP:]
 
 
+def _closed_since_grant(generation) -> set:
+    from . import events  # here, not at the top: events imports control
+    return events.RECORDER.closed_layers(generation)
+
+
 def _furniture(mapped: list[dict]) -> tuple[list[str], list[str]] | None:
     """The shell's own surfaces: those mapped continuously since control was granted.
 
@@ -692,7 +697,8 @@ def _furniture(mapped: list[dict]) -> tuple[list[str], list[str]] | None:
     dialog the person clicked to confirm is itself a surface, and so is any
     notification that happened to be up, and treating either as furniture for
     the life of the grant exempts exactly what the guards exist to refuse.
-    Anything that has left is dropped from the baseline for good.
+    Anything that has left is dropped from the baseline for good. Departures
+    also come from the MCP server's event record (#97), which can only add to them.
     """
     state = read_state()
     baseline = state.get('baseline_layers')
@@ -702,10 +708,11 @@ def _furniture(mapped: list[dict]) -> tuple[list[str], list[str]] | None:
     # 0, and dropping it for being below the threshold this refusal uses would
     # make the wallpaper "new" on the first check and refuse everything after.
     present = {str(one.get('namespace') or '') for one in mapped}
-    still = [name for name in baseline if name in present]
+    closed = _closed_since_grant(state.get('generation'))
+    still = [name for name in baseline if name in present and name not in closed]
     departed = state.get('baseline_departed') or []
     if len(still) != len(baseline):
-        gone = set(baseline) - present
+        gone = set(baseline) - set(still)
         departed = _forget_departed(departed, gone)
         with locked('control'):
             # Re-read inside the lock: a grant can end between the read above

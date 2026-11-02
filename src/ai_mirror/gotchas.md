@@ -208,13 +208,16 @@ accent-hold) are furniture and don't block at the same level (#83).
 set is up: it may hold the keyboard, and naming the window as destination then
 is the failure this guards. The set starts as what was mapped at the grant and
 **shrinks whenever a check finds one gone**: the confirm dialog and notifications
-are surfaces too (#39). Checks run only on window-addressed calls, so a quick
-leave-and-return goes unseen. The refusal says "opened since control was
+are surfaces too (#39). Checks run only on window-addressed calls. Through MCP, a
+baseline surface seen closing in Hyprland's events counts as gone even if it is
+back by the next check (#97); through the CLI, or while the event reader was
+disconnected, a quick leave-and-return still goes unseen. The refusal says "opened since control was
 granted" or "went away and came back".
 
-A shell restart (`omarchy-restart-shell`) usually passes unnoticed (measured on
-razer). If a check lands while the bar is down, it returns as "came back" and
-input is refused until control is re-taken. Deliberate: admitting whatever
+A shell restart (`omarchy-restart-shell`) usually passes unnoticed through the CLI
+(measured on razer). Through MCP it is seen in the events, so window-addressed
+input is refused as "came back" until control is re-taken; through the CLI the
+same happens if a check lands while the bar is down. Deliberate: admitting whatever
 returns would reopen the hole for anything that can be made to flicker.
 
 ## A refusal can mean part of the batch already landed
