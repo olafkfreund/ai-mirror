@@ -12,7 +12,7 @@ from .input import encode, needs_window
 
 MUTATING = {'input', 'window', 'launch', 'a11y_act'}
 # Ungated reads. An agent doing any of these lights the watching mark in the bar.
-OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'ocr', 'wait', 'index', 'events'}
+OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'ocr', 'wait', 'index', 'events', 'shell_state'}
 
 
 def _rdp_client(cls) -> bool:
@@ -231,6 +231,9 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
     if op == 'screenshot':
         dest = Path(args.get('out') or control.root() / 'shot.png').absolute()
         return control.screenshot(dest, args.get('output'), args.get('region'), args.get('max_size'))
+    if op == 'shell_state':
+        from . import shell
+        return shell.state()
     if op == 'windows':
         # Layer surfaces too: a menu or panel is not a window, and it is what
         # an agent types into once it has opened one (#26).
