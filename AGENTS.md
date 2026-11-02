@@ -29,6 +29,7 @@ Full reference: `docs/usage.md`.
 | `src/ai_mirror/host.py` | `hyprctl`: monitors, `layout_box`, windows, `window_dispatch` (validated Lua) |
 | `src/ai_mirror/input.py` | Actions → helper lines `M x y` / `B code 0\|1` / `S dx dy` / `K code 0\|1` / `P code…` (a tap in one flush, #89) / `T utf8`; evdev key table |
 | `src/ai_mirror/wait.py` | Polls Hyprland state until one named prerequisite holds or a deadline passes. No events: a prerequisite that already holds never transitions |
+| `src/ai_mirror/events.py` | Reader thread on Hyprland's socket2 into a 512-event memory ring, recorded only while this server's agent holds control; titles of private windows redacted before storing; started by `mcp.main` only |
 | `src/ai_mirror/index.py` | What this host looks like: keys from `~/.config/hypr/*.lua`, plugins, nav strategy, gotchas. Derived per call, never cached, never written to disk |
 | `src/ai_mirror/gotchas.md` | The hand-written half of the index. Read only; nothing generates it |
 | `src/ai_mirror/measured.md` | Per-app a11y_act results; served only by `index --section measured` |
@@ -92,6 +93,9 @@ desktop", so its reader is the person deciding whether to trust that agent, and
 handing a trust artifact to the party being trusted is the machinery this file
 already says not to add. `tests/test_audit.py` asserts the absence, so completing
 the recipe here fails a test rather than passing review (#44).
+
+`events` is the opposite exception: MCP-only, because only the long-running server
+can keep a buffer (#95); `tests/test_events.py` asserts the absence.
 
 ## Driving this desktop — measured facts, not guesses
 
