@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 100
 author: olafkfreund
 ---
@@ -57,17 +57,11 @@ Hyprland 0.56 can capture one window's own buffer directly. Measured on p620
 - No new dependency: `grim` is already used.
 - Tests cannot reach the desktop: grim and hyprctl are stubbed.
 
-## Open questions
+## Decisions (approved 2026-11-02)
 
-1. **Can the agent act on what a window capture shows?** Recommended: on a
-   visible workspace, the result is a normal frame whose pixels map to the
-   window's place on screen, so `input` with that frame clicks where it looks.
-   On a hidden workspace, it is view-only, and `input` with that frame is
-   refused (`invalid`: switch to it first). The other choice is view-only always.
-2. **Gate.** `screenshot` needs no grant today. A hidden window shows something
-   the person is not currently looking at. AT-SPI (`a11y_tree`) can already read
-   hidden windows without a grant. Recommended: no grant, same as `screenshot`,
-   with the privacy refusal as the guard. The other choice is to need a grant
-   only for a hidden window.
-3. **`ocr` on a hidden window.** It refuses today. Recommended: out of scope
-   here; a follow-up can point `ocr` at the window capture once this lands.
+1. A capture of a window on a visible workspace is a normal frame: its pixels map
+   to the window's place on screen and `input` may use it. A capture of a window
+   on a hidden workspace is view-only: `input` with that frame is refused
+   (`invalid`: switch to its workspace first).
+2. No grant, same as `screenshot`; the privacy refusal is the guard.
+3. `ocr` on a hidden window is out of scope (a follow-up).
