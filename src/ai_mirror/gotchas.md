@@ -214,7 +214,7 @@ back by the next check (#97); through the CLI, or while the event reader was
 disconnected, a quick leave-and-return still goes unseen. The refusal says "opened since control was
 granted" or "went away and came back".
 
-A shell restart (`omarchy-restart-shell`) passes unnoticed through the CLI
+A shell restart (`omarchy-restart-shell`) usually passes unnoticed through the CLI
 (measured on razer). Through MCP it is seen in the events, so window-addressed
 input is refused as "came back" until control is re-taken; through the CLI the
 same happens if a check lands while the bar is down. Deliberate: admitting whatever

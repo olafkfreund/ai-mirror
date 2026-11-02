@@ -115,3 +115,8 @@ the state file format is unchanged, so no migration.
 - Step 2 (coder): no deviation. 378 tests OK.
 - Step 3 (coder): plan's recording cases merged into two tests, plus one extra (closed and still gone → only departed). 385 tests OK (+7, plan said ≥ 8).
 - Step 4 (coder): no deviation. nix flake check passed, nix build .#ai-mirror OK.
+- Review (fresh Opus): no blocking findings; every path same or stricter. Known
+  limit recorded: a `closelayer` the reader has not yet read when the check runs
+  is not counted (today's behaviour for that check; stricter only once read).
+  `_require_layer` shares `_furniture`, so it is stricter too (untested, by design).
+  gotchas.md: "usually" restored for the CLI restart case.
