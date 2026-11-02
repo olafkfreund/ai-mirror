@@ -10,7 +10,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import __version__, api, control, events
+from . import __version__, api, control, events, host
 from .control import MirrorError
 
 STR = {'type': 'string'}
@@ -270,6 +270,12 @@ def handle(line):
 
 def main():
     control.register_server()
+    try:
+        # On this thread, before the reader exists: a server started after a Hyprland
+        # restart inherits a stale signature, and the reader never resolves it (#95).
+        host.resolve()
+    except Exception:
+        pass  # no Hyprland: the tools report it, as before
     events.start()
     signal.signal(signal.SIGUSR1, lambda *_: control.HELPER.abort())
     try:
