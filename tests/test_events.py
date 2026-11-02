@@ -1,5 +1,6 @@
 """What happened between calls (#95)."""
 from pathlib import Path
+import json
 import socket
 import sys
 from unittest.mock import patch
@@ -198,3 +199,25 @@ class Tool(Base):
         rec = events.Recorder()
         rec.clear(1)
         return rec
+
+
+class Caused(Base):
+    def call(self, recording):
+        rec = events.Recorder()
+        if recording:
+            rec.clear(1)
+
+        def run(name, args, by):
+            rec.add('workspacev2', '2,2')
+            return {'ok': True}
+        with patch.object(mcp.events, 'RECORDER', rec), patch.object(mcp.api, 'run', run):
+            got = mcp.call_tool('input', {'generation': 1, 'actions': [{'type': 'key', 'keys': ['A']}]})
+        return json.loads(got['content'][0]['text'])
+
+    def test_result_carries_events_while_recording(self):
+        got = self.call(True)
+        self.assertEqual(got['events']['list'][0]['event'], 'workspacev2')
+        self.assertEqual(got['events']['next'], 1)
+
+    def test_no_events_key_when_not_recording(self):
+        self.assertNotIn('events', self.call(False))
