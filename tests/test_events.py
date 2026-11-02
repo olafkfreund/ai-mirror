@@ -1,5 +1,6 @@
 """What happened between calls (#95)."""
 from pathlib import Path
+import io
 import json
 import socket
 from types import SimpleNamespace
@@ -252,3 +253,24 @@ class Caused(Base):
 
     def test_no_events_key_when_not_recording(self):
         self.assertNotIn('events', self.call(False))
+
+
+class Startup(Base):
+    def test_main_resolves_the_signature_before_the_reader_starts(self):
+        # A stale signature at startup left events unavailable until the first hyprctl call (#95, p620).
+        order = []
+        with patch.object(mcp.host, 'resolve', lambda: order.append('resolve')), \
+                patch.object(mcp.events, 'start', lambda: order.append('start')), \
+                patch('sys.stdin', io.StringIO('')), patch('signal.signal'):
+            mcp.main()
+        self.assertEqual(order, ['resolve', 'start'])
+
+    def test_main_starts_the_reader_when_hyprland_is_absent(self):
+        order = []
+        def fail():
+            raise RuntimeError('Hyprland is not running')
+        with patch.object(mcp.host, 'resolve', fail), \
+                patch.object(mcp.events, 'start', lambda: order.append('start')), \
+                patch('sys.stdin', io.StringIO('')), patch('signal.signal'):
+            mcp.main()
+        self.assertEqual(order, ['start'])
