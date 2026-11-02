@@ -62,7 +62,7 @@ def render_audit(result: dict) -> str:
 def build_parser():
     parser = argparse.ArgumentParser(prog='ai-mirror', description='Let an AI agent drive your Hyprland desktop')
     commands = parser.add_subparsers(dest='op', required=True)
-    for name in ('status', 'doctor', 'windows', 'mcp'):
+    for name in ('status', 'doctor', 'windows', 'shell_state', 'mcp'):
         commands.add_parser(name)
     p = commands.add_parser('control', help='agent: ask the human for control; off: revoke and release held keys; '
                                             'confirm/deny: answer the waiting request')
