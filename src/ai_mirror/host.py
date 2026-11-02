@@ -83,7 +83,7 @@ def monitors() -> list[dict]:
             width, height = height, width
         rows.append({'name': m['name'], 'x': m['x'], 'y': m['y'],
                      'w': round(width / m['scale']), 'h': round(height / m['scale']),
-                     'scale': m['scale'], 'focused': bool(m.get('focused'))})
+                     'scale': m['scale'], 'focused': bool(m.get('focused')), 'id': m.get('id')})
     return rows
 
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
 import select
 import shutil
 import signal
@@ -955,9 +956,36 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
 
 # -- capture -----------------------------------------------------------------
 
-def screenshot(dest: Path, output: str | None = None, region=None, max_size=None) -> dict:
-    """Capture global layout pixels with grim; return frame metadata."""
-    if region is not None:
+def screenshot(dest: Path, output: str | None = None, region=None, max_size=None, window=None) -> dict:
+    """Capture global layout pixels with grim, or one window; return frame metadata."""
+    extra, target = {}, []
+    if window is not None:
+        if output is not None or region is not None:
+            raise ValueError('window cannot be combined with output or region')
+        wins = host.windows()
+        win = next((w for w in wins if w.get('address') == window), None)
+        stable = str(win.get('stableId', '')) if win else ''
+        if not win or not re.fullmatch('[0-9a-f]+', stable):
+            raise MirrorError('invalid', f'no window {window!r} with a usable stableId')
+        # The window's own privacy check, on a visible or a hidden workspace;
+        # the rectangle check below does not apply to a window capture.
+        category = privacy.kind(win.get('class', ''), win.get('title', ''))
+        if category:
+            raise MirrorError('sensitive', f'window is {category}; not captured')
+        (x, y), (width, height) = win['at'], win['size']
+        # hyprctl clients gives the monitor's id; frames everywhere else carry its name
+        name = next((m['name'] for m in host.monitors() if m.get('id') == win.get('monitor')), None)
+        visible = host.visible_workspaces()
+        on_screen = str(win.get('workspace')) in visible
+        covered = bool(privacy.covering((x, y, width, height),
+                                        [w for w in wins if w['address'] != window], visible))
+        view_only = not on_screen or covered
+        note = ('workspace is not visible; this is a view, not a target for input' if not on_screen else
+                'another window overlaps this one; this is a view, not a target for input' if covered else
+                'window is visible and clear')
+        extra = {'window': window, 'visible': on_screen, 'view_only': view_only, 'note': note}
+        target = ['-T', stable]
+    elif region is not None:
         if not isinstance(region, list) or len(region) != 4 or any(type(v) is not int for v in region):
             raise ValueError('region must be [x, y, width, height] in layout pixels')
         if region[2] <= 0 or region[3] <= 0:
@@ -974,11 +1002,11 @@ def screenshot(dest: Path, output: str | None = None, region=None, max_size=None
     # including the one mcp.py base64s. ocr.read captures with its own grim and
     # makes this same check; change both together. The code is its own, so an agent can tell a
     # refusal that will never succeed from a capture that merely failed.
-    refusal = privacy.refuse((x, y, width, height), host.windows(),
-                             host.visible_workspaces())
+    refusal = None if window is not None else privacy.refuse(
+        (x, y, width, height), host.windows(), host.visible_workspaces())
     if refusal:
         raise MirrorError('sensitive', refusal)
-    options = ['-g', f'{x},{y} {width}x{height}']
+    options = target or ['-g', f'{x},{y} {width}x{height}']
     scale = 1.0
     if max_size is not None:
         if type(max_size) is not int or not 320 <= max_size <= 3840:
@@ -987,11 +1015,12 @@ def screenshot(dest: Path, output: str | None = None, region=None, max_size=None
         options += ['-s', str(scale)]
     dest.parent.mkdir(parents=True, exist_ok=True)
     state = read_state()
-    result = subprocess.run(['grim', *options, str(dest)], capture_output=True, text=True, timeout=30)
+    result = subprocess.run(['grim', *options, str(dest)], capture_output=True, text=True, timeout=30,
+                            stdin=subprocess.DEVNULL)
     if result.returncode:
         raise MirrorError('unavailable', f'grim failed: {result.stderr.strip()[:300]}')
     with dest.open('rb') as png:
         image_width, image_height = struct.unpack('>II', png.read(24)[16:24])
     return {'path': str(dest), 'generation': state.get('generation', 0), 'owner': state.get('owner', 'off'),
             'width': image_width, 'height': image_height, 'region': [x, y, width, height],
-            'output': name, 'scale': scale}
+            'output': name, 'scale': scale, **extra}
