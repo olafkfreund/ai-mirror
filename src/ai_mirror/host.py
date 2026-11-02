@@ -83,7 +83,7 @@ def monitors() -> list[dict]:
             width, height = height, width
         rows.append({'name': m['name'], 'x': m['x'], 'y': m['y'],
                      'w': round(width / m['scale']), 'h': round(height / m['scale']),
-                     'scale': m['scale'], 'focused': bool(m.get('focused'))})
+                     'scale': m['scale'], 'focused': bool(m.get('focused')), 'id': m.get('id')})
     return rows
 
 
@@ -133,7 +133,7 @@ def focused_address() -> str | None:
 
 
 def windows(timeout=10) -> list[dict]:
-    keys = ('address', 'class', 'title', 'at', 'size', 'monitor', 'floating', 'fullscreen', 'focusHistoryID', 'pid')
+    keys = ('address', 'class', 'title', 'at', 'size', 'monitor', 'floating', 'fullscreen', 'focusHistoryID', 'pid', 'stableId')
     rows = []
     for w in json.loads(ctl('clients', '-j', timeout=timeout)):
         if not w.get('mapped', True):

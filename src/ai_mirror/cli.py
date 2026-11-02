@@ -76,6 +76,7 @@ def build_parser():
     p.add_argument('--output', help="monitor name or 'all' (default: focused)")
     p.add_argument('--region', type=region)
     p.add_argument('--max-size', dest='max_size', type=int)
+    p.add_argument('--window', help='address of one window to capture, even on a hidden workspace (from windows)')
     p = commands.add_parser('input')
     p.add_argument('--generation', type=int, required=True)
     # Typing must name its target (#24), so without this the CLI could only
