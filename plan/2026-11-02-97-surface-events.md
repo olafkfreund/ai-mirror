@@ -33,7 +33,7 @@ spec: spec/2026-11-02-97-surface-events.md
      else `set()`.
    - `feed`: next to the `closewindow` branch, `elif name == 'closelayer': rec.closed.add(data)`
      (the parsed, uncapped data is the namespace).
-   → verify `python3 -m unittest tests.test_events -v`.
+   → verify `python3 -m unittest discover -s tests` (`tests` is not a package, so `tests.test_events` does not import from the root).
    Traps: `rec.classes` is mutated without the lock today (reader thread only);
    `closed` is read from the main thread, so the add goes under `rec.lock`.
 
@@ -107,3 +107,8 @@ step 5 refuses as described.
 
 Revert the merge commit in ai-mirror and bump nixarchy's ai-mirror input back;
 the state file format is unchanged, so no migration.
+
+## Deviations during implementation
+
+- Step 1 (coder): no code deviation. Verify command corrected: `tests` is not a
+  package, so the discover form is used. 378 tests OK.

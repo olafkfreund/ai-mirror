@@ -64,6 +64,7 @@ class Recorder:
         self.generation = None  # None = not recording
         self.classes: dict = {}
         self.base = 0  # seq when this grant's recording started
+        self.closed: set = set()  # layer namespaces seen closing this grant; not in the ring, so overflow cannot lose one
 
     def add(self, name: str, data: str) -> None:
         with self.lock:
@@ -81,8 +82,13 @@ class Recorder:
         with self.lock:
             self.ring.clear()
             self.classes = {}
+            self.closed = set()
             self.generation = generation
             self.base = self.seq
+
+    def closed_layers(self, generation) -> set:
+        with self.lock:
+            return set(self.closed) if generation is not None and generation == self.generation else set()
 
     def since(self, cursor: int, limit: int) -> dict:
         with self.lock:
@@ -124,6 +130,9 @@ def feed(line: str, state: dict, recorder: 'Recorder | None' = None) -> None:
             rec.classes[_addr(parts[0])] = parts[2]
     elif name == 'closewindow':
         rec.classes.pop(_addr(data), None)
+    elif name == 'closelayer':
+        with rec.lock:
+            rec.closed.add(data)
     rec.add(name, redact(name, data, rec.classes))
 
 
