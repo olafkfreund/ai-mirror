@@ -138,3 +138,17 @@ Revert the merge commit; no state is persisted.
     a capture of window … on a hidden workspace …"), and nothing moved. No grant
     was needed: `from_frame` refuses before the gate.
   - Test window killed afterwards.
+- Review (fresh Opus): no blocking findings. Every path the review traced
+  holds: caller text never reaches grim, a private window is never captured,
+  and the only frame user (`input` → `from_frame`) refuses view-only frames
+  before `api.run`. Fixed: the test docstring; two tests added, a usable window
+  frame mapping into the window box, and `call_tool` screenshot → input proving
+  `api.run` is never reached for a view-only frame (410 tests OK). Documented
+  in `docs/usage.md`: a view-only frame's `region` is not to be turned into
+  global coordinates, and layer surfaces over a visible window are not counted
+  (the spec's rejected alternative). Left:
+  - no `max_size` test on a window capture;
+  - stacking order is ignored (errs view-only);
+  - a title can change between the privacy check and grim, as on the existing
+    path;
+  - whether `grim -T` includes a window's own popups is unverified.

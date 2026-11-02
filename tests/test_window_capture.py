@@ -1,8 +1,9 @@
 """`screenshot window=<address>` (#100): one window, even on a hidden workspace.
 
-No desktop: windows, monitors and grim are stubbed; the fake grim writes a PNG
-header of the size it was asked for.
+No desktop: windows, monitors and grim are stubbed; the fake grim writes an
+800x600 PNG header whatever it is asked for.
 """
+import json
 import struct
 import sys
 import unittest
@@ -88,6 +89,30 @@ class WindowCapture(Base):
             with self.assertRaises(control.MirrorError) as ctx:
                 mcp.from_frame({'frame': 'f', 'actions': [{'type': 'click', 'x': 1, 'y': 1}]})
         self.assertEqual(ctx.exception.code, 'invalid')
+
+    def test_a_usable_window_frame_maps_into_the_window_box(self):
+        frame = {'generation': 1, 'region': [100, 50, 800, 600], 'width': 800, 'height': 600,
+                 'window': '0xa', 'view_only': False}
+        with patch.dict(mcp.FRAMES, {'f': frame}, clear=True):
+            out = mcp.from_frame({'frame': 'f', 'actions': [{'type': 'click', 'x': 10, 'y': 20}]})
+        self.assertEqual((out['actions'][0]['x'], out['actions'][0]['y']), (110, 70))
+
+    def test_input_through_call_tool_never_reaches_api_for_a_view_only_frame(self):
+        result = {'path': str(control.root() / 'w.png'), 'generation': 1, 'owner': 'off', 'width': 800,
+                  'height': 600, 'region': [100, 50, 800, 600], 'output': 'DP-1', 'scale': 1.0,
+                  'window': '0xa', 'visible': False, 'view_only': True, 'note': 'hidden'}
+        ran = []
+
+        def run(op, args=None, by='human'):
+            ran.append(op)
+            return result
+        with patch.dict(mcp.FRAMES, {}, clear=True), patch.object(mcp.api, 'run', run):
+            meta = json.loads(mcp.call_tool('screenshot', {'window': '0xa', 'image': False})['content'][0]['text'])
+            self.assertTrue(meta['view_only'])
+            got = mcp.call_tool('input', {'frame': meta['frame'], 'actions': [{'type': 'click', 'x': 1, 'y': 1}]})
+        self.assertTrue(got['isError'])
+        self.assertIn('invalid', got['content'][0]['text'])
+        self.assertEqual(ran, ['screenshot'])
 
     def test_cli_parses_window(self):
         args = cli.build_parser().parse_args(['screenshot', '--window', '0xa'])
