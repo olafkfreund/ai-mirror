@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 97
 author: olafkfreund
 ---
@@ -53,15 +53,11 @@ Quickshell audio panel and the confirm dialog. The check does not use them.
   the main thread); the check reads the recorder, it does not get pushed to.
 - Tests cannot reach the desktop (`guard.arm()`); both paths need tests.
 
-## Open questions
+## Decisions (approved 2026-11-02)
 
-1. A `closelayer` then `openlayer` of a namespace that is legitimately furniture
-   (e.g. `omarchy-restart-shell`, or a bar that remaps on monitor change) will now
-   refuse keystrokes until that surface is gone — today a restart "usually passes
-   unnoticed". Accept the stricter refusal (recommended: it is what #39 asks for,
-   and the refusal names the surface), or exempt some namespaces?
-2. Should a departure seen only in events also be written into
-   `baseline_departed` in the state file (so the next CLI call sees it too), or
-   stay in-process only? Recommended: write it from the main thread at check
-   time, so the record is one place and a CLI call in the same grant is not
-   weaker than the MCP call before it.
+1. Accept the stricter refusal; no namespace is exempt. After a shell restart
+   seen in events, window-addressed input is refused until control is re-taken,
+   as `gotchas.md` already says for a restart a check happens to sample.
+2. A departure seen in events is written into `baseline_layers` /
+   `baseline_departed` in the state file by the main thread at check time, so a
+   later CLI call in the same grant is not weaker than the MCP call before it.
