@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 97
 spec: spec/2026-11-02-97-surface-events.md
 ---
