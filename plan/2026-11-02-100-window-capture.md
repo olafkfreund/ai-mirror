@@ -118,3 +118,7 @@ then a fresh Opus agent reviews the diff against this plan. Step 6 is mine.
 ## Rollback
 
 Revert the merge commit; no state is persisted.
+
+## Deviations during implementation
+
+- Step 1 (coder): no deviation. 400 tests OK.
