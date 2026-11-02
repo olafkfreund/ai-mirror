@@ -114,3 +114,4 @@ the state file format is unchanged, so no migration.
   package, so the discover form is used. 378 tests OK.
 - Step 2 (coder): no deviation. 378 tests OK.
 - Step 3 (coder): plan's recording cases merged into two tests, plus one extra (closed and still gone → only departed). 385 tests OK (+7, plan said ≥ 8).
+- Step 4 (coder): no deviation. nix flake check passed, nix build .#ai-mirror OK.
