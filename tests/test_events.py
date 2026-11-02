@@ -5,7 +5,7 @@ import sys
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from ai_mirror import events
+from ai_mirror import api, cli, events, mcp
 
 from test_invariants import Base
 
@@ -146,3 +146,55 @@ class Reader(Base):
         b.close()
         events._session(r, connect=lambda: a)
         self.assertEqual(r.cursor(), 0)
+
+
+class Tool(Base):
+    def test_events_is_mcp_only_and_read_only(self):
+        self.assertIn('events', [t['name'] for t in mcp.TOOLS])
+        self.assertIn('events', mcp.READ_ONLY)
+        self.assertIn('events', api.OBSERVING)
+        with self.assertRaises(SystemExit), patch('sys.stderr'):
+            cli.build_parser().parse_args(['events'])
+
+    def run_events(self, running=True, st=None, rec=None, **args):
+        with patch.object(events, 'RUNNING', running), \
+                patch.object(events, 'RECORDER', rec or events.Recorder()), \
+                patch.object(events.control, 'SERVER', ME), \
+                patch.object(events.control, '_load', lambda: st or state(owner='off')):
+            return api.run('events', args, by='agent')
+
+    def code(self, **kw):
+        with self.assertRaises(api.MirrorError) as ctx:
+            self.run_events(**kw)
+        return ctx.exception.code
+
+    def test_unavailable_when_reader_not_running(self):
+        self.assertEqual(self.code(running=False), 'unavailable')
+
+    def test_not_owner_when_not_held(self):
+        self.assertEqual(self.code(), 'not_owner')
+
+    def test_returns_events_when_held(self):
+        rec = events.Recorder()
+        rec.clear(1)
+        rec.add('a', 'b')
+        got = self.run_events(st=state(), rec=rec)
+        self.assertEqual(set(got), {'events', 'next', 'dropped', 'generation'})
+        self.assertEqual((len(got['events']), got['generation']), (1, 1))
+
+    def test_new_grant_before_first_event_returns_empty(self):
+        rec = events.Recorder()
+        rec.clear(1)
+        rec.add('old', 'x')
+        got = self.run_events(st=state(generation=2), rec=rec)
+        self.assertEqual(got, {'events': [], 'next': 1, 'dropped': False, 'generation': 2})
+
+    def test_bad_arguments_are_refused(self):
+        for bad in ({'since': -1}, {'limit': 0}, {'limit': 513}, {'since': True}):
+            with self.assertRaises(ValueError):
+                self.run_events(st=state(), rec=self.held_rec(), **bad)
+
+    def held_rec(self):
+        rec = events.Recorder()
+        rec.clear(1)
+        return rec

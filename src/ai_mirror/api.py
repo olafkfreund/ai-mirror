@@ -12,7 +12,7 @@ from .input import encode, needs_window
 
 MUTATING = {'input', 'window', 'launch', 'a11y_act'}
 # Ungated reads. An agent doing any of these lights the watching mark in the bar.
-OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'ocr', 'wait', 'index'}
+OBSERVING = {'screenshot', 'windows', 'clipboard', 'a11y_tree', 'a11y_find', 'ocr', 'wait', 'index', 'events'}
 
 
 def _rdp_client(cls) -> bool:
@@ -236,6 +236,23 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
         # an agent types into once it has opened one (#26).
         gen = control.read_state().get('generation')  # before the walk: a change mid-walk makes it stale
         return {'windows': host.windows(), 'layers': host.layers(), 'generation': gen}
+    if op == 'events':
+        from . import events
+        if not events.RUNNING:
+            raise MirrorError('unavailable', 'events are kept only by the MCP server')
+        state = control._load()
+        if not events.held(state):
+            raise MirrorError('not_owner', 'events are recorded only while you hold control; ask with control')
+        since, limit = args.get('since', 0), args.get('limit', 100)
+        if type(since) is not int or since < 0:
+            raise ValueError('since must be an integer >= 0')
+        if type(limit) is not int or not 1 <= limit <= 512:
+            raise ValueError('limit must be an integer from 1 to 512')
+        gen = state.get('generation')
+        if events.RECORDER.generation != gen:
+            # A new grant whose first event has not arrived: the ring may be the last grant's.
+            return {'events': [], 'next': events.RECORDER.cursor(), 'dropped': False, 'generation': gen}
+        return {**events.RECORDER.since(since, limit), 'generation': gen}
     if op == 'clipboard':
         if args.get('action') == 'read':
             result = subprocess.run(['wl-paste', '--no-newline'], capture_output=True, timeout=10)
