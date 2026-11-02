@@ -120,3 +120,13 @@ the state file format is unchanged, so no migration.
   is not counted (today's behaviour for that check; stricter only once read).
   `_require_layer` shares `_furniture`, so it is stricter too (untested, by design).
   gotchas.md: "usually" restored for the CLI restart case.
+- Step 5 (live, p620, checkout MCP server, 2026-11-02): audio panel open before
+  the grant, so `omarchy-keyboard-panel` and `-dismiss` (level 3) were in the
+  baseline. Closed and reopened with `qs ipc`, no tool call between. Recorded
+  `closelayer` data equals the `hyprctl layers` namespaces. A window-addressed
+  `SHIFT` was refused: `wrong_target`, "omarchy-keyboard-panel …,
+  omarchy-keyboard-panel-dismiss … went away and came back since control was
+  granted … input for window 0x63f773048af0 was NOT sent". State afterwards: both
+  in `baseline_departed`, out of `baseline_layers`. First run failed earlier with
+  `unavailable` (helper not found: `AI_MIRROR_HELPER` unset for the checkout),
+  not a code issue.
