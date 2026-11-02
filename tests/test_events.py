@@ -1,5 +1,6 @@
 """What happened between calls (#95)."""
 from pathlib import Path
+import socket
 import sys
 from unittest.mock import patch
 
@@ -108,3 +109,40 @@ class Recording(Base):
         got = [e['data'] for e in r.since(0, 10)['events']]
         self.assertIn('withheld', got[0])
         self.assertIn('withheld', got[2])
+
+
+class Reader(Base):
+    def setUp(self):
+        super().setUp()
+        for target, value in (('SERVER', ME), ('_load', lambda: state())):
+            p = patch.object(events.control, target, value)
+            p.start()
+            self.addCleanup(p.stop)
+        p = patch.object(events.host, 'windows', return_value=[])
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_pump_reads_lines_split_across_chunks_until_eof(self):
+        a, b = socket.socketpair()
+        r = events.Recorder()
+        b.sendall(b'one>>1\ntwo>')
+        b.sendall(b'>2\nthree>>3\n')
+        b.close()
+        self.addCleanup(a.close)
+        self.assertIsNone(events.pump(a, r))
+        self.assertEqual([e['event'] for e in r.since(0, 10)['events']], ['one', 'two', 'three'])
+
+    def test_session_stores_a_gap_when_recording(self):
+        a, b = socket.socketpair()
+        r = events.Recorder()
+        b.sendall(b'one>>1\n')
+        b.close()
+        events._session(r, connect=lambda: a)
+        self.assertEqual(r.since(0, 10)['events'][-1]['event'], 'gap')
+
+    def test_session_stores_no_gap_when_not_recording(self):
+        a, b = socket.socketpair()
+        r = events.Recorder()
+        b.close()
+        events._session(r, connect=lambda: a)
+        self.assertEqual(r.cursor(), 0)

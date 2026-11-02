@@ -2,6 +2,8 @@
 kept in memory while this server's agent holds control, and only then."""
 from __future__ import annotations
 
+import os
+import socket
 import threading
 import time
 from collections import deque
@@ -113,3 +115,67 @@ def feed(line: str, state: dict, recorder: 'Recorder | None' = None) -> None:
 
 
 RECORDER = Recorder()
+
+
+def _path() -> str:
+    return f'{os.environ["XDG_RUNTIME_DIR"]}/hypr/{os.environ[host.SIG]}/.socket2.sock'
+
+
+def pump(sock, recorder: Recorder) -> None:
+    """Feed lines until EOF. The timeout lets a revoked grant clear the ring while idle."""
+    sock.settimeout(1)
+    buf = b''
+    while True:
+        try:
+            chunk = sock.recv(4096)
+        except socket.timeout:
+            state = control._load()
+            if not held(state) and recorder.generation is not None:
+                recorder.clear(None)
+            continue
+        if not chunk:
+            return
+        buf += chunk
+        *lines, buf = buf.split(b'\n')
+        for line in lines:
+            feed(line.decode('utf-8', 'replace'), control._load(), recorder)
+
+
+def _connect():
+    sock = socket.socket(socket.AF_UNIX)
+    try:
+        sock.connect(_path())
+    except BaseException:
+        sock.close()
+        raise
+    return sock
+
+
+def _session(recorder: Recorder, connect=_connect) -> None:
+    sock = connect()
+    try:
+        pump(sock, recorder)
+    finally:
+        sock.close()
+        if recorder.generation is not None:
+            recorder.gap('Hyprland event socket lost')
+
+
+def _loop() -> None:
+    while True:
+        try:
+            _session(RECORDER)
+        except Exception:
+            pass
+        # No host.resolve() here: its on_switch stops HELPER and writes state, which
+        # belongs to the main thread. A restart revokes the grant, and the main
+        # thread's next hyprctl call repoints the environment this reads.
+        time.sleep(1)
+
+
+def start() -> None:
+    global RUNNING
+    if RUNNING:
+        return
+    RUNNING = True
+    threading.Thread(target=_loop, daemon=True, name='ai-mirror-events').start()

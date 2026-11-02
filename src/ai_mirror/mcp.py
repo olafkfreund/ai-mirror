@@ -10,7 +10,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import __version__, api, control
+from . import __version__, api, control, events
 from .control import MirrorError
 
 STR = {'type': 'string'}
@@ -262,6 +262,7 @@ def handle(line):
 
 def main():
     control.register_server()
+    events.start()
     signal.signal(signal.SIGUSR1, lambda *_: control.HELPER.abort())
     try:
         for line in sys.stdin:
