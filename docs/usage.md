@@ -50,7 +50,7 @@
 |---|---|
 | `status` | owner, generation, monitors `{name,x,y,w,h,scale,focused}` |
 | `control` | `mode: agent\|off` — `agent` asks the human; poll `status` until `owner` is `agent` or `off` |
-| `screenshot` | `output` (monitor name or `all`, default focused), `region [x,y,w,h]` global px, `max_size` 320–3840 (default 1280), `image` |
+| `screenshot` | `output` (monitor name or `all`, default focused), `region [x,y,w,h]` global px, `max_size` 320–3840 (default 1280), `image`, `window` (address from `windows`: that window only, even on a hidden workspace; not with `output` or `region`). A window capture adds `window`, `visible`, `view_only` and `note` to the frame. `view_only` is true on a hidden workspace or under another window: `input` with that frame is refused (`invalid`), so switch to it and take a fresh screenshot. Refused (`sensitive`) when that window is itself private, hidden or not; `invalid` for an unknown address |
 | `windows` | address, class, title, `at`, `size`, monitor, workspace, floating, fullscreen, pid |
 | `input` | `frame` (image px) or `generation` (global px), `actions[1..16]`, `screenshot`, `wait_ms` |
 | `window` | `action: focus\|close\|float\|center\|fullscreen\|workspace\|resize`, `address`, `generation`, `mode`, `workspace`, `w`, `h`, `enabled` (float: set, else toggle), `timeout` 0.1–30 (default 1.5). Checked against the compositor: `{changed, verified, before, after}`, or `no_such_window`, `not_confirmed` (may still land: `windows` before retrying), `unavailable`. resize/center need a floating window |
@@ -97,7 +97,7 @@ Every command prints JSON; errors are `{"error":{"code","message"}}` with a nonz
 ai-mirror status
 ai-mirror control agent|off              # agent asks; off revokes
 ai-mirror control confirm ID | deny [ID]  # answer the waiting request (what the dialog runs)
-ai-mirror screenshot [--output DP-1|all] [--region x,y,w,h] [--max-size N] [--out file.png]
+ai-mirror screenshot [--output DP-1|all] [--region x,y,w,h] [--window ADDR] [--max-size N] [--out file.png]
 ai-mirror windows
 ai-mirror input --generation N '[{"type":"click","x":300,"y":200,"modifiers":["CTRL"]}]'
 ai-mirror window --generation N focus|close|float|center|fullscreen|workspace|resize 0x55d1… [--mode maximized] [--workspace 3] [--w 800 --h 600] [--enabled|--no-enabled] [--timeout S]

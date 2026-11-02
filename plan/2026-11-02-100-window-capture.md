@@ -125,3 +125,4 @@ Revert the merge commit; no state is persisted.
 - Step 2 (coder + me): the coder reported that `hyprctl clients` gives `monitor` as an id; I added `id` to `host.monitors()` rows and the window branch maps it to the output name (measured: 0 → DP-1, 1 → DP-3). 400 tests OK.
 - Step 3 (coder): no deviation. 400 tests OK.
 - Step 4 (coder): no deviation; 8 tests. 408 tests OK.
+- Step 5 (coder): no deviation. nix flake check passed, nix build OK.
