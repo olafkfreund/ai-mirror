@@ -30,6 +30,7 @@ Full reference: `docs/usage.md`.
 | `src/ai_mirror/input.py` | Actions → helper lines `M x y` / `B code 0\|1` / `S dx dy` / `K code 0\|1` / `P code…` (a tap in one flush, #89) / `T utf8`; evdev key table |
 | `src/ai_mirror/wait.py` | Polls Hyprland state until one named prerequisite holds or a deadline passes. No events: a prerequisite that already holds never transitions |
 | `src/ai_mirror/events.py` | Reader thread on Hyprland's socket2 into a 512-event memory ring, recorded only while this server's agent holds control; titles of private windows redacted before storing; started by `mcp.main` only |
+| `src/ai_mirror/shell.py` | `shell_state`: the shell's state via `qs ipc --pid`, only the fixed `(target, function)` pairs in `READS`, no arguments, never a name that changes state; instance picked by display; read-only, no grant |
 | `src/ai_mirror/index.py` | What this host looks like: keys from `~/.config/hypr/*.lua`, plugins, nav strategy, gotchas. Derived per call, never cached, never written to disk |
 | `src/ai_mirror/gotchas.md` | The hand-written half of the index. Read only; nothing generates it |
 | `src/ai_mirror/measured.md` | Per-app a11y_act results; served only by `index --section measured` |
