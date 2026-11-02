@@ -123,6 +123,27 @@ class ShellState(Base):
         with patch.object(shell.subprocess, 'run', side_effect=FileNotFoundError('qs')):
             self.assertIn('note', shell.state())
 
+    def test_state_reduces_media_and_meeting_on_the_full_path(self):
+        answers = {('media', 'status'): '{"identity":"Spotify","playing":true,"title":"T","artist":"A","artUrl":"u"}',
+                   ('meeting-mode', 'status'): '{"active":true,"callApp":"firefox","extra":"x",'
+                                               '"callTitle":"Meet — Mozilla Firefox Private Browsing"}'}
+        out = self.run_state(Fake(ONE, answers))
+        self.assertEqual(out['media'], {'player': 'Spotify', 'playing': True})
+        self.assertIn('withheld', out['meeting']['callTitle'])
+        self.assertNotIn('extra', out['meeting'])
+
+    def test_a_timeout_skips_the_remaining_calls(self):
+        fake = Fake(ONE, fail={('shell', 'openPanels')})
+        out = self.run_state(fake)
+        self.assertEqual(set(out.values()), {'unavailable'})
+        self.assertEqual(len(fake.argv), 2)  # qs list, then the one that hung
+
+    def test_a_non_zero_exit_is_unavailable(self):
+        fake = Fake(ONE)
+        run = lambda argv, **kw: done('x', 1) if argv[-2:] == ['osd', 'state'] else fake(argv, **kw)
+        with patch.object(shell.subprocess, 'run', run):
+            self.assertEqual(shell.state()['osd'], 'unavailable')
+
     def test_registered_as_a_read(self):
         self.assertIn('shell_state', mcp.READ_ONLY)
         self.assertIn('shell_state', api.OBSERVING)

@@ -24,13 +24,16 @@ READS = {  # field -> (target, function); no arguments, ever
     'media':         ('media', 'status'),
 }
 UNAVAILABLE = 'unavailable'
+# The keys meeting-mode reported on p620 (2026-11-02); a key added later is dropped, not passed on.
+MEETING = ('active', 'forced', 'suppressed', 'reason', 'updated', 'call', 'callDetected',
+           'callApp', 'callTitle', 'callSince', 'since', 'pausedMedia')
 
 
 def _instance() -> int | None:
     """The Quickshell on this session's display, or None if there is not exactly one."""
     try:
         out = subprocess.run(['qs', 'list', '--all'], stdin=subprocess.DEVNULL,
-                             capture_output=True, text=True, timeout=2).stdout
+                             capture_output=True, text=True, errors='replace', timeout=2).stdout
     except (OSError, subprocess.SubprocessError):
         return None
     want = f'wayland/{os.environ.get("WAYLAND_DISPLAY", "")}'
@@ -45,7 +48,7 @@ def _instance() -> int | None:
 
 def _call(pid: int, target: str, function: str) -> str:
     run = subprocess.run(['qs', 'ipc', '--pid', str(pid), 'call', target, function],
-                         stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=2)
+                         stdin=subprocess.DEVNULL, capture_output=True, text=True, errors='replace', timeout=2)
     if run.returncode != 0 or not run.stdout.strip():
         raise RuntimeError(f'{target} {function} gave no answer')
     return run.stdout
@@ -73,8 +76,9 @@ def _media(v):
 def _meeting(v):
     if not isinstance(v, dict):
         return UNAVAILABLE
+    kept = {k: v[k] for k in MEETING if k in v}
     found = privacy.kind(str(v.get('callApp') or ''), str(v.get('callTitle') or ''))
-    return {**v, 'callTitle': f'<withheld: {found}>'} if found else v
+    return {**kept, 'callTitle': f'<withheld: {found}>'} if found else kept
 
 
 REDUCE = {'media': _media, 'meeting': _meeting}
@@ -84,10 +88,15 @@ def state() -> dict:
     pid = _instance()
     if pid is None:
         return {**dict.fromkeys(READS, UNAVAILABLE), 'note': 'no Quickshell instance on this display'}
-    out = {}
+    out, hung = {}, False
     for field, (target, function) in READS.items():
+        if hung:  # one timeout means the shell is stuck: 2 s each for the rest would stall the caller
+            out[field] = UNAVAILABLE
+            continue
         try:
             out[field] = REDUCE.get(field, lambda v: v)(_parse(_call(pid, target, function)))
+        except subprocess.TimeoutExpired:
+            hung, out[field] = True, UNAVAILABLE
         except Exception:
             out[field] = UNAVAILABLE
     return out
