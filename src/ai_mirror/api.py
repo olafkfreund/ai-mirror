@@ -230,7 +230,8 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
         return control.set_owner(mode, by)
     if op == 'screenshot':
         dest = Path(args.get('out') or control.root() / 'shot.png').absolute()
-        return control.screenshot(dest, args.get('output'), args.get('region'), args.get('max_size'))
+        return control.screenshot(dest, args.get('output'), args.get('region'), args.get('max_size'),
+                                  args.get('window'))
     if op == 'shell_state':
         from . import shell
         return shell.state()
