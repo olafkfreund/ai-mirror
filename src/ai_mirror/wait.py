@@ -83,7 +83,7 @@ def _workspace(value, budget: float) -> bool:
 
 def _monitor(value: str, budget: float) -> bool:
     from . import host
-    return any(m['name'] == value and m['focused'] for m in host.monitors())
+    return any(m['name'] == value and m['focused'] for m in host.monitors(timeout=budget))
 
 
 def _layout(value: str, budget: float) -> bool:
@@ -139,7 +139,16 @@ def confirmation(spec) -> tuple:
         raise ValueError(
             'confirm takes exactly one of ' + ', '.join(kinds)
             + (f'; got {named}' if named else '; got none'))
+    unknown = sorted(set(spec) - set(kinds) - {'absent', 'timeout'})
+    if unknown:
+        raise ValueError(f'confirm: unknown keys {unknown}')
+    if 'absent' in spec and not isinstance(spec['absent'], bool):
+        raise ValueError('absent must be true or false')
+    if isinstance(spec.get('timeout'), bool):
+        raise ValueError('timeout must be a number')
     name, value = named[0], spec[named[0]]
+    if name in PREDICATES and (isinstance(value, bool) or not isinstance(value, (str, int))):
+        raise ValueError(f'{name} must be a string')  # int only for workspace ids
     timeout = _timeout(spec.get('timeout'))
 
     if name in PREDICATES:

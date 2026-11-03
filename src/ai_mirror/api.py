@@ -345,7 +345,8 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
                 return control.run_batch(lines, generation, window=window, owners=owners)
             _, timeout, before, finish = confirm
             try:
-                b0 = before(max(timeout, 0.5))
+                # Capped apart from timeout: a slow read must not hold the keystroke back.
+                b0 = before(1.0)
             except Exception as exc:  # noqa: BLE001 - still send; finish reports it
                 b0 = exc
             out = control.run_batch(lines, generation, window=window, owners=owners)

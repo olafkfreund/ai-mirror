@@ -119,10 +119,34 @@ class Confirm(Base):
     def test_invalid_confirm_sends_nothing(self):
         for bad in ({}, {'layer': 'a', 'focus_changed': True}, {'focus_changed': False},
                     {'focus_changed': True, 'absent': True}, {'layer': 'a', 'timeout': -1},
-                    {'layer': 'a', 'timeout': float('nan')}, 'layer'):
+                    {'layer': 'a', 'timeout': float('nan')}, 'layer',
+                    {'title_changed': 5}, {'title_changed': '0x1', 'absent': False},
+                    {'layer': 'a', 'absent': 'false'}, {'layer': 'a', 'timeout': True},
+                    {'layer': 'a', 'tiemout': 9}, {'layer': ['a']}):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 self.go(bad)
         self.assertEqual(self.sent, 0)
+
+    def test_absent_that_already_held(self):
+        out = self.go({'layer': 'panel', 'absent': True, 'timeout': 0.1})
+        self.assertEqual(out['confirm']['result'], 'not_confirmed')
+        self.assertTrue(out['confirm']['held_before'])
+        self.assertEqual(self.sent, 1)
+
+    def test_read_failing_during_poll_is_unavailable(self):
+        self.after = {'layers': RuntimeError('hyprctl gone')}
+        out = self.go({'layer': 'panel', 'timeout': 0.1})
+        self.assertEqual(out['confirm']['result'], 'unavailable')
+        self.assertGreaterEqual(out['confirm']['polls'], 1)
+        self.assertEqual(self.sent, 1)
+
+    def test_mcp_passes_confirm_through(self):
+        from ai_mirror import mcp
+        self.after = {'layers': layers('panel')}
+        res = mcp.call_tool('input', {'generation': 1, 'actions': CLICK,
+                                      'confirm': {'layer': 'panel', 'timeout': 0.1}})
+        self.assertFalse(res['isError'], res)
+        self.assertIn('"confirmed"', res['content'][0]['text'])
 
     def test_no_confirm_no_key(self):
         self.assertNotIn('confirm', self.go())
