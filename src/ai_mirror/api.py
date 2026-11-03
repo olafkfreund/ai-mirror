@@ -324,6 +324,10 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
         if op == 'input':
             actions = args.get('actions')
             window = args.get('window')
+            confirm = None
+            if args.get('confirm') is not None:
+                from . import wait
+                confirm = wait.confirmation(args['confirm'])  # raises before anything is sent
             if needs_window(actions) and not window:
                 # A model told only "no" retries; this one says what to do.
                 raise MirrorError('invalid', 'typing must name the window it types into: '
@@ -337,7 +341,15 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
                                              'typed. Put the text on the clipboard (clipboard write) and paste '
                                              'it with key ["CTRL","V"]; use key for Enter, Tab and shortcuts.')
             lines, owners = encode(actions, with_owners=True)
-            return control.run_batch(lines, generation, window=window, owners=owners)
+            if confirm is None:
+                return control.run_batch(lines, generation, window=window, owners=owners)
+            _, timeout, before, finish = confirm
+            try:
+                b0 = before(max(timeout, 0.5))
+            except Exception as exc:  # noqa: BLE001 - still send; finish reports it
+                b0 = exc
+            out = control.run_batch(lines, generation, window=window, owners=owners)
+            return {**out, 'confirm': finish(b0)}
         if op == 'window':
             return _window(args, by)
         if op == 'launch':
