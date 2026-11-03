@@ -108,6 +108,90 @@ PREDICATES = {
 }
 
 
+def _focus(budget: float):
+    """Address of the focused window, None when nothing is focused ({})."""
+    return _ask('activewindow', budget).get('address')
+
+
+def _title_of(address: str, budget: float):
+    """That window's title, None if there is no such window."""
+    return next((c['title'] for c in _clients(budget)
+                 if c['address'] == address), None)
+
+
+def confirmation(spec) -> tuple:
+    """Validate an `input` confirm spec -> (name, timeout, before, finish).
+
+    `before(budget)` reads the state ahead of the send; it may raise.
+    `finish(b0)` runs after the send and returns the `confirm` result dict.
+    `b0` is the before value, or the exception `before` raised -- a failed
+    read must not stop the send, but it must not pass for evidence either.
+
+    A prerequisite that already held proves nothing about the keystroke, so
+    those report `held_before` without polling. The change kinds compare with
+    the before value and can never have held before.
+    """
+    kinds = sorted(PREDICATES) + ['focus_changed', 'title_changed']
+    if not isinstance(spec, dict):
+        raise ValueError('confirm must be an object')
+    named = [k for k in kinds if spec.get(k) not in (None, '')]
+    if len(named) != 1:
+        raise ValueError(
+            'confirm takes exactly one of ' + ', '.join(kinds)
+            + (f'; got {named}' if named else '; got none'))
+    name, value = named[0], spec[named[0]]
+    timeout = _timeout(spec.get('timeout'))
+
+    if name in PREDICATES:
+        absent = bool(spec.get('absent'))
+        probe = PREDICATES[name]
+
+        def before(budget):
+            return probe(value, budget) is not absent
+
+        def changed(b0):
+            return b0, lambda budget: probe(value, budget) is not absent
+    else:
+        if spec.get('absent') is not None:
+            raise ValueError(f'absent does not apply to {name}')
+        if name == 'focus_changed':
+            if value is not True:
+                raise ValueError('focus_changed must be true')
+            before = _focus
+
+            def changed(b0):
+                return False, lambda budget: _focus(budget) != b0
+        else:
+            if not isinstance(value, str):
+                raise ValueError('title_changed takes a window address')
+
+            def before(budget):
+                # No such window: "gone" afterwards would mean nothing, so
+                # this is unavailable rather than a timeout.
+                title = _title_of(value, budget)
+                if title is None:
+                    raise LookupError(f'no window {value}')
+                return title
+
+            def changed(b0):
+                return False, lambda budget: _title_of(value, budget) != b0
+
+    def finish(b0) -> dict:
+        if isinstance(b0, Exception):
+            return {'result': 'unavailable', 'polls': 0, 'predicate': name,
+                    'reason': f'{type(b0).__name__}: {b0}'.strip()[:200],
+                    'waited_ms': 0}
+        held_before, check = changed(b0)
+        if held_before:
+            return {'result': 'not_confirmed', 'polls': 0, 'predicate': name,
+                    'waited_ms': 0, 'held_before': True}
+        result = poll(check, timeout)
+        return {'result': result.pop('result'), 'polls': result.pop('polls'),
+                'predicate': name, **result}
+
+    return name, timeout, before, finish
+
+
 def _timeout(value, default: float = DEFAULT_TIMEOUT) -> float:
     """A finite, non-negative deadline, clamped.
 
