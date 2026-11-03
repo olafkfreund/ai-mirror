@@ -52,7 +52,7 @@
 | `control` | `mode: agent\|off` — `agent` asks the human; poll `status` until `owner` is `agent` or `off` |
 | `screenshot` | `output` (monitor name or `all`, default focused), `region [x,y,w,h]` global px, `max_size` 320–3840 (default 1280), `image`, `window` (address from `windows`: that window only, even on a hidden workspace; not with `output` or `region`). A window capture adds `window`, `visible`, `view_only` and `note` to the frame. `view_only` is true on a hidden workspace or under another window: `input` with that frame is refused (`invalid`), so switch to it and take a fresh screenshot. Do not work out global coordinates from a view-only frame's `region` and send them with `generation`: on a hidden workspace they point at whatever is on screen there. Layer surfaces (a menu, a notification) over a visible window do not make it view-only, and the image does not show them. Refused (`sensitive`) when that window is itself private, hidden or not; `invalid` for an unknown address |
 | `windows` | address, class, title, `at`, `size`, monitor, workspace, floating, fullscreen, pid |
-| `input` | `frame` (image px) or `generation` (global px), `actions[1..16]`, `screenshot`, `wait_ms` |
+| `input` | `frame` (image px) or `generation` (global px), `actions[1..16]`, `screenshot`, `wait_ms`, `confirm` (below) |
 | `window` | `action: focus\|close\|float\|center\|fullscreen\|workspace\|resize`, `address`, `generation`, `mode`, `workspace`, `w`, `h`, `enabled` (float: set, else toggle), `timeout` 0.1–30 (default 1.5). Checked against the compositor: `{changed, verified, before, after}`, or `no_such_window`, `not_confirmed` (may still land: `windows` before retrying), `unavailable`. resize/center need a floating window |
 | `launch` | `argv` — no shell; `generation`; `timeout` 0–30 (default 5). Returns `pid`, plus `window`/`class`/`title` for one new window, or `candidates` for several, or `note` if none appeared (never an error after the start: call `windows`, do not launch again) |
 | `clipboard` | `action: read\|write`, `text`, `generation` (required to write as an agent) |
@@ -81,6 +81,22 @@ Key names are Linux evdev names without `KEY_` (`CAPSLOCK`, `KP5`, `F24`, `PLAYP
 plus aliases `CTRL SHIFT ALT SUPER META WIN ESC RETURN PRINT MENU PGUP PGDN DEL` and single
 characters `- = [ ] ; ' \` , . /`. Key codes follow a US layout; use `type` for text.
 
+### Confirming an input
+
+`confirm` holds one `wait` predicate (`layer`, `window_class`, `window_title`, `workspace`,
+`monitor`, `layout`, optionally with `absent`), or `focus_changed: true`, or `title_changed:
+"<address>"`, plus an optional `timeout` (default 3 s, max 30). The state is read before the
+batch and polled after it, and the result gains `confirm: {result, polls, predicate, waited_ms}`.
+It checks that the state *changed*, not just that it holds now:
+
+- `confirmed` — it did not hold before and does now. That is not proof your input caused it.
+- `not_confirmed` — it did not hold before the deadline; the input may still land. Never resend
+  on it. With `held_before: true` it already held before the input (no polling), so it is no evidence.
+- `unavailable` — the state could not be read (`reason`), or a `title_changed` address has no
+  window. The input was still sent.
+
+A batch that fails raises as before and is not polled.
+
 ## Coordinates
 
 Everything is in Hyprland's global layout pixels (`hyprctl monitors`: `x`, `y` plus logical size).
@@ -100,6 +116,7 @@ ai-mirror control confirm ID | deny [ID]  # answer the waiting request (what the
 ai-mirror screenshot [--output DP-1|all] [--region x,y,w,h] [--window ADDR] [--max-size N] [--out file.png]
 ai-mirror windows
 ai-mirror input --generation N '[{"type":"click","x":300,"y":200,"modifiers":["CTRL"]}]'
+ai-mirror input --generation N --confirm '{"layer":"NAMESPACE"}' '[…]'   # see Confirming an input
 ai-mirror window --generation N focus|close|float|center|fullscreen|workspace|resize 0x55d1… [--mode maximized] [--workspace 3] [--w 800 --h 600] [--enabled|--no-enabled] [--timeout S]
 ai-mirror launch --generation N [--timeout S] -- uwsm-app -- firefox https://example.com
 ai-mirror clipboard read | ai-mirror clipboard write "text"

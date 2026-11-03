@@ -82,6 +82,7 @@ def build_parser():
     # Typing must name its target (#24), so without this the CLI could only
     # click (#26). A window's address, or a layer surface's, from `windows`.
     p.add_argument('--window', help='address of the window, or surface under layers, to type into (from windows)')
+    p.add_argument('--confirm', type=json.loads, help='one wait predicate as JSON, checked as a change after sending')
     p.add_argument('actions', type=json.loads, help='JSON action array; see docs/usage.md')
     p = commands.add_parser('window')
     p.add_argument('--generation', type=int, required=True)

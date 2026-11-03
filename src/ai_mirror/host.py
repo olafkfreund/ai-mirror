@@ -74,10 +74,10 @@ def ctl(*args, timeout=10):
     return result.stdout
 
 
-def monitors() -> list[dict]:
+def monitors(timeout=10) -> list[dict]:
     """Logical monitor rects in global layout coordinates."""
     rows = []
-    for m in json.loads(ctl('monitors', '-j')):
+    for m in json.loads(ctl('monitors', '-j', timeout=timeout)):
         width, height = m['width'], m['height']
         if m.get('transform', 0) % 2:
             width, height = height, width
