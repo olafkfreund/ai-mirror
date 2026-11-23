@@ -14,14 +14,11 @@ QML = (ROOT / 'plugin' / 'Overlay.qml').read_text()
 
 
 class AgentIndicator(unittest.TestCase):
-    def test_cursor_switch_is_fixed_argv_and_not_a_dispatch(self):
-        self.assertIn('"hyprctl", "setcursor"', QML)
-        self.assertIn('"ai-mirror-agent"', QML)
+    def test_cursor_helper_receives_only_the_owner_mode(self):
+        self.assertIn('["@ai-mirror-cursor@", runningMode]', QML)
+        self.assertIn('next && next.owner === "agent" ? "agent" : "desktop"', QML)
+        self.assertNotIn('Quickshell.env("XCURSOR_THEME")', QML)
         self.assertNotIn('dispatch', QML)
-
-    def test_every_shell_start_applies_once(self):
-        self.assertIn('Component.onCompleted: applyCursor()', QML)
-        self.assertIn('appliedCursor: ""', QML)
 
     def test_frame_stays_mapped_for_the_input_gate(self):
         frame = QML[QML.index('Variants {'):]
