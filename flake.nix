@@ -52,6 +52,8 @@
             --set AI_MIRROR_HELPER ${ai-mirror-input}/bin/ai-mirror-input \
             --prefix GI_TYPELIB_PATH : ${lib.makeSearchPath "lib/girepository-1.0" [ pkgs.at-spi2-core pkgs.glib.out pkgs.gobject-introspection ]} \
             --suffix PATH : ${lib.makeBinPath (with pkgs; [ grim wl-clipboard systemd tesseract ])}
+          makeWrapper ${python}/bin/python3 $out/libexec/ai-mirror-cursor \
+            --add-flags "-m ai_mirror.cursor" --set PYTHONPATH $out/lib
           ${licenceFiles}
         '';
         meta = { mainProgram = "ai-mirror"; license = lib.licenses.mit; };
@@ -62,6 +64,7 @@
         cp -r ${./plugin} $out
         chmod -R u+w $out
         substituteInPlace $out/AgentCommand.qml --replace-fail "@ai-mirror@" "${ai-mirror}/bin/ai-mirror"
+        substituteInPlace $out/Overlay.qml --replace-fail "@ai-mirror-cursor@" "${ai-mirror}/libexec/ai-mirror-cursor"
         ${licenceFiles}
       '';
 
@@ -168,6 +171,8 @@
           test -f ${plugin}/$(jq -r '.entryPoints.overlay // .entryPoints.barWidget' $m)
           test -z "$(find ${plugin} -type l)"
           ! grep -rEw 'pacman|yay' ${plugin}
+          grep -F '${ai-mirror}/libexec/ai-mirror-cursor' ${plugin}/Overlay.qml
+          test -x ${ai-mirror}/libexec/ai-mirror-cursor
           ! grep -r '@ai-mirror@' ${plugin}
           touch $out
         '';
