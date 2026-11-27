@@ -286,6 +286,9 @@ def run(op: str, args: dict | None = None, by: str = 'human') -> dict:
         from . import a11y
         gen = control.read_state().get('generation')
         return {**a11y.find(args.get('name'), args.get('role'), args.get('app'), args.get('limit', 20)), 'generation': gen}
+    if op == 'terminal_read':
+        from . import herdr
+        return herdr.read(args.get('window'), _generation(args), args.get('pane'), mcp=by == 'agent')
     if op == 'ocr':
         from . import ocr
         region, window = args.get('region'), args.get('window')
