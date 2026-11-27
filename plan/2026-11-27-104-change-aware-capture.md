@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 104
 spec: spec/2026-11-27-104-change-aware-capture.md
 ---
