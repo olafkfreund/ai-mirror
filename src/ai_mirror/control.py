@@ -956,35 +956,39 @@ def run_batch(lines: list[str], generation: int, helper: Helper = HELPER,
 
 # -- capture -----------------------------------------------------------------
 
+def _window_capture(window):
+    wins = host.windows()
+    win = next((w for w in wins if w.get('address') == window), None)
+    stable = str(win.get('stableId', '')) if win else ''
+    if not win or not re.fullmatch('[0-9a-f]+', stable):
+        raise MirrorError('invalid', f'no window {window!r} with a usable stableId')
+    category = privacy.kind(win.get('class', ''), win.get('title', ''))
+    if category:
+        raise MirrorError('sensitive', f'window is {category}; not captured')
+    (x, y), (width, height) = win['at'], win['size']
+    name = next((m['name'] for m in host.monitors() if m.get('id') == win.get('monitor')), None)
+    visible = host.visible_workspaces()
+    on_screen = str(win.get('workspace')) in visible
+    covered = bool(privacy.covering((x, y, width, height),
+                                    [w for w in wins if w['address'] != window], visible))
+    note = ('workspace is not visible; this is a view, not a target for input' if not on_screen else
+            'another window overlaps this one; this is a view, not a target for input' if covered else
+            'window is visible and clear')
+    return {'stable_id': stable, 'window': window, 'region': [x, y, width, height], 'output': name,
+            'visible': on_screen, 'view_only': not on_screen or covered, 'note': note}
+
+
 def screenshot(dest: Path, output: str | None = None, region=None, max_size=None, window=None) -> dict:
     """Capture global layout pixels with grim, or one window; return frame metadata."""
     extra, target = {}, []
     if window is not None:
         if output is not None or region is not None:
             raise ValueError('window cannot be combined with output or region')
-        wins = host.windows()
-        win = next((w for w in wins if w.get('address') == window), None)
-        stable = str(win.get('stableId', '')) if win else ''
-        if not win or not re.fullmatch('[0-9a-f]+', stable):
-            raise MirrorError('invalid', f'no window {window!r} with a usable stableId')
-        # The window's own privacy check, on a visible or a hidden workspace;
-        # the rectangle check below does not apply to a window capture.
-        category = privacy.kind(win.get('class', ''), win.get('title', ''))
-        if category:
-            raise MirrorError('sensitive', f'window is {category}; not captured')
-        (x, y), (width, height) = win['at'], win['size']
-        # hyprctl clients gives the monitor's id; frames everywhere else carry its name
-        name = next((m['name'] for m in host.monitors() if m.get('id') == win.get('monitor')), None)
-        visible = host.visible_workspaces()
-        on_screen = str(win.get('workspace')) in visible
-        covered = bool(privacy.covering((x, y, width, height),
-                                        [w for w in wins if w['address'] != window], visible))
-        view_only = not on_screen or covered
-        note = ('workspace is not visible; this is a view, not a target for input' if not on_screen else
-                'another window overlaps this one; this is a view, not a target for input' if covered else
-                'window is visible and clear')
-        extra = {'window': window, 'visible': on_screen, 'view_only': view_only, 'note': note}
-        target = ['-T', stable]
+        prepared = _window_capture(window)
+        x, y, width, height = prepared['region']
+        name = prepared['output']
+        extra = {k: prepared[k] for k in ('window', 'visible', 'view_only', 'note')}
+        target = ['-T', prepared['stable_id']]
     elif region is not None:
         if not isinstance(region, list) or len(region) != 4 or any(type(v) is not int for v in region):
             raise ValueError('region must be [x, y, width, height] in layout pixels')
@@ -1024,3 +1028,58 @@ def screenshot(dest: Path, output: str | None = None, region=None, max_size=None
     return {'path': str(dest), 'generation': state.get('generation', 0), 'owner': state.get('owner', 'off'),
             'width': image_width, 'height': image_height, 'region': [x, y, width, height],
             'output': name, 'scale': scale, **extra}
+
+
+def _grim_stdout(stable, scale):
+    guard.check('grim stdout capture', 'control._grim_stdout')
+    return subprocess.Popen(['grim', '-T', stable, '-s', str(scale), '-'],
+                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+
+def _read_png(process):
+    deadline = time.monotonic() + 5
+    limit = 8 * 1024 * 1024
+    data = bytearray()
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([process.stdout], [], [], remaining)[0]:
+                raise MirrorError('unavailable', 'grim capture timed out')
+            chunk = os.read(process.stdout.fileno(), min(65536, limit + 1 - len(data)))
+            if not chunk:
+                break
+            data.extend(chunk)
+            if len(data) > limit:
+                raise MirrorError('unavailable', 'grim capture exceeds 8 MiB')
+        try:
+            code = process.wait(timeout=max(0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired as exc:
+            raise MirrorError('unavailable', 'grim capture timed out') from exc
+        if code:
+            raise MirrorError('unavailable', 'grim capture failed')
+        return bytes(data)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        process.stdout.close()
+
+
+def comparison_capture(window: str, max_size: int = 1280) -> tuple[dict, bytes]:
+    if not window or type(window) is not str:
+        raise ValueError('compare needs a nonempty window')
+    if type(max_size) is not int or not 320 <= max_size <= 1280:
+        raise ValueError('comparison max_size must be 320–1280')
+    before = _window_capture(window)
+    _, _, width, height = before['region']
+    scale = min(1.0, max_size / max(width, height))
+    png = _read_png(_grim_stdout(before['stable_id'], scale))
+    after = _window_capture(window)
+    if after != before:
+        raise MirrorError('unavailable', 'window changed during capture')
+    if len(png) < 33 or png[:16] != b'\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR':
+        raise MirrorError('unavailable', 'grim returned an invalid PNG header')
+    image_width, image_height = struct.unpack('>II', png[16:24])
+    if not 0 < image_width <= max_size or not 0 < image_height <= max_size:
+        raise MirrorError('unavailable', 'grim returned invalid PNG dimensions')
+    return {**before, 'width': image_width, 'height': image_height, 'scale': scale}, png

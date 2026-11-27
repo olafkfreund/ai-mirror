@@ -32,6 +32,14 @@ def _atspi():
         from gi.repository import Atspi
     except (ImportError, ValueError) as exc:
         raise MirrorError('unavailable', f'AT-SPI bindings missing ({exc}); use the flake package') from None
+    # get_desktop() aborts in native code if initialization cannot reach the
+    # bus; a Python exception handler cannot catch that. init() returns an
+    # error instead (0 is success, 1 means already initialized).
+    if Atspi.init() not in (0, 1):
+        # A failed init still marks libatspi initialized. Reset it so the next
+        # MCP call retries instead of accepting 1 and reaching the same abort.
+        Atspi.exit()
+        raise MirrorError('unavailable', 'accessibility bus unavailable; is at-spi-bus-launcher running?')
     return Atspi
 
 
