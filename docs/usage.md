@@ -191,4 +191,5 @@ and `toolkit-accessibility`; ai-mirror also sets the AT-SPI `IsEnabled` flag on 
 - `ai-mirror doctor` lists missing runtime commands.
 - Badge or frame stuck, or missing — both are drawn by the shell; restart it after
   `control off` (mid-grant, the frame comes back as a new surface and typing is refused), and the first
-  state read restores your cursor. The theme is installed by the Home Manager module (#78).
+  state read restores the cursor saved before the badge was applied. An ordinary shell restart
+  leaves your cursor alone. The theme is installed by the Home Manager module (#78).

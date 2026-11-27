@@ -16,20 +16,20 @@ Item {
   readonly property bool pending: state !== null && state.owner === "pending"
   // Display only, like the bar: state.json is the gate, these just follow it (#78).
   readonly property bool agent: state !== null && state.owner === "agent"
-  readonly property string cursorSize: Quickshell.env("XCURSOR_SIZE") || "24"
-  readonly property var wantedCursor: [agent ? "ai-mirror-agent"
-      : (Quickshell.env("HYPRCURSOR_THEME") || Quickshell.env("XCURSOR_THEME") || "default"), cursorSize]
-  // Starts empty so a shell start always applies once: clears a badge a dead shell left.
-  property string appliedCursor: ""
+  property string wantedMode: ""
+  property string appliedMode: ""
+  property string runningMode: ""
+  function readState(next) {
+    state = next
+    wantedMode = next && next.owner === "agent" ? "agent" : "desktop"
+  }
   function applyCursor() {
-    var key = wantedCursor.join(" ")
-    if (key === appliedCursor || setcursor.running) return
-    appliedCursor = key
-    setcursor.command = ["hyprctl", "setcursor"].concat(wantedCursor)
+    if (!wantedMode || wantedMode === appliedMode || setcursor.running || retryCursor.running) return
+    runningMode = wantedMode
+    setcursor.command = ["@ai-mirror-cursor@", runningMode]
     setcursor.running = true
   }
-  onWantedCursorChanged: applyCursor()
-  Component.onCompleted: applyCursor()
+  onWantedModeChanged: applyCursor()
 
   AgentCommand { id: command }
 
@@ -45,13 +45,25 @@ Item {
     printErrors: false
     onFileChanged: reload()
     onLoaded: {
-      try { root.state = JSON.parse(String(text() || "")) } catch (e) { root.state = null }
+      try { root.readState(JSON.parse(String(text() || ""))) } catch (e) { root.readState(null) }
     }
-    onLoadFailed: root.state = null
+    onLoadFailed: root.readState(null)
   }
 
   // Re-checks on exit: a change that arrived while hyprctl ran is applied now.
-  Process { id: setcursor; onExited: root.applyCursor() }
+  Process {
+    id: setcursor
+    onExited: function(code) {
+      if (code === 0) {
+        root.appliedMode = root.runningMode
+        root.applyCursor()
+      } else {
+        root.appliedMode = ""
+        retryCursor.restart()
+      }
+    }
+  }
+  Timer { id: retryCursor; interval: 3000; onTriggered: root.applyCursor() }
 
   // Always mapped, so a grant records it as furniture (baseline_layers) and
   // _refuse_new_surfaces never calls it new; Top, the bar's level, so it is
