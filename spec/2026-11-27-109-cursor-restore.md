@@ -1,5 +1,5 @@
 ---
-status: draft
+status: approved
 issue: 109
 intent: intent/2026-11-27-109-cursor-restore.md
 ---
