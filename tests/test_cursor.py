@@ -72,6 +72,47 @@ class CursorRestore(unittest.TestCase):
         cursor.sync(False)
         self.assertEqual(self.applied[-1], self.configured)
 
+    def test_rejected_gtk_write_preserves_snapshot_for_retry(self):
+        self.configured = ['Native theme', 40]
+        self.synced = False
+        saved_gtk = ['GTK theme', 32]
+        snapshot = cursor.control.root() / 'cursor-test.json'
+
+        def set_size(_, size):
+            self.gtk[1] = size
+            return True
+
+        def set_theme(_, theme):
+            self.gtk[0] = theme
+            return True
+
+        with patch.object(cursor, 'set_cursor', self.applied.append), patch.object(guard, 'check'):
+            for failed_key in ('cursor-size', 'cursor-theme'):
+                with self.subTest(failed_key=failed_key):
+                    self.gtk = saved_gtk.copy()
+                    cursor.sync(True)
+                    self.gtk = [cursor.BADGE, 40]
+                    saved = snapshot.read_bytes()
+                    self.settings.reset_mock()
+                    self.settings.set_int.side_effect = (lambda *_: False) if failed_key == 'cursor-size' else set_size
+                    self.settings.set_string.side_effect = (lambda *_: False) if failed_key == 'cursor-theme' else set_theme
+
+                    with self.assertRaisesRegex(RuntimeError, failed_key):
+                        cursor.sync(False)
+                    self.assertEqual(snapshot.read_bytes(), saved)
+                    self.assertEqual(self.gtk, [cursor.BADGE, 40 if failed_key == 'cursor-size' else 32])
+                    self.settings.sync.assert_not_called()
+                    if failed_key == 'cursor-size':
+                        self.settings.set_string.assert_not_called()
+
+                    self.settings.set_int.side_effect = set_size
+                    self.settings.set_string.side_effect = set_theme
+                    cursor.sync(False)
+                    self.assertEqual(self.gtk, saved_gtk)
+                    self.assertEqual(self.settings.set_int.call_count, 2 if failed_key == 'cursor-size' else 1)
+                    self.settings.sync.assert_called_once_with()
+                    self.assertFalse(snapshot.exists())
+
     def test_a_second_compositor_does_not_restore_the_first_ones_badge(self):
         cursor.sync(True)
         with patch.dict(os.environ, HYPRLAND_INSTANCE_SIGNATURE='other'):

@@ -51,8 +51,12 @@ def restore_gtk(settings, cursor):
     # Switching back to a native Hyprcursor theme can leave the Xcursor badge in GTK.
     if settings and settings.get_string('cursor-theme') == BADGE:
         guard.check('GSettings cursor restore', 'cursor.restore_gtk')
-        settings.set_string('cursor-theme', cursor[0])
-        settings.set_int('cursor-size', cursor[1])
+        theme, size = cursor
+        # Leave the badge in place until the size is restored so a retry still sees it.
+        if settings.get_int('cursor-size') != size and not settings.set_int('cursor-size', size):
+            raise RuntimeError('GSettings rejected cursor-size restore')
+        if not settings.set_string('cursor-theme', theme):
+            raise RuntimeError('GSettings rejected cursor-theme restore')
         settings.sync()
 
 
